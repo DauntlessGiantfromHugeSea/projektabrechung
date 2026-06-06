@@ -31,7 +31,7 @@ def intervals_xlsx(intervals: list[Interval], title: str = "Bericht") -> bytes:
     ws["A1"].font = Font(bold=True, size=14)
     ws.append([])
     ws.append(["Datum", "Mitarbeiter", "Projekt", "Kommt", "Geht",
-               "Dauer (Std:Min)", "Stunden (dez.)", "Quelle"])
+               "Dauer (Std:Min)", "Stunden (dez.)", "Tätigkeit", "Quelle"])
     for c in ws[3]:
         c.font = head
         c.fill = fill
@@ -46,7 +46,7 @@ def intervals_xlsx(intervals: list[Interval], title: str = "Bericht") -> bytes:
         per_emp[iv.employee] = per_emp.get(iv.employee, 0.0) + h
         ws.append([st.strftime("%d.%m.%Y"), iv.employee, iv.project or "",
                    st.strftime("%H:%M"), en.strftime("%H:%M"),
-                   _fmt_dur(h), round(h, 2),
+                   _fmt_dur(h), round(h, 2), iv.description or "",
                    "manuell" if iv.source == "manual" else "TimeMoto"])
 
     ws.append([])
@@ -54,6 +54,7 @@ def intervals_xlsx(intervals: list[Interval], title: str = "Bericht") -> bytes:
     ws.cell(row, 5, "Summe").font = head
     ws.cell(row, 6, _fmt_dur(total)).font = head
     ws.cell(row, 7, round(total, 2)).font = head
+    ws.cell(row, 8, "").font = head
 
     # Zweites Blatt: Summe je Mitarbeiter
     ws2 = wb.create_sheet("Je Mitarbeiter")
@@ -64,7 +65,7 @@ def intervals_xlsx(intervals: list[Interval], title: str = "Bericht") -> bytes:
     for emp, h in sorted(per_emp.items(), key=lambda kv: kv[1], reverse=True):
         ws2.append([emp, _fmt_dur(h), round(h, 2)])
 
-    for col, w in zip("ABCDEFGH", (12, 22, 34, 8, 8, 14, 14, 10)):
+    for col, w in zip("ABCDEFGHI", (12, 22, 30, 8, 8, 14, 13, 50, 10)):
         ws.column_dimensions[col].width = w
     for col, w in zip("ABC", (24, 16, 14)):
         ws2.column_dimensions[col].width = w

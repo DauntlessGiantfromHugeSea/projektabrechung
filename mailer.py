@@ -37,7 +37,7 @@ def _download_block_html(url: str) -> str:
         f'<tr><td style="border-radius:999px;background:{config.BRAND_COLOR}">'
         f'<a href="{url}" style="display:inline-block;color:#123018;'
         'font-weight:bold;text-decoration:none;padding:13px 26px;'
-        'border-radius:999px;font-size:15px">⬇  Bericht als Excel herunterladen'
+        'border-radius:999px;font-size:15px">⬇  Bericht herunterladen'
         '</a></td></tr></table>'
         '<div style="color:#8a98a6;font-size:12px;margin-top:4px">'
         'Der Link führt direkt zum Download dieser Datei.</div>')
@@ -121,7 +121,8 @@ def _log_send(actor: str, subject_line: str, result: dict) -> None:
 
 def send(subject_line: str, text: str, html: str, recipients: list[str],
          label: str = "", download_url: str = "", actor: str = "System",
-         message: str = "") -> dict:
+         message: str = "", cc: list[str] | None = None) -> dict:
+    cc = cc or []
     """Bericht an konkrete Empfaenger zustellen (Datei + ggf. Mail).
 
     Wird IMMER als Datei gespeichert. Gemailt wird nur, wenn ein SMTP-Server
@@ -148,11 +149,12 @@ def send(subject_line: str, text: str, html: str, recipients: list[str],
     else:
         try:
             if config.BREVO_API_KEY:
-                _send_via_brevo_api(subject_line, text, branded, recipients)
+                _send_via_brevo_api(subject_line, text, branded, recipients, cc)
                 via = "Brevo-API"
             else:
-                via = _send_via_smtp(subject_line, text, branded, recipients)
-            print(f"[report] Mail an {', '.join(recipients)} versendet ({via}).",
+                via = _send_via_smtp(subject_line, text, branded, recipients, cc)
+            allrec = recipients + cc
+            print(f"[report] Mail an {', '.join(allrec)} versendet ({via}).",
                   flush=True)
             result = {"mailed": True, "saved_path": saved_path,
                       "recipients": recipients}
@@ -165,7 +167,7 @@ def send(subject_line: str, text: str, html: str, recipients: list[str],
 
 
 def _send_via_brevo_api(subject_line: str, text: str, html: str,
-                        recipients: list[str]) -> None:
+                        recipients: list[str], cc: list[str] | None = None) -> None:
     """Versand ueber die Brevo Transactional-Email-API (HTTPS, Port 443)."""
     payload = {
         "sender": {"email": config.SMTP_FROM or "noreply@rss-fb.com"},
@@ -174,6 +176,8 @@ def _send_via_brevo_api(subject_line: str, text: str, html: str,
         "htmlContent": html,
         "textContent": text,
     }
+    if cc:
+        payload["cc"] = [{"email": r} for r in cc]
     req = urllib.request.Request(
         "https://api.brevo.com/v3/smtp/email",
         data=json.dumps(payload).encode("utf-8"),
@@ -191,11 +195,13 @@ def _send_via_brevo_api(subject_line: str, text: str, html: str,
 
 
 def _send_via_smtp(subject_line: str, text: str, html: str,
-                   recipients: list[str]) -> str:
+                   recipients: list[str], cc: list[str] | None = None) -> str:
     msg = EmailMessage()
     msg["Subject"] = subject_line
     msg["From"] = config.SMTP_FROM
     msg["To"] = ", ".join(recipients)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg.set_content(text)
     msg.add_alternative(html, subtype="html")
     if config.SMTP_SSL:
@@ -218,16 +224,17 @@ def _login_and_send(server: smtplib.SMTP, msg: EmailMessage) -> None:
 
 
 def send_report(subject_line: str, text: str, html: str, recipients: list[str],
-                xlsx_bytes: bytes | None, filename: str, base_url: str = "",
-                label: str = "", actor: str = "System", message: str = "") -> dict:
-    """Wie send(), legt aber zusaetzlich die Excel-Datei als tokenisierten
-    Download ab und haengt den Link (statt Anhang) in die Mail."""
+                file_bytes: bytes | None, filename: str, base_url: str = "",
+                label: str = "", actor: str = "System", message: str = "",
+                cc: list[str] | None = None, mime: str = _XLSX_MIME) -> dict:
+    """Wie send(), legt aber zusaetzlich die Datei (Excel/CSV) als
+    tokenisierten Download ab und haengt den Link (statt Anhang) in die Mail."""
     url = ""
-    if xlsx_bytes:
-        token = downloads.register(xlsx_bytes, filename, _XLSX_MIME)
+    if file_bytes:
+        token = downloads.register(file_bytes, filename, mime)
         url = downloads.link(base_url, token)
     return send(subject_line, text, html, recipients, label=label,
-                download_url=url, actor=actor, message=message)
+                download_url=url, actor=actor, message=message, cc=cc)
 
 
 def deliver(rep: Report) -> dict:

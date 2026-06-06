@@ -16,8 +16,10 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Template
 
+import activities
 import audit
 import config
+import csvout
 import downloads
 import mailer
 import manual
@@ -27,9 +29,9 @@ import users
 import xlsxout
 from events import delete_interval, load_records, normalize, pair_intervals
 from fastapi.responses import FileResponse
-from report import (build_grouped, build_report, collect_intervals,
-                    collect_open, detail_sessions, filter_intervals,
-                    previous_week_range, render_grouped_html,
+from report import (build_attachment, build_grouped, build_report,
+                    collect_intervals, collect_open, detail_sessions,
+                    filter_intervals, previous_week_range, render_grouped_html,
                     render_grouped_text, render_html, render_text,
                     scope_intervals, subject_grouped, this_week_range)
 from report import subject as report_subject
@@ -177,6 +179,7 @@ _BASE = """
         {% if role=='admin' %}
         <div class="plabel">Administration</div>
         <a href="/users">{{ icons.users|safe }} Benutzer</a>
+        <a href="/einstellungen">{{ icons.gear|safe }} Einstellungen</a>
         <a href="/audit">{{ icons.history|safe }} Verlauf</a>
         {% endif %}
         <div class="pdiv"></div>
@@ -287,7 +290,8 @@ _LOG = """
     <h1 style="margin:0;">Log – Buchungen</h1>
     <div class="toolbar">
       {% if role=='admin' %}<a class="btn" href="/log/edit">+ Eintrag hinzufügen</a>{% endif %}
-      <a class="btn ghost" href="/export.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Excel-Export</a>
+      <a class="btn ghost" href="/export.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Excel</a>
+      <a class="btn ghost" href="/export/arcadis.csv?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Arcadis-CSV</a>
     </div>
   </div>
   <form method="get" action="/log">
@@ -321,12 +325,19 @@ _LOG = """
   {% if sessions %}
   <table>
     <thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
-      <th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th>Quelle</th>
+      <th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th>Tätigkeit</th><th>Quelle</th>
       {% if role=='admin' %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in sessions %}
       <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
         <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td>
+        <td>{% if role=='admin' %}
+          <form method="post" action="/log/describe" style="display:flex;gap:.3rem;align-items:center">
+            <input type="hidden" name="iid" value="{{ s.id }}">
+            <input name="description" value="{{ s.description }}" placeholder="Tätigkeit…" style="min-width:180px">
+            <button class="ghost" type="submit" title="Speichern">✓</button>
+          </form>
+          {% else %}{{ s.description }}{% endif %}</td>
         <td>{% if s.source=='manual' %}<span class="pill role">manuell</span>{% else %}<span class="muted">TimeMoto</span>{% endif %}</td>
         {% if role=='admin' %}<td class="toolbar">
           <a class="btn ghost" href="/log/edit?iid={{ s.id|urlencode }}">{{ 'bearbeiten' if s.source=='manual' else 'korrigieren' }}</a>
@@ -548,18 +559,23 @@ _USERS = """
 <div class="card glass">
   <h1>Benutzer</h1>
   <table>
-    <thead><tr><th>Name</th><th>Benutzer</th><th>Rolle</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Benutzer</th><th>E-Mail</th><th>TimeMoto</th>
+      <th>Rolle</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for u in userlist %}
       <tr>
         <td><b>{{ u.name or u.username }}</b></td>
         <td>{{ u.username }}</td>
+        <td class="muted">{{ u.email or '–' }}</td>
+        <td class="muted">{{ u.timemoto_name or '–' }}</td>
         <td><span class="pill role">{{ u.role }}</span></td>
         <td>{% if u.status=='active' %}<span class="pill ok">aktiv</span>
             {% else %}<span class="pill inv">eingeladen</span>{% endif %}</td>
-        <td>
-          {% if u.status=='invited' and u.invite_token %}
-            <span class="muted">Link:</span> <code>{{ base_url }}invite/{{ u.invite_token }}</code>
+        <td class="toolbar">
+          {% if u.status=='invited' %}
+            <form method="post" action="/users/resend" style="display:inline;">
+              <input type="hidden" name="username" value="{{ u.username }}">
+              <button class="ghost" type="submit">Einladung senden</button></form>
           {% endif %}
           {% if u.username != user %}
           <form method="post" action="/users/delete" style="display:inline;">
@@ -583,7 +599,13 @@ _USERS = """
       <div style="flex:0 0 150px;"><label>Rolle</label>
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select></div>
     </div>
-    <div style="margin-top:1.1rem;"><button type="submit">Einladung erstellen</button></div>
+    <div class="row">
+      <div><label>E-Mail (für Einladung &amp; Erinnerungen)</label><input name="email" type="email" placeholder="max@firma.de"></div>
+      <div><label>TimeMoto-Name (für Stundenzuordnung)</label><input name="timemoto_name" placeholder="z. B. Max Mustermann"></div>
+    </div>
+    <p class="muted" style="margin:.5rem 0 0">Ist eine E-Mail angegeben, wird die
+      Einladung direkt per Mail versendet (Link 5 Tage gültig).</p>
+    <div style="margin-top:1rem;"><button type="submit">Einladung erstellen</button></div>
   </form>
 </div>
 {% endblock %}
@@ -667,6 +689,16 @@ _REPORT_FORM = """
     <textarea name="message" placeholder="z. B. Anbei die Projektzeiten der letzten Woche.">{{ r.message }}</textarea>
 
     <div class="row">
+      <div><label>CC (optional, Komma/Zeile)</label>
+        <textarea name="cc" style="min-height:48px">{{ cc_text }}</textarea></div>
+      <div style="flex:0 0 200px;"><label>Dateiformat</label>
+        <select name="format">
+          <option value="excel" {{ 'selected' if r.format!='csv' }}>Excel (.xlsx)</option>
+          <option value="csv" {{ 'selected' if r.format=='csv' }}>Arcadis-CSV</option>
+        </select></div>
+    </div>
+
+    <div class="row">
       <div><label>Wochentag</label>
         <select name="day_of_week">
           {% for d,lbl in days %}<option value="{{ d }}" {{ 'selected' if r.day_of_week==d }}>{{ lbl }}</option>{% endfor %}
@@ -720,11 +752,28 @@ ICONS = {
 }
 
 _base_tpl = Template(_BASE)
+_SETTINGS = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:560px;">
+  <h1>Einstellungen</h1>
+  <p class="muted">Aktuelle Systemzeit: <b>{{ now }}</b></p>
+  <form method="post" action="/einstellungen">
+    <label>Zeitzone (für Wochengrenzen, Anzeige und Versandzeiten)</label>
+    <select name="timezone">
+      {% for z in zones %}<option value="{{ z }}" {{ 'selected' if z==tz }}>{{ z }}</option>{% endfor %}
+    </select>
+    <div style="margin-top:1.1rem;"><button type="submit">Speichern</button></div>
+  </form>
+</div>
+{% endblock %}
+"""
+
 _tpls = {n: Template(s) for n, s in {
     "login": _LOGIN, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
-    "reports": _REPORTS, "report_form": _REPORT_FORM,
+    "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
@@ -778,7 +827,7 @@ def _session_view(iv) -> dict:
         "start": iv.start.astimezone(config.TIMEZONE).strftime("%H:%M"),
         "end": iv.end.astimezone(config.TIMEZONE).strftime("%H:%M"),
         "dur": _fmt_dur(iv.duration_hours),
-        "id": iv.id, "source": iv.source,
+        "id": iv.id, "source": iv.source, "description": iv.description or "",
     }
 
 
@@ -1136,6 +1185,37 @@ async def export_xlsx(request: Request, employee: str = "", project: str = "",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@router.post("/log/describe")
+async def log_describe(request: Request, iid: str = Form(""),
+                       description: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    activities.set_description(iid, description, _user(request))
+    audit.log(_user(request), "Tätigkeit gesetzt", f"{iid}: {description[:80]}")
+    return RedirectResponse(request.headers.get("referer") or "/log",
+                            status_code=303)
+
+
+@router.get("/export/arcadis.csv")
+async def export_arcadis(request: Request, employee: str = "", project: str = "",
+                         start: str = "", end: str = ""):
+    if (r := _need_login(request)):
+        return r
+    s = e = None
+    try:
+        if start:
+            s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
+        if end:
+            e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
+    except ValueError:
+        pass
+    data = csvout.arcadis_csv(filter_intervals(s, e, project=project,
+                                               employee=employee))
+    fname = f"arcadis_stunden_{datetime.now(config.TIMEZONE):%Y%m%d}.csv"
+    return Response(content=data, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @router.get("/download/{token}")
 async def download(token: str):
     """Oeffentlicher Download EINER tokenisierten Datei. Kein Login, aber auch
@@ -1216,6 +1296,37 @@ async def anleitung(request: Request):
         webhook_url=webhook_url, secret=secret))
 
 
+_TZ_ZONES = ["Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Europe/Paris",
+             "Europe/Amsterdam", "Europe/London", "Europe/Madrid", "UTC",
+             "America/New_York", "Asia/Dubai"]
+
+
+@router.get("/einstellungen", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    tz = settings.get_timezone()
+    zones = _TZ_ZONES if tz in _TZ_ZONES else [tz, *_TZ_ZONES]
+    now = datetime.now(config.TIMEZONE).strftime("%A, %d.%m.%Y %H:%M:%S (%Z)")
+    return HTMLResponse(_tpls["settings"].render(
+        **_common(request, "settings", "Einstellungen"),
+        zones=zones, tz=tz, now=now))
+
+
+@router.post("/einstellungen")
+async def settings_save(request: Request, timezone: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    if settings.set_timezone(timezone.strip()):
+        scheduler.reschedule()
+        audit.log(_user(request), "Zeitzone geändert", timezone.strip())
+        request.session["flash"] = f"Zeitzone auf {timezone.strip()} gesetzt."
+    else:
+        request.session["flash"], request.session["flash_class"] = \
+            "Ungültige Zeitzone.", "err"
+    return RedirectResponse("/einstellungen", status_code=303)
+
+
 @router.get("/audit", response_class=HTMLResponse)
 async def audit_page(request: Request):
     if (r := _need_admin(request)):
@@ -1288,17 +1399,59 @@ async def users_page(request: Request):
         userlist=users.list_users(), base_url=str(request.base_url)))
 
 
+def _send_invite_mail(request: Request, display: str, email: str, token: str) -> bool:
+    link = f"{request.base_url}invite/{token}"
+    subj = "Einladung zur FBE Projektabrechnung"
+    text = (f"Hallo {display},\n\nDu wurdest zur FBE Projektabrechnung "
+            f"eingeladen. Lege hier dein Passwort fest (Link {config.INVITE_TTL_DAYS} "
+            f"Tage gültig):\n{link}\n")
+    html = (f"<p>Hallo {escape(display)},</p><p>Du wurdest zur "
+            "<b>FBE Projektabrechnung</b> eingeladen. Lege über den Button dein "
+            f"Passwort fest (Link {config.INVITE_TTL_DAYS} Tage gültig).</p>"
+            f'<p><a href="{link}" style="display:inline-block;'
+            f'background:{config.BRAND_COLOR};color:#123018;font-weight:bold;'
+            'text-decoration:none;padding:12px 24px;border-radius:999px">'
+            f'Konto aktivieren</a></p><p style="color:#64748b;font-size:13px">'
+            f'Falls der Button nicht geht: {link}</p>')
+    res = mailer.send(subj, text, html, [email], label="Einladung",
+                      actor=_user(request))
+    return bool(res.get("mailed"))
+
+
 @router.post("/users/create")
 async def users_create(request: Request, username: str = Form(""),
-                       role: str = Form("user"), name: str = Form("")):
+                       role: str = Form("user"), name: str = Form(""),
+                       email: str = Form(""), timemoto_name: str = Form("")):
     if (r := _need_admin(request)):
         return r
-    token = users.create_invite(username, role, name)
+    token = users.create_invite(username, role, name, email, timemoto_name)
     if token is None:
         request.session["flash"], request.session["flash_class"] = \
             "Benutzername leer oder bereits vergeben.", "err"
+        return RedirectResponse("/users", status_code=303)
+    link = f"{request.base_url}invite/{token}"
+    if email.strip() and _send_invite_mail(request, name or username, email.strip(), token):
+        request.session["flash"] = f"Einladung an {email.strip()} gesendet (Link 5 Tage gültig)."
     else:
-        request.session["flash"] = f"Einladung: {request.base_url}invite/{token}"
+        request.session["flash"] = f"Einladung erstellt. Link (5 Tage gültig): {link}"
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.post("/users/resend")
+async def users_resend(request: Request, username: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    token = users.renew_invite(username)
+    u = users.get(username)
+    if not token or not u:
+        request.session["flash"], request.session["flash_class"] = \
+            "Einladung nicht möglich (Benutzer aktiv?).", "err"
+    elif u.get("email") and _send_invite_mail(request, u.get("name") or username,
+                                              u["email"], token):
+        request.session["flash"] = f"Einladung erneut an {u['email']} gesendet."
+    else:
+        request.session["flash"] = (f"Neuer Link (5 Tage): "
+                                    f"{request.base_url}invite/{token}")
     return RedirectResponse("/users", status_code=303)
 
 
@@ -1344,26 +1497,28 @@ async def reports_new(request: Request):
     if (r := _need_admin(request)):
         return r
     blank = {"id": "", "name": "", "message": "", "projects": [],
-             "recipients": [], "day_of_week": "mon", "hour": 7, "minute": 0,
-             "enabled": True}
+             "recipients": [], "cc": [], "format": "excel",
+             "day_of_week": "mon", "hour": 7, "minute": 0, "enabled": True}
     return HTMLResponse(_tpls["report_form"].render(
         **_common(request, "reports", "Neuer Bericht"),
         r=blank, action="/reports/new", days=_DAYS, all_projects=_all_projects(),
-        projects_text="", recipients_text=""))
+        projects_text="", recipients_text="", cc_text=""))
 
 
 @router.post("/reports/new")
 async def reports_create(request: Request, name: str = Form(""),
                          projects: str = Form(""), recipients: str = Form(""),
+                         cc: str = Form(""), format: str = Form("excel"),
                          message: str = Form(""), day_of_week: str = Form("mon"),
                          hour: str = Form("7"), minute: str = Form("0"),
                          enabled: str = Form("")):
     if (r := _need_admin(request)):
         return r
     settings.add_report({"name": name, "projects": projects,
-                         "recipients": recipients, "message": message,
-                         "day_of_week": day_of_week, "hour": hour,
-                         "minute": minute, "enabled": bool(enabled)})
+                         "recipients": recipients, "cc": cc, "format": format,
+                         "message": message, "day_of_week": day_of_week,
+                         "hour": hour, "minute": minute,
+                         "enabled": bool(enabled)})
     scheduler.reschedule()
     request.session["flash"] = "Bericht angelegt."
     return RedirectResponse("/reports", status_code=303)
@@ -1381,19 +1536,22 @@ async def reports_edit(request: Request, rid: str):
         r=cfg, action=f"/reports/{rid}/edit", days=_DAYS,
         all_projects=_all_projects(),
         projects_text="\n".join(cfg["projects"]),
-        recipients_text=", ".join(cfg["recipients"])))
+        recipients_text=", ".join(cfg["recipients"]),
+        cc_text=", ".join(cfg.get("cc", []))))
 
 
 @router.post("/reports/{rid}/edit")
 async def reports_update(request: Request, rid: str, name: str = Form(""),
                          projects: str = Form(""), recipients: str = Form(""),
+                         cc: str = Form(""), format: str = Form("excel"),
                          message: str = Form(""), day_of_week: str = Form("mon"),
                          hour: str = Form("7"), minute: str = Form("0"),
                          enabled: str = Form("")):
     if (r := _need_admin(request)):
         return r
     settings.update_report(rid, {"name": name, "projects": projects,
-                                "recipients": recipients, "message": message,
+                                "recipients": recipients, "cc": cc,
+                                "format": format, "message": message,
                                 "day_of_week": day_of_week, "hour": hour,
                                 "minute": minute, "enabled": bool(enabled)})
     scheduler.reschedule()
@@ -1420,14 +1578,14 @@ async def reports_send(request: Request, rid: str):
         return RedirectResponse("/reports", status_code=303)
     s, e = previous_week_range()
     rep = build_grouped(s, e, cfg["projects"], name=cfg["name"])
-    xlsx = xlsxout.intervals_xlsx(scope_intervals(s, e, cfg["projects"]),
-                                  title=subject_grouped(rep))
-    fname = f"{cfg['name']}_{s:%Y%m%d}.xlsx".replace(" ", "_")
+    data, fname, mime = build_attachment(s, e, cfg["projects"],
+                                         cfg.get("format", "excel"), cfg["name"])
     result = mailer.send_report(subject_grouped(rep), render_grouped_text(rep),
                                 render_grouped_html(rep), cfg["recipients"],
-                                xlsx, fname, base_url=str(request.base_url),
+                                data, fname, base_url=str(request.base_url),
                                 label=cfg["name"], actor=_user(request),
-                                message=cfg.get("message", ""))
+                                message=cfg.get("message", ""),
+                                cc=cfg.get("cc", []), mime=mime)
     request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
     return RedirectResponse("/reports", status_code=303)
 

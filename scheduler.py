@@ -15,9 +15,8 @@ from apscheduler.triggers.cron import CronTrigger
 import config
 import mailer
 import settings
-import xlsxout
-from report import (build_grouped, previous_week_range, render_grouped_html,
-                    render_grouped_text, scope_intervals, subject_grouped)
+from report import (build_attachment, build_grouped, previous_week_range,
+                    render_grouped_html, render_grouped_text, subject_grouped)
 
 _scheduler: AsyncIOScheduler | None = None
 _PREFIX = "report:"
@@ -30,14 +29,14 @@ def run_report_config(report_id: str) -> dict:
         return {"skipped": True, "reason": "missing_or_disabled"}
     start, end = previous_week_range()
     rep = build_grouped(start, end, cfg["projects"], name=cfg["name"])
-    xlsx = xlsxout.intervals_xlsx(
-        scope_intervals(start, end, cfg["projects"]), title=subject_grouped(rep))
-    fname = f"{cfg['name']}_{start:%Y%m%d}.xlsx".replace(" ", "_")
+    data, fname, mime = build_attachment(start, end, cfg["projects"],
+                                         cfg.get("format", "excel"), cfg["name"])
     return mailer.send_report(subject_grouped(rep), render_grouped_text(rep),
                               render_grouped_html(rep), cfg["recipients"],
-                              xlsx, fname, base_url=config.PUBLIC_BASE_URL,
+                              data, fname, base_url=config.PUBLIC_BASE_URL,
                               label=cfg["name"], actor="Automatik",
-                              message=cfg.get("message", ""))
+                              message=cfg.get("message", ""),
+                              cc=cfg.get("cc", []), mime=mime)
 
 
 def reschedule() -> None:

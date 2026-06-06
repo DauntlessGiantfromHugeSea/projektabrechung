@@ -85,6 +85,7 @@ class Interval:
     end: datetime
     id: str = ""             # stabile Kennung (fuer Ausblenden/Korrigieren)
     source: str = "webhook"  # "webhook" | "manual"
+    description: str = ""     # Taetigkeitsbeschreibung (Arcadis-Pflicht)
 
     @property
     def duration_hours(self) -> float:

@@ -33,6 +33,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import config
 import mailer
 import scheduler
+import settings
 import users
 import web
 from events import load_records, normalize, pair_intervals
@@ -41,7 +42,8 @@ from report import build_report, previous_week_range, render_text
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    users.bootstrap_admin()   # ersten Admin aus ADMIN_USER/PASSWORD anlegen
+    settings.apply_timezone()  # gespeicherte Zeitzone aktiv setzen
+    users.bootstrap_admin()    # ersten Admin aus ADMIN_USER/PASSWORD anlegen
     scheduler.start()
     try:
         yield

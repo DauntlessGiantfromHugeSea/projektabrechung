@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from html import escape
 
+import activities
 import config
 import manual
 from events import (Interval, OpenPunch, load_records, normalize,
@@ -26,6 +27,10 @@ def collect_intervals() -> list[Interval]:
     hidden = manual.hidden_ids()
     ivs = [iv for iv in pair_intervals(_punches()) if iv.id not in hidden]
     ivs += manual.to_intervals()
+    desc = activities.mapping()
+    for iv in ivs:
+        if iv.id in desc:
+            iv.description = desc[iv.id]
     return ivs
 
 
@@ -86,6 +91,24 @@ def detail_sessions(start: datetime, end: datetime,
         out.append(iv)
     out.sort(key=lambda iv: iv.start)
     return out
+
+
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def build_attachment(start: datetime, end: datetime, projects: list[str],
+                     fmt: str, name: str) -> tuple[bytes, str, str]:
+    """Bericht-Datei je Format erzeugen -> (bytes, dateiname, mime)."""
+    import csvout
+    import xlsxout
+    ivs = scope_intervals(start, end, projects)
+    safe = (name or "bericht").replace("/", "_").replace(" ", "_")[:50]
+    stamp = start.astimezone(config.TIMEZONE).strftime("%Y%m%d")
+    if fmt == "csv":
+        return (csvout.arcadis_csv(ivs), f"{safe}_{stamp}.csv",
+                "text/csv; charset=utf-8")
+    return (xlsxout.intervals_xlsx(ivs, title=name), f"{safe}_{stamp}.xlsx",
+            _XLSX_MIME)
 
 
 def scope_intervals(start: datetime, end: datetime,

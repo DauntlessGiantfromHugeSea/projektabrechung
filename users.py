@@ -88,6 +88,8 @@ def bootstrap_admin() -> None:
         users[config.ADMIN_USER] = {
             "username": config.ADMIN_USER,
             "name": config.ADMIN_USER,
+            "email": "",
+            "timemoto_name": "",
             "role": "admin",
             "password": hash_password(config.ADMIN_PASSWORD),
             "status": "active",
@@ -132,7 +134,8 @@ def set_password(username: str, new_password: str) -> bool:
         return True
 
 
-def create_invite(username: str, role: str = "user", name: str = "") -> str | None:
+def create_invite(username: str, role: str = "user", name: str = "",
+                  email: str = "", timemoto_name: str = "") -> str | None:
     """Neuen Nutzer als 'invited' anlegen, Einladungs-Token zurueckgeben.
     None, wenn der Name schon existiert."""
     username = username.strip()
@@ -145,6 +148,8 @@ def create_invite(username: str, role: str = "user", name: str = "") -> str | No
         users[username] = {
             "username": username,
             "name": (name or username).strip(),
+            "email": email.strip(),
+            "timemoto_name": timemoto_name.strip(),
             "role": role,
             "password": None,
             "status": "invited",
@@ -165,13 +170,57 @@ def set_name(username: str, name: str) -> bool:
         return True
 
 
+def set_profile(username: str, name: str, email: str,
+                timemoto_name: str) -> bool:
+    """Vom Admin pflegbare Stammdaten setzen."""
+    with _LOCK:
+        users = _load()
+        if username not in users:
+            return False
+        u = users[username]
+        u["name"] = (name or username).strip()
+        u["email"] = email.strip()
+        u["timemoto_name"] = timemoto_name.strip()
+        _save(users)
+        return True
+
+
+def by_timemoto(timemoto_name: str) -> dict[str, Any] | None:
+    if not timemoto_name:
+        return None
+    for u in _load().values():
+        if (u.get("timemoto_name") or "").strip().lower() == timemoto_name.strip().lower():
+            return u
+    return None
+
+
 def find_by_invite(token: str) -> dict[str, Any] | None:
     if not token:
         return None
     for u in _load().values():
         if u.get("invite_token") and hmac.compare_digest(u["invite_token"], token):
+            try:
+                created = datetime.fromisoformat(u.get("created_at", ""))
+                if (datetime.now(timezone.utc) - created).days > config.INVITE_TTL_DAYS:
+                    return None  # abgelaufen
+            except Exception:
+                pass
             return u
     return None
+
+
+def renew_invite(username: str) -> str | None:
+    """Neuen Einladungs-Token mit frischem Ablauf erzeugen (erneut einladen)."""
+    with _LOCK:
+        users = _load()
+        u = users.get(username)
+        if not u or u.get("status") != "invited":
+            return None
+        token = secrets.token_urlsafe(32)
+        u["invite_token"] = token
+        u["created_at"] = _now()
+        _save(users)
+        return token
 
 
 def delete_user(username: str) -> bool:

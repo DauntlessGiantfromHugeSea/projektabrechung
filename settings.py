@@ -18,6 +18,7 @@ import json
 import secrets
 import threading
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import config
 
@@ -68,17 +69,49 @@ def _normalize(cfg: dict[str, Any]) -> dict[str, Any]:
         minute = max(0, min(59, int(cfg.get("minute", 0))))
     except (TypeError, ValueError):
         minute = 0
+    fmt = "csv" if str(cfg.get("format", "excel")).lower() == "csv" else "excel"
     return {
         "id": cfg.get("id") or secrets.token_hex(8),
         "name": (cfg.get("name") or "Bericht").strip(),
         "message": (cfg.get("message") or "").strip(),
         "projects": _clean_list(cfg.get("projects")),
         "recipients": _clean_list(cfg.get("recipients")),
+        "cc": _clean_list(cfg.get("cc")),
+        "format": fmt,
         "day_of_week": dow,
         "hour": hour,
         "minute": minute,
         "enabled": bool(cfg.get("enabled", True)),
     }
+
+
+# --- Globale Zeitzone ------------------------------------------------------
+
+def get_timezone() -> str:
+    data = _load()
+    return data.get("timezone") or str(config.TIMEZONE)
+
+
+def set_timezone(name: str) -> bool:
+    try:
+        ZoneInfo(name)
+    except Exception:
+        return False
+    with _LOCK:
+        data = _load()
+        data["timezone"] = name
+        _save(data)
+    apply_timezone()
+    return True
+
+
+def apply_timezone() -> None:
+    """Gewaehlte Zeitzone in config.TIMEZONE uebernehmen (alle Module lesen
+    config.TIMEZONE zur Laufzeit)."""
+    try:
+        config.TIMEZONE = ZoneInfo(get_timezone())
+    except Exception:
+        pass
 
 
 def list_reports() -> list[dict[str, Any]]:

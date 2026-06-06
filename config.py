@@ -110,6 +110,8 @@ SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
 # Cookie nur ueber HTTPS senden. Hinter fbe-caddy (HTTPS) korrekt; fuer lokales
 # HTTP-Testen ggf. auf false setzen.
 SESSION_HTTPS_ONLY = _bool("SESSION_HTTPS_ONLY", True)
+# Gueltigkeit von Einladungslinks in Tagen.
+INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "5"))
 
 
 def login_possible() -> bool:
@@ -127,6 +129,9 @@ SETTINGS_FILE = Path(os.getenv("SETTINGS_FILE", "/data/settings.json"))
 MANUAL_FILE = Path(os.getenv("MANUAL_FILE", "/data/manual.json"))
 # Aenderungsprotokoll (Audit-Log): wer hat wann was geaendert.
 AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "/data/audit.json"))
+
+# Taetigkeitsbeschreibungen je Buchung.
+ACTIVITIES_FILE = Path(os.getenv("ACTIVITIES_FILE", "/data/activities.json"))
 
 # Download-Links fuer Mails (Anhaenge ersetzen). Tokenisiert -> liefern nur
 # genau die eine Datei, keine anderen Seiten.
