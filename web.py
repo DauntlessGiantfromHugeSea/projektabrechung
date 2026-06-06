@@ -729,6 +729,7 @@ _USERS = """
     </tbody>
   </table></div>
 </div>
+{% if local_users_enabled %}
 <div class="card glass" style="max-width:560px;">
   <h2>Neuen Benutzer einladen</h2>
   <p class="muted">Es wird ein Einladungslink erzeugt – die Person setzt darüber
@@ -757,6 +758,7 @@ _USERS = """
     <div style="margin-top:1rem;"><button type="submit">Einladung erstellen</button></div>
   </form>
 </div>
+{% endif %}
 {% endblock %}
 """
 
@@ -2263,7 +2265,8 @@ async def users_page(request: Request):
     return HTMLResponse(_tpls["users"].render(
         **_common(request, "users", "Benutzer"),
         userlist=users.list_users(), base_url=str(request.base_url),
-        ms_enabled=config.ms_enabled()))
+        ms_enabled=config.ms_enabled(),
+        local_users_enabled=config.LOCAL_USERS_ENABLED))
 
 
 def _send_invite_mail(request: Request, display: str, email: str, token: str) -> bool:
@@ -2314,6 +2317,10 @@ async def users_create(request: Request, username: str = Form(""),
                        ticket_access: str = Form("none")):
     if (r := _need_admin(request)):
         return r
+    if not config.LOCAL_USERS_ENABLED:
+        request.session["flash"], request.session["flash_class"] = \
+            "Lokale Benutzer sind deaktiviert – Anmeldung erfolgt über Microsoft.", "err"
+        return RedirectResponse("/users", status_code=303)
     token = users.create_invite(
         username, role, name, email, timemoto_name,
         can_view_tickets=ticket_access in ("view", "edit"),

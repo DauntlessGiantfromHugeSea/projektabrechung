@@ -142,6 +142,13 @@ def ms_redirect_uri() -> str:
     return MS_REDIRECT_URI or f"{PUBLIC_BASE_URL}/auth/microsoft/callback"
 
 
+# Lokale Benutzer (Einladung per Passwort) erlauben? Standard: AUS, sobald
+# Microsoft-Login konfiguriert ist -> dann nur Admin lokal, Rest via Microsoft.
+LOCAL_USERS_ENABLED = _bool(
+    "LOCAL_USERS_ENABLED",
+    not (MS_CLIENT_ID and MS_CLIENT_SECRET and MS_TENANT_ID))
+
+
 # Datei der Benutzerverwaltung (Nutzer, Passwort-Hashes, Rollen).
 USERS_FILE = Path(os.getenv("USERS_FILE", "/data/users.json"))
 
