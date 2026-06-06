@@ -13,8 +13,9 @@ from datetime import datetime, timedelta
 from html import escape
 
 import pyotp
+import secrets
 import segno
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Template
 
@@ -735,6 +736,10 @@ _USERS = """
       <div><label>E-Mail (für Einladung &amp; Erinnerungen)</label><input name="email" type="email" placeholder="max@firma.de"></div>
       <div><label>TimeMoto-Name (für Stundenzuordnung)</label><input name="timemoto_name" placeholder="z. B. Max Mustermann"></div>
     </div>
+    <div style="display:flex;gap:1.4rem;margin-top:.6rem;">
+      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_view_tickets" value="1" style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets sehen</label>
+      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_edit_tickets" value="1" style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets bearbeiten</label>
+    </div>
     <p class="muted" style="margin:.5rem 0 0">Ist eine E-Mail angegeben, wird die
       Einladung direkt per Mail versendet (Link 5 Tage gültig).</p>
     <div style="margin-top:1rem;"><button type="submit">Einladung erstellen</button></div>
@@ -1095,6 +1100,22 @@ _TICKET = """
   <form method="post" action="/tickets/{{ t.id }}/comment" style="margin-top:.8rem;">
     <textarea name="body" placeholder="Kommentar schreiben…"></textarea>
     <div style="margin-top:.6rem;"><button type="submit">Kommentar hinzufügen</button></div>
+  </form>
+</div>
+
+<div class="card glass">
+  <h2>Anhänge</h2>
+  {% for a in t.attachments %}
+    <div style="display:flex;align-items:center;gap:.6rem;border-bottom:1px solid var(--line);padding:.45rem 0;">
+      <a href="/tickets/{{ t.id }}/attachment/{{ a.id }}">{{ a.filename }}</a>
+      <span class="muted" style="font-size:.85rem;">{{ a.by }}</span>
+      {% if can_edit %}<form method="post" action="/tickets/{{ t.id }}/attachment/{{ a.id }}/delete" style="margin-left:auto;">
+        <button class="danger" onclick="return confirm('Anhang löschen?')">löschen</button></form>{% endif %}
+    </div>
+  {% else %}<p class="muted">Keine Anhänge.</p>{% endfor %}
+  <form method="post" action="/tickets/{{ t.id }}/attach" enctype="multipart/form-data" style="margin-top:.8rem;" class="toolbar">
+    <input type="file" name="file" style="width:auto">
+    <button type="submit">Hochladen</button>
   </form>
 </div>
 
@@ -1975,6 +1996,56 @@ async def ticket_worklog_delete(request: Request, tid: int, wid: str):
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
+@router.post("/tickets/{tid:int}/attach")
+async def ticket_attach(request: Request, tid: int, file: UploadFile = File(...)):
+    if (r := _need_tickets(request)):
+        return r
+    if not tickets.get(tid):
+        return RedirectResponse("/tickets", status_code=303)
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        request.session["flash"], request.session["flash_class"] = \
+            "Datei zu groß (max. 20 MB).", "err"
+        return RedirectResponse(f"/tickets/{tid}", status_code=303)
+    safe = "".join(ch for ch in (file.filename or "datei")
+                   if ch.isalnum() or ch in "._- ").strip() or "datei"
+    from pathlib import Path
+    d = config.TICKET_FILES_DIR / str(tid)
+    d.mkdir(parents=True, exist_ok=True)
+    stored = d / f"{secrets.token_hex(8)}_{safe}"
+    stored.write_bytes(content)
+    tickets.add_attachment(tid, safe, str(stored), _user(request))
+    audit.log(_user(request), "Ticket-Anhang", f"#{tid}: {safe}")
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.get("/tickets/{tid:int}/attachment/{att_id}")
+async def ticket_attachment(request: Request, tid: int, att_id: str):
+    if (r := _need_tickets(request)):
+        return r
+    a = tickets.find_attachment(tid, att_id)
+    from pathlib import Path
+    if not a or not Path(a["stored"]).exists():
+        return HTMLResponse("Anhang nicht gefunden.", status_code=404)
+    return FileResponse(a["stored"], filename=a.get("filename", "datei"))
+
+
+@router.post("/tickets/{tid:int}/attachment/{att_id}/delete")
+async def ticket_attachment_delete(request: Request, tid: int, att_id: str):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    a = tickets.delete_attachment(tid, att_id)
+    if a:
+        from pathlib import Path
+        try:
+            Path(a["stored"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
 @router.get("/einstellungen", response_class=HTMLResponse)
 async def settings_page(request: Request):
     if (r := _need_admin(request)):
@@ -2152,10 +2223,13 @@ def _send_invite_mail(request: Request, display: str, email: str, token: str) ->
 @router.post("/users/create")
 async def users_create(request: Request, username: str = Form(""),
                        role: str = Form("user"), name: str = Form(""),
-                       email: str = Form(""), timemoto_name: str = Form("")):
+                       email: str = Form(""), timemoto_name: str = Form(""),
+                       can_view_tickets: str = Form(""),
+                       can_edit_tickets: str = Form("")):
     if (r := _need_admin(request)):
         return r
-    token = users.create_invite(username, role, name, email, timemoto_name)
+    token = users.create_invite(username, role, name, email, timemoto_name,
+                                bool(can_view_tickets), bool(can_edit_tickets))
     if token is None:
         request.session["flash"], request.session["flash_class"] = \
             "Benutzername leer oder bereits vergeben.", "err"

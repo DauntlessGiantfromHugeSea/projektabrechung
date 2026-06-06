@@ -145,6 +145,19 @@ def add_attachment(ticket_id: int, filename: str, stored: str, by: str) -> bool:
          "by": by, "at": _now()}))
 
 
+def delete_attachment(ticket_id: int, att_id: str) -> dict | None:
+    removed = {}
+
+    def fn(t):
+        for a in list(t.get("attachments", [])):
+            if a.get("id") == att_id:
+                removed.update(a)
+        t["attachments"] = [a for a in t.get("attachments", [])
+                            if a.get("id") != att_id]
+    _update(ticket_id, fn)
+    return removed or None
+
+
 def find_attachment(ticket_id: int, att_id: str) -> dict | None:
     t = get(ticket_id)
     if not t:
