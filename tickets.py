@@ -55,6 +55,8 @@ def list_tickets(status: str = "", q: str = "", mine: str = "") -> list[dict]:
     out = _load()["tickets"]
     if status:
         out = [t for t in out if t.get("status") == status]
+    else:
+        out = [t for t in out if t.get("status") != "closed"]  # Archiv ausblenden
     if mine:
         out = [t for t in out
                if t.get("created_by") == mine or t.get("assigned_to") == mine]

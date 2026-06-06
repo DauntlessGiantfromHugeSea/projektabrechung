@@ -49,6 +49,8 @@ _BASE = """
 <!doctype html><html lang="de"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} – Projektabrechnung</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2392c57a'/><text x='16' y='23' font-size='20' text-anchor='middle' fill='%23123018' font-family='Arial,sans-serif' font-weight='bold'>F</text></svg>">
+<meta name="theme-color" content="#92c57a">
 <style>
   :root{
     --fg:#15321f; --muted:#5b6b72; --brand:#92c57a; --brand-d:#6fa84f;
@@ -1232,8 +1234,8 @@ _TICKETS = """
     <a class="btn" href="/tickets/new">+ Neues Ticket</a>
   </div>
   <div style="margin-top:.6rem;">
-    <a class="chip" href="/tickets">Alle</a>
-    {% for k,v in statuses.items() %}<a class="chip" href="/tickets?status={{k}}">{{ v }}: <b>{{ counts[k] }}</b></a>{% endfor %}
+    <a class="chip" href="/tickets">Aktiv</a>
+    {% for k,v in statuses.items() %}<a class="chip" href="/tickets?status={{k}}">{{ '📦 ' if k=='closed' }}{{ v }}: <b>{{ counts[k] }}</b></a>{% endfor %}
   </div>
   <form method="get" action="/tickets" style="margin-top:.7rem;">
     <div class="row">
@@ -1314,10 +1316,23 @@ _TICKET = """
   {% if can_edit %}
   <div class="toolbar" style="margin-top:.6rem;">
     {% for k,v in statuses.items() %}
+      {% if k=='closed' %}
+      <details class="menu">
+        <summary class="btn {{ '' if t.status=='closed' else 'ghost' }}">Schließen…</summary>
+        <div class="panel" style="width:320px;padding:.8rem;">
+          <form method="post" action="/tickets/{{ t.id }}/close">
+            <label>Lösung / Abschluss (optional – geht an den Ersteller)</label>
+            <textarea name="message" placeholder="Was wurde gelöst?" style="min-height:90px"></textarea>
+            <div style="margin-top:.6rem;"><button type="submit">Schließen &amp; Ersteller benachrichtigen</button></div>
+          </form>
+        </div>
+      </details>
+      {% else %}
       <form method="post" action="/tickets/{{ t.id }}/status">
         <input type="hidden" name="status" value="{{ k }}">
         <button type="submit" class="{{ '' if t.status==k else 'ghost' }}" {{ 'disabled' if t.status==k }}>{{ v }}</button>
       </form>
+      {% endif %}
     {% endfor %}
     <form method="post" action="/tickets/{{ t.id }}/assign-me">
       <button type="submit" class="ghost">Mir zuweisen</button></form>
@@ -2396,6 +2411,48 @@ async def ticket_worklog_delete(request: Request, tid: int, wid: str):
         tickets.log_event(tid, request.session.get("name") or _user(request),
                           f"Aufwand gelöscht: {w.get('hours')} Std, "
                           f"{w.get('travel_km')} km")
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.post("/tickets/{tid:int}/close")
+async def ticket_close(request: Request, tid: int, message: str = Form("")):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    t = tickets.get(tid)
+    if not t:
+        return RedirectResponse("/tickets", status_code=303)
+    sol = message.strip()
+    tickets.update_fields(tid, status="closed")
+    who = request.session.get("name") or _user(request)
+    tickets.log_event(tid, who, "Ticket geschlossen" + (f": {sol}" if sol else ""))
+    audit.log(_user(request), "Ticket geschlossen", f"#{tid}")
+    creator = users.get(t.get("created_by"))
+    notified = False
+    if creator and creator.get("email"):
+        link = f"{config.PUBLIC_BASE_URL}/tickets/{tid}"
+        title = t.get("title", "")
+        body = sol or "Das Ticket wurde geschlossen."
+        subj = f"Ticket #{tid} geschlossen: {title}"
+        text = (f"Hallo {creator.get('name') or t['created_by']},\n\ndein Ticket "
+                f"#{tid} „{title}“ wurde geschlossen.\n\nAbschluss / Lösung:\n"
+                f"{body}\n\n{link}\n")
+        html = (f"<p>Hallo {escape(creator.get('name') or t['created_by'])},</p>"
+                f"<p>dein Ticket <b>#{tid}</b> „{escape(title)}“ wurde "
+                "<b>geschlossen</b>.</p><p><b>Abschluss / Lösung:</b><br>"
+                f"{escape(body).replace(chr(10), '<br>')}</p>"
+                f'<p><a href="{link}" style="display:inline-block;'
+                f'background:{config.BRAND_COLOR};color:#123018;font-weight:bold;'
+                'text-decoration:none;padding:11px 22px;border-radius:999px">'
+                "Ticket ansehen</a></p>")
+        res = mailer.send(subj, text, html, [creator["email"]],
+                          label="Ticket geschlossen", actor=_user(request))
+        notified = bool(res.get("mailed"))
+    tickets.purge_attachments(tid)
+    request.session["flash"] = (f"Ticket #{tid} geschlossen"
+                                + (" – Ersteller benachrichtigt." if notified
+                                   else " (Ersteller hat keine E-Mail)."))
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
