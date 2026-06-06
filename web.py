@@ -1312,6 +1312,26 @@ _SETTINGS = """
     <div style="margin-top:1.1rem;"><button type="submit">Speichern</button></div>
   </form>
 </div>
+<div class="card glass" style="max-width:560px;">
+  <h2>Test-E-Mails</h2>
+  <p class="muted">Sendet je eine Beispiel-Mail (Bericht &amp; Erinnerung) an die
+    Adresse – um Design und Versand zu prüfen.{% if not mail_configured %}
+    <b>Hinweis:</b> SMTP/Brevo ist nicht konfiguriert – es wird nur als Datei
+    gespeichert.{% endif %}</p>
+  <form method="post" action="/einstellungen/testmail">
+    <label>Empfänger</label>
+    <input name="email" type="email" value="{{ admin_email }}" placeholder="name@firma.de">
+    <div style="margin-top:1rem;"><button type="submit">Testmails senden</button></div>
+  </form>
+  <hr style="border:none;border-top:1px solid var(--line);margin:1.3rem 0;">
+  <h2>Erinnerungen</h2>
+  <p class="muted">Prüft sofort, ob Buchungen &gt;24 h ohne
+    Tätigkeitsbeschreibung eine Erinnerung an den jeweiligen Mitarbeiter
+    auslösen (läuft sonst stündlich automatisch).</p>
+  <form method="post" action="/einstellungen/reminders-now">
+    <button type="submit" class="ghost">Erinnerungen jetzt prüfen</button>
+  </form>
+</div>
 {% endblock %}
 """
 
@@ -2246,9 +2266,13 @@ async def settings_page(request: Request):
     tz = settings.get_timezone()
     zones = _TZ_ZONES if tz in _TZ_ZONES else [tz, *_TZ_ZONES]
     now = datetime.now(config.TIMEZONE).strftime("%A, %d.%m.%Y %H:%M:%S (%Z)")
+    u = users.get(_user(request)) or {}
+    admin_email = u.get("email") or (config.REPORT_RECIPIENTS[0]
+                                     if config.REPORT_RECIPIENTS else "")
     return HTMLResponse(_tpls["settings"].render(
         **_common(request, "settings", "Einstellungen"),
-        zones=zones, tz=tz, now=now))
+        zones=zones, tz=tz, now=now, admin_email=admin_email,
+        mail_configured=bool(config.BREVO_API_KEY or config.SMTP_HOST)))
 
 
 @router.post("/einstellungen")
@@ -2319,6 +2343,53 @@ async def abrechnung(request: Request, employee: str = "", project: str = "",
         start_in=start, end_in=end,
         sessions=[_session_view(iv) for iv in ivs],
         count=len(ivs), total=_fmt_dur(total)))
+
+
+@router.post("/einstellungen/testmail")
+async def settings_testmail(request: Request, email: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    to = (email or "").strip()
+    if not to:
+        request.session["flash"], request.session["flash_class"] = \
+            "Bitte eine Empfänger-Adresse angeben.", "err"
+        return RedirectResponse("/einstellungen", status_code=303)
+    report_html = (
+        "<h2>Beispiel-Projektbericht</h2>"
+        "<table border='1' cellpadding='6' cellspacing='0' "
+        "style='border-collapse:collapse'><thead><tr style='background:#eef5e9'>"
+        "<th align='left'>Mitarbeiter</th><th>Stunden</th><th>Sessions</th></tr></thead>"
+        "<tbody><tr><td>Max Mustermann</td><td style='text-align:right'>8:30 h</td>"
+        "<td style='text-align:right'>1</td></tr></tbody></table>")
+    r1 = mailer.send("Testmail: Projektbericht", "Beispiel-Projektbericht.",
+                     report_html, [to], label="Testmail",
+                     message="Dies ist eine Test-E-Mail (Bericht-Design).",
+                     actor=_user(request))
+    rem_html = ("<p>Hallo Max,</p><p>für deine Buchung am <b>06.06.2026</b> "
+                "(26344 - Arcadis, 8:30 h) fehlt noch die "
+                "<b>Tätigkeitsbeschreibung</b>. Bitte kurz nachtragen.</p>")
+    mailer.send("Testmail: Erinnerung Tätigkeitsbeschreibung",
+                "Beispiel-Erinnerung.", rem_html, [to], label="Testmail",
+                message="Dies ist eine Test-E-Mail (Erinnerung-Design).",
+                actor=_user(request))
+    if r1.get("mailed"):
+        request.session["flash"] = f"2 Testmails an {to} gesendet."
+    else:
+        request.session["flash"], request.session["flash_class"] = (
+            f"Nicht versendet ({r1.get('reason')}) – als Datei gespeichert.", "err")
+    return RedirectResponse("/einstellungen", status_code=303)
+
+
+@router.post("/einstellungen/reminders-now")
+async def settings_reminders_now(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    res = scheduler.run_reminders()
+    n = res.get("sent", 0)
+    request.session["flash"] = (
+        f"{n} Erinnerung(en) versendet." if n else
+        "Keine offenen Buchungen ohne Tätigkeit im Zeitfenster (24 h–7 Tage).")
+    return RedirectResponse("/einstellungen", status_code=303)
 
 
 @router.get("/audit", response_class=HTMLResponse)
