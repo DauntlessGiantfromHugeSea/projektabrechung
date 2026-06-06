@@ -12,6 +12,7 @@ aus eurem Tenant anmelden können.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -55,11 +56,16 @@ def exchange(code: str) -> dict | None:
             tok = json.loads(resp.read().decode("utf-8"))
         access = tok.get("access_token")
         if not access:
+            print(f"[ms-login] kein access_token: {tok}", flush=True)
             return None
         ui_req = urllib.request.Request(
             _USERINFO, headers={"Authorization": f"Bearer {access}"})
         with urllib.request.urlopen(ui_req, timeout=20) as resp:
             info = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:500]
+        print(f"[ms-login] HTTP {e.code}: {body}", flush=True)
+        return None
     except Exception as exc:
         print(f"[ms-login] Fehler: {exc}", flush=True)
         return None
