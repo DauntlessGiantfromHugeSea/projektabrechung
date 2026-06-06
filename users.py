@@ -194,6 +194,68 @@ def set_profile(username: str, name: str, email: str, timemoto_name: str,
         return True
 
 
+def enroll_totp(username: str, secret: str) -> bool:
+    with _LOCK:
+        users = _load()
+        if username not in users:
+            return False
+        users[username]["totp_secret"] = secret
+        users[username]["twofa_enabled"] = True
+        _save(users)
+        return True
+
+
+def _reset_age_min(u: dict[str, Any]) -> float:
+    try:
+        d = datetime.fromisoformat(u.get("reset_at", ""))
+        return (datetime.now(timezone.utc) - d).total_seconds() / 60.0
+    except Exception:
+        return 1e9
+
+
+def create_reset_token(identifier: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Reset-Token fuer aktiven Nutzer (per Benutzername ODER E-Mail) erzeugen."""
+    ident = identifier.strip().lower()
+    if not ident:
+        return None, None
+    with _LOCK:
+        users = _load()
+        for uname, u in users.items():
+            if u.get("status") != "active":
+                continue
+            if uname.lower() == ident or (u.get("email", "").strip().lower() == ident):
+                token = secrets.token_urlsafe(24)
+                u["reset_token"] = token
+                u["reset_at"] = _now()
+                _save(users)
+                return u, token
+    return None, None
+
+
+def valid_reset(token: str) -> str | None:
+    if not token:
+        return None
+    for uname, u in _load().items():
+        if u.get("reset_token") and hmac.compare_digest(u["reset_token"], token):
+            return uname if _reset_age_min(u) <= config.RESET_TTL_MIN else None
+    return None
+
+
+def consume_reset(token: str, new_password: str) -> str | None:
+    with _LOCK:
+        users = _load()
+        for uname, u in users.items():
+            if u.get("reset_token") and hmac.compare_digest(u["reset_token"], token):
+                if _reset_age_min(u) > config.RESET_TTL_MIN:
+                    return None
+                u["password"] = hash_password(new_password)
+                u["reset_token"] = None
+                u["status"] = "active"
+                _save(users)
+                return uname
+    return None
+
+
 def by_timemoto(timemoto_name: str) -> dict[str, Any] | None:
     if not timemoto_name:
         return None

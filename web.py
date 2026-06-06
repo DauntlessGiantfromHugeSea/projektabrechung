@@ -12,6 +12,8 @@ import io
 from datetime import datetime, timedelta
 from html import escape
 
+import pyotp
+import segno
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Template
@@ -230,6 +232,84 @@ _LOGIN = """
     <label>Passwort</label>
     <input name="password" type="password" autocomplete="current-password">
     <div style="margin-top:1.1rem;"><button type="submit">Einloggen</button></div>
+  </form>
+  <p style="text-align:left;margin-top:1rem;"><a href="/reset">Passwort vergessen?</a></p>
+</div>
+{% endblock %}
+"""
+
+_TWOFA_VERIFY = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:380px;margin:8vh auto 0;text-align:center;">
+  <img src="{{ logo_url }}" alt="FBE" style="height:46px;margin:.3rem 0 1rem;">
+  <h1 style="text-align:left;">Bestätigung (2FA)</h1>
+  <p class="muted" style="text-align:left;">Gib den 6-stelligen Code aus deiner
+    Authenticator-App ein.</p>
+  <form method="post" action="/login/2fa" style="text-align:left;">
+    <label>Code</label>
+    <input name="code" inputmode="numeric" autocomplete="one-time-code"
+      autofocus placeholder="123456" style="letter-spacing:.3em;text-align:center;font-size:1.2rem">
+    <div style="margin-top:1.1rem;"><button type="submit">Anmelden</button></div>
+  </form>
+  <p style="text-align:left;margin-top:1rem;"><a href="/logout">Abbrechen</a></p>
+</div>
+{% endblock %}
+"""
+
+_TWOFA_SETUP = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:460px;margin:{{ '2vh' if user else '7vh' }} auto 0;text-align:center;">
+  <img src="{{ logo_url }}" alt="FBE" style="height:42px;margin:.3rem 0 .8rem;">
+  <h1 style="text-align:left;">Zwei-Faktor-Authentifizierung einrichten</h1>
+  <p class="muted" style="text-align:left;">Scanne den QR-Code mit einer
+    Authenticator-App (Google Authenticator, Microsoft Authenticator, Authy …)
+    und gib dann den angezeigten 6-stelligen Code ein.</p>
+  <img src="{{ qr }}" alt="QR-Code" style="width:200px;height:200px;margin:.4rem auto">
+  <p class="muted" style="text-align:left;">Falls du den Code nicht scannen
+    kannst, gib dieses Geheimnis manuell ein:<br><code>{{ secret }}</code></p>
+  <form method="post" action="/2fa/setup" style="text-align:left;">
+    <label>Code aus der App</label>
+    <input name="code" inputmode="numeric" autocomplete="one-time-code" autofocus
+      placeholder="123456" style="letter-spacing:.3em;text-align:center;font-size:1.2rem">
+    <div style="margin-top:1.1rem;"><button type="submit">Aktivieren</button></div>
+  </form>
+  {% if not user %}<p style="text-align:left;margin-top:1rem;"><a href="/logout">Abbrechen</a></p>{% endif %}
+</div>
+{% endblock %}
+"""
+
+_RESET_REQ = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:380px;margin:8vh auto 0;text-align:center;">
+  <img src="{{ logo_url }}" alt="FBE" style="height:46px;margin:.3rem 0 1rem;">
+  <h1 style="text-align:left;">Passwort zurücksetzen</h1>
+  <p class="muted" style="text-align:left;">Gib deinen Benutzernamen oder deine
+    E-Mail ein. Du bekommst einen Link per E-Mail.</p>
+  <form method="post" action="/reset" style="text-align:left;">
+    <label>Benutzername oder E-Mail</label>
+    <input name="identifier" autofocus>
+    <div style="margin-top:1.1rem;"><button type="submit">Link anfordern</button></div>
+  </form>
+  <p style="text-align:left;margin-top:1rem;"><a href="/login">Zurück zum Login</a></p>
+</div>
+{% endblock %}
+"""
+
+_RESET_FORM = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:380px;margin:8vh auto 0;text-align:center;">
+  <img src="{{ logo_url }}" alt="FBE" style="height:46px;margin:.3rem 0 1rem;">
+  <h1 style="text-align:left;">Neues Passwort</h1>
+  <form method="post" action="/reset/{{ token }}" style="text-align:left;">
+    <label>Neues Passwort (mind. 8 Zeichen)</label>
+    <input name="new1" type="password" autocomplete="new-password" autofocus>
+    <label>Wiederholen</label>
+    <input name="new2" type="password" autocomplete="new-password">
+    <div style="margin-top:1.1rem;"><button type="submit">Passwort setzen</button></div>
   </form>
 </div>
 {% endblock %}
@@ -568,6 +648,11 @@ _ACCOUNT = """
     <input name="new2" type="password" autocomplete="new-password">
     <div style="margin-top:1.1rem;"><button type="submit">Passwort ändern</button></div>
   </form>
+  <hr style="border:none;border-top:1px solid var(--line);margin:1.3rem 0;">
+  <h2>Zwei-Faktor-Authentifizierung</h2>
+  <p class="muted">Status:
+    {% if twofa %}<span class="pill ok">aktiv</span>{% else %}<span class="pill no">inaktiv</span>{% endif %}</p>
+  <a class="btn ghost" href="/2fa/setup">{{ '2FA neu einrichten' if twofa else '2FA einrichten' }}</a>
 </div>
 {% endblock %}
 """
@@ -898,6 +983,8 @@ _tpls = {n: Template(s) for n, s in {
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
     "abrechnung": _ABRECHNUNG, "meine": _MEINE, "user_edit": _USER_EDIT,
+    "twofa_verify": _TWOFA_VERIFY, "twofa_setup": _TWOFA_SETUP,
+    "reset_req": _RESET_REQ, "reset_form": _RESET_FORM,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
@@ -1014,6 +1101,14 @@ async def login_form(request: Request):
         login_possible=bool(users.list_users()) or config.login_possible()))
 
 
+def _finalize_login(request: Request, user: dict) -> None:
+    request.session.pop("pending_user", None)
+    request.session.pop("enroll_secret", None)
+    request.session["user"] = user["username"]
+    request.session["role"] = user.get("role", "user")
+    request.session["name"] = user.get("name") or user["username"]
+
+
 @router.post("/login")
 async def login_submit(request: Request, username: str = Form(""),
                        password: str = Form("")):
@@ -1022,15 +1117,150 @@ async def login_submit(request: Request, username: str = Form(""),
         request.session["flash"] = "Benutzer oder Passwort falsch."
         request.session["flash_class"] = "err"
         return RedirectResponse("/login", status_code=303)
-    request.session["user"] = user["username"]
-    request.session["role"] = user.get("role", "user")
-    request.session["name"] = user.get("name") or user["username"]
+    # Passwort ok -> zweiter Faktor
+    if user.get("twofa_enabled") and user.get("totp_secret"):
+        request.session["pending_user"] = user["username"]
+        return RedirectResponse("/login/2fa", status_code=303)
+    if config.TWOFA_REQUIRED:
+        # Noch keine 2FA -> jetzt einrichten (Pflicht)
+        request.session["pending_user"] = user["username"]
+        return RedirectResponse("/2fa/setup", status_code=303)
+    _finalize_login(request, user)
     return RedirectResponse("/", status_code=303)
+
+
+@router.get("/login/2fa", response_class=HTMLResponse)
+async def twofa_verify_form(request: Request):
+    if not request.session.get("pending_user"):
+        return RedirectResponse("/login", status_code=303)
+    return HTMLResponse(_tpls["twofa_verify"].render(
+        title="Bestätigung", user=None,
+        flash=request.session.pop("flash", None),
+        flash_class=request.session.pop("flash_class", "")))
+
+
+@router.post("/login/2fa")
+async def twofa_verify(request: Request, code: str = Form("")):
+    uname = request.session.get("pending_user")
+    u = users.get(uname) if uname else None
+    if not u or not u.get("totp_secret"):
+        return RedirectResponse("/login", status_code=303)
+    if pyotp.TOTP(u["totp_secret"]).verify(code.strip().replace(" ", ""), valid_window=1):
+        _finalize_login(request, u)
+        return RedirectResponse("/", status_code=303)
+    request.session["flash"], request.session["flash_class"] = \
+        "Code ungültig. Bitte erneut versuchen.", "err"
+    return RedirectResponse("/login/2fa", status_code=303)
+
+
+@router.get("/2fa/setup", response_class=HTMLResponse)
+async def twofa_setup_form(request: Request):
+    uname = request.session.get("pending_user") or _user(request)
+    if not uname:
+        return RedirectResponse("/login", status_code=303)
+    secret = request.session.get("enroll_secret")
+    if not secret:
+        secret = pyotp.random_base32()
+        request.session["enroll_secret"] = secret
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=uname, issuer_name=config.TWOFA_ISSUER)
+    qr = segno.make(uri, error="m").svg_data_uri(scale=5)
+    if _user(request):
+        ctx = _common(request, "account", "2FA einrichten")
+    else:
+        ctx = dict(title="2FA einrichten", user=None,
+                   flash=request.session.pop("flash", None),
+                   flash_class=request.session.pop("flash_class", ""))
+    ctx.update(qr=qr, secret=secret)
+    return HTMLResponse(_tpls["twofa_setup"].render(**ctx))
+
+
+@router.post("/2fa/setup")
+async def twofa_setup_save(request: Request, code: str = Form("")):
+    uname = request.session.get("pending_user") or _user(request)
+    secret = request.session.get("enroll_secret")
+    if not uname or not secret:
+        return RedirectResponse("/login", status_code=303)
+    if not pyotp.TOTP(secret).verify(code.strip().replace(" ", ""), valid_window=1):
+        request.session["flash"], request.session["flash_class"] = \
+            "Code ungültig – bitte aus der App erneut eingeben.", "err"
+        return RedirectResponse("/2fa/setup", status_code=303)
+    users.enroll_totp(uname, secret)
+    audit.log(uname, "2FA eingerichtet", uname)
+    u = users.get(uname)
+    if request.session.get("pending_user"):
+        _finalize_login(request, u)
+        request.session["flash"] = "2FA aktiviert. Willkommen!"
+        return RedirectResponse("/", status_code=303)
+    request.session.pop("enroll_secret", None)
+    request.session["flash"] = "2FA neu eingerichtet."
+    return RedirectResponse("/account", status_code=303)
 
 
 @router.get("/logout")
 async def logout(request: Request):
     request.session.clear()
+    return RedirectResponse("/login", status_code=303)
+
+
+@router.get("/reset", response_class=HTMLResponse)
+async def reset_request_form(request: Request):
+    return HTMLResponse(_tpls["reset_req"].render(
+        title="Passwort zurücksetzen", user=None,
+        flash=request.session.pop("flash", None),
+        flash_class=request.session.pop("flash_class", "")))
+
+
+@router.post("/reset")
+async def reset_request(request: Request, identifier: str = Form("")):
+    u, token = users.create_reset_token(identifier)
+    if u and u.get("email") and token:
+        link = f"{request.base_url}reset/{token}"
+        name = u.get("name") or u["username"]
+        subj = "Passwort zurücksetzen – FBE Projektabrechnung"
+        text = (f"Hallo {name},\n\nüber diesen Link kannst du dein Passwort neu "
+                f"setzen (gültig {config.RESET_TTL_MIN} Minuten):\n{link}\n\n"
+                "Wenn du das nicht angefordert hast, ignoriere diese Mail.")
+        html = (f"<p>Hallo {escape(name)},</p><p>über den Button setzt du dein "
+                f"Passwort neu (Link {config.RESET_TTL_MIN} Minuten gültig).</p>"
+                f'<p><a href="{link}" style="display:inline-block;'
+                f'background:{config.BRAND_COLOR};color:#123018;font-weight:bold;'
+                'text-decoration:none;padding:12px 24px;border-radius:999px">'
+                "Passwort neu setzen</a></p>"
+                '<p style="color:#64748b;font-size:13px">Nicht angefordert? '
+                "Dann ignoriere diese Mail.</p>")
+        mailer.send(subj, text, html, [u["email"]], label="Passwort-Reset",
+                    actor="System")
+    request.session["flash"] = ("Falls ein Konto mit dieser Angabe existiert, "
+                                "wurde ein Reset-Link per E-Mail gesendet.")
+    return RedirectResponse("/login", status_code=303)
+
+
+@router.get("/reset/{token}", response_class=HTMLResponse)
+async def reset_form(request: Request, token: str):
+    if not users.valid_reset(token):
+        return HTMLResponse(_base_tpl.render(
+            title="Reset", user=None, flash_class="err",
+            flash="Reset-Link ungültig oder abgelaufen."), status_code=404)
+    return HTMLResponse(_tpls["reset_form"].render(
+        title="Neues Passwort", user=None, token=token,
+        flash=request.session.pop("flash", None),
+        flash_class=request.session.pop("flash_class", "")))
+
+
+@router.post("/reset/{token}")
+async def reset_save(request: Request, token: str, new1: str = Form(""),
+                     new2: str = Form("")):
+    if len(new1) < 8 or new1 != new2:
+        request.session["flash"], request.session["flash_class"] = \
+            "Passwort min. 8 Zeichen und beide Felder gleich.", "err"
+        return RedirectResponse(f"/reset/{token}", status_code=303)
+    uname = users.consume_reset(token, new1)
+    if not uname:
+        request.session["flash"], request.session["flash_class"] = \
+            "Reset-Link ungültig oder abgelaufen.", "err"
+        return RedirectResponse("/login", status_code=303)
+    request.session["flash"] = "Passwort geändert. Bitte melde dich an."
     return RedirectResponse("/login", status_code=303)
 
 
@@ -1548,7 +1778,8 @@ async def account_form(request: Request):
     u = users.get(_user(request)) or {}
     return HTMLResponse(_tpls["account"].render(
         **_common(request, "account", "Konto"),
-        current_name=u.get("name") or _user(request)))
+        current_name=u.get("name") or _user(request),
+        twofa=u.get("twofa_enabled", False)))
 
 
 @router.post("/account/name")
