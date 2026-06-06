@@ -48,7 +48,7 @@ LOGO_URL = "https://fb-eng.de/wp-content/uploads/2024/10/FBE_green.png"
 _BASE = """
 <!doctype html><html lang="de"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }} – Projektabrechnung</title>
+<title>{{ title }} – FBE Intranet</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2392c57a'/><text x='16' y='23' font-size='20' text-anchor='middle' fill='%23123018' font-family='Arial,sans-serif' font-weight='bold'>F</text></svg>">
 <meta name="theme-color" content="#92c57a">
 <style>

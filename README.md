@@ -1,6 +1,10 @@
-# TimeMoto Projektabrechnung
+# FBE Intranet
 
-Ein kleiner Dienst, der TimeMoto-Webhooks mitschreibt **und** daraus
+Internes Tool der Flüssigboden Engineering GmbH: **Projektabrechnung** (TimeMoto-
+Zeiten, Berichte, Arcadis-CSV), **Ticketsystem** und **Buchhaltungs-Exporte** –
+mit Microsoft-Login, 2FA und rollenbasierten Rechten.
+
+Ursprünglich ein kleiner Dienst, der TimeMoto-Webhooks mitschreibt **und** daraus
 automatisch einen **wöchentlichen Projekt-Zeitbericht** erzeugt: pro
 Mitarbeiter summierte Stunden für ein Projekt, jede Woche per Mail (oder als
 Datei, solange noch kein Mailversand eingerichtet ist).

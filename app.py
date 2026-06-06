@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 
-app = FastAPI(title="TimeMoto Projektabrechnung", lifespan=lifespan)
+app = FastAPI(title="FBE Intranet", lifespan=lifespan)
 
 # Session-Cookie fuer das Web-Login.
 app.add_middleware(
