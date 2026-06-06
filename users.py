@@ -139,7 +139,7 @@ def create_invite(username: str, role: str = "user", name: str = "",
     """Neuen Nutzer als 'invited' anlegen, Einladungs-Token zurueckgeben.
     None, wenn der Name schon existiert."""
     username = username.strip()
-    role = "admin" if role == "admin" else "user"
+    role = role if role in ("admin", "user", "buchhaltung") else "user"
     with _LOCK:
         users = _load()
         if not username or username in users:

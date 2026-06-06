@@ -156,6 +156,19 @@ _BASE = """
   code{background:rgba(255,255,255,.65);padding:.12rem .4rem;border-radius:7px;
     font-size:.86em}
   .toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  @media (max-width:680px){
+    main{margin:1rem auto;padding:0 .7rem}
+    header{padding:.5rem .8rem}
+    header .brand span{display:none}
+    nav{gap:.1rem;margin-left:.2rem}
+    .navpill{padding:.42rem .6rem;font-size:.85rem}
+    .menu>summary span:not(.avatar){display:none}
+    .card{padding:1rem 1rem;overflow-x:auto}
+    h1{font-size:1.2rem}
+    table{font-size:.86rem;min-width:520px}
+    .row>div{min-width:120px}
+  }
 </style></head><body>
 {% if user %}
 <header>
@@ -163,6 +176,7 @@ _BASE = """
   <nav>
     <a href="/" class="navpill {{ 'active' if page=='dash' }}">Bericht</a>
     <a href="/log" class="navpill {{ 'active' if page=='log' }}">Log</a>
+    {% if is_billing %}<a href="/abrechnung" class="navpill {{ 'active' if page=='abrechnung' }}">Abrechnung</a>{% endif %}
     {% if role=='admin' %}
     <a href="/versand" class="navpill {{ 'active' if page=='send' }}">Senden</a>
     <a href="/reports" class="navpill {{ 'active' if page=='reports' }}">Berichte</a>
@@ -596,8 +610,10 @@ _USERS = """
     <div class="row">
       <div><label>Anzeigename</label><input name="name" placeholder="z. B. Max Mustermann"></div>
       <div><label>Benutzername</label><input name="username" placeholder="z. B. m.mustermann"></div>
-      <div style="flex:0 0 150px;"><label>Rolle</label>
-        <select name="role"><option value="user">user</option><option value="admin">admin</option></select></div>
+      <div style="flex:0 0 160px;"><label>Rolle</label>
+        <select name="role"><option value="user">user</option>
+          <option value="buchhaltung">buchhaltung</option>
+          <option value="admin">admin</option></select></div>
     </div>
     <div class="row">
       <div><label>E-Mail (für Einladung &amp; Erinnerungen)</label><input name="email" type="email" placeholder="max@firma.de"></div>
@@ -752,6 +768,44 @@ ICONS = {
 }
 
 _base_tpl = Template(_BASE)
+_ABRECHNUNG = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <h1>Abrechnung</h1>
+  <p class="muted">Alle Stunden über alle Projekte – nach Bedarf filtern und
+    direkt als Excel oder Arcadis-CSV herunterladen (kein Mailversand).</p>
+  <form method="get">
+    <div class="row">
+      <div><label>Mitarbeiter</label>
+        <select name="employee"><option value="">– alle –</option>
+          {% for e in all_employees %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+        </select></div>
+      <div><label>Projekt</label>
+        <input name="project" placeholder="leer = alle" list="projs">
+        <datalist id="projs">{% for p in all_projects %}<option value="{{ p }}">{% endfor %}</datalist></div>
+      <div style="flex:0 0 160px;"><label>Von</label><input type="date" name="start" value="{{ start_in }}"></div>
+      <div style="flex:0 0 160px;"><label>Bis</label><input type="date" name="end" value="{{ end_in }}"></div>
+    </div>
+    <div style="margin-top:1.2rem;" class="toolbar">
+      <button type="submit" formaction="/export.xlsx">Excel herunterladen</button>
+      <button type="submit" formaction="/export/arcadis.csv" class="ghost">Arcadis-CSV herunterladen</button>
+    </div>
+  </form>
+</div>
+<div class="card glass">
+  <h2>Vorschau ({{ count }} Buchungen · {{ total }})</h2>
+  {% if sessions %}
+  <table><thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
+    <th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th>Tätigkeit</th></tr></thead>
+  <tbody>{% for s in sessions %}<tr><td>{{ s.date }}</td><td>{{ s.employee }}</td>
+    <td>{{ s.project }}</td><td>{{ s.start }}</td><td>{{ s.end }}</td>
+    <td class="num">{{ s.dur }}</td><td>{{ s.description }}</td></tr>{% endfor %}</tbody></table>
+  {% else %}<p class="muted">Keine Buchungen im Filter.</p>{% endif %}
+</div>
+{% endblock %}
+"""
+
 _SETTINGS = """
 {% extends base %}
 {% block body %}
@@ -774,6 +828,7 @@ _tpls = {n: Template(s) for n, s in {
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
+    "abrechnung": _ABRECHNUNG,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
@@ -795,9 +850,11 @@ def _common(request: Request, page: str, title: str):
     nm = request.session.get("name") or _user(request) or "?"
     initials = "".join(w[0] for w in nm.split()[:2]).upper() or nm[:1].upper()
     role = _role(request)
+    role_label = {"admin": "Administrator", "buchhaltung": "Buchhaltung"}.get(
+        role, "Benutzer")
     return dict(user=_user(request), role=role, page=page, title=title,
                 display_name=request.session.get("name"), initials=initials,
-                role_label=("Administrator" if role == "admin" else "Benutzer"),
+                role_label=role_label, is_billing=(role in ("admin", "buchhaltung")),
                 flash=request.session.pop("flash", None),
                 flash_class=request.session.pop("flash_class", ""))
 
@@ -863,6 +920,15 @@ def _need_admin(request: Request):
         return RedirectResponse("/login", status_code=303)
     if _role(request) != "admin":
         return HTMLResponse("Kein Zugriff (nur Admin).", status_code=403)
+    return None
+
+
+def _need_billing(request: Request):
+    """Admin oder Buchhaltung."""
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    if _role(request) not in ("admin", "buchhaltung"):
+        return HTMLResponse("Kein Zugriff.", status_code=403)
     return None
 
 
@@ -1325,6 +1391,29 @@ async def settings_save(request: Request, timezone: str = Form("")):
         request.session["flash"], request.session["flash_class"] = \
             "Ungültige Zeitzone.", "err"
     return RedirectResponse("/einstellungen", status_code=303)
+
+
+@router.get("/abrechnung", response_class=HTMLResponse)
+async def abrechnung(request: Request, employee: str = "", project: str = "",
+                     start: str = "", end: str = ""):
+    if (r := _need_billing(request)):
+        return r
+    s = e = None
+    try:
+        if start:
+            s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
+        if end:
+            e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
+    except ValueError:
+        pass
+    ivs = filter_intervals(s, e, project=project, employee=employee)
+    total = sum(iv.duration_hours for iv in ivs)
+    return HTMLResponse(_tpls["abrechnung"].render(
+        **_common(request, "abrechnung", "Abrechnung"),
+        all_employees=_all_employees(), all_projects=_all_projects(),
+        start_in=start, end_in=end,
+        sessions=[_session_view(iv) for iv in ivs],
+        count=len(ivs), total=_fmt_dur(total)))
 
 
 @router.get("/audit", response_class=HTMLResponse)
