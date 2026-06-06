@@ -736,10 +736,12 @@ _USERS = """
       <div><label>E-Mail (für Einladung &amp; Erinnerungen)</label><input name="email" type="email" placeholder="max@firma.de"></div>
       <div><label>TimeMoto-Name (für Stundenzuordnung)</label><input name="timemoto_name" placeholder="z. B. Max Mustermann"></div>
     </div>
-    <div style="display:flex;gap:1.4rem;margin-top:.6rem;">
-      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_view_tickets" value="1" style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets sehen</label>
-      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_edit_tickets" value="1" style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets bearbeiten</label>
-    </div>
+    <label>Ticket-Zugriff</label>
+    <select name="ticket_access">
+      <option value="none">Kein Zugriff</option>
+      <option value="view">Nur ansehen</option>
+      <option value="edit">Ansehen &amp; bearbeiten</option>
+    </select>
     <p class="muted" style="margin:.5rem 0 0">Ist eine E-Mail angegeben, wird die
       Einladung direkt per Mail versendet (Link 5 Tage gültig).</p>
     <div style="margin-top:1rem;"><button type="submit">Einladung erstellen</button></div>
@@ -910,11 +912,13 @@ _USER_EDIT = """
       <option value="buchhaltung" {{ 'selected' if u.role=='buchhaltung' }}>buchhaltung</option>
       <option value="admin" {{ 'selected' if u.role=='admin' }}>admin</option>
     </select>
-    <label>Ticket-Rechte</label>
-    <div style="display:flex;gap:1.4rem;margin-top:.3rem;">
-      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_view_tickets" value="1" {{ 'checked' if u.can_view_tickets }} style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets sehen</label>
-      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_edit_tickets" value="1" {{ 'checked' if u.can_edit_tickets }} style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets bearbeiten</label>
-    </div>
+    <label>Ticket-Zugriff</label>
+    {% set lvl = 'edit' if u.can_edit_tickets else ('view' if u.can_view_tickets else 'none') %}
+    <select name="ticket_access">
+      <option value="none" {{ 'selected' if lvl=='none' }}>Kein Zugriff</option>
+      <option value="view" {{ 'selected' if lvl=='view' }}>Nur ansehen</option>
+      <option value="edit" {{ 'selected' if lvl=='edit' }}>Ansehen &amp; bearbeiten</option>
+    </select>
     <div class="toolbar" style="margin-top:1.2rem;">
       <button type="submit">Speichern</button>
       <a class="btn ghost" href="/users">Abbrechen</a>
@@ -1921,7 +1925,8 @@ async def ticket_detail(request: Request, tid: int):
     wl_hours = round(sum(_to_float(w.get("hours")) for w in t["worklogs"]), 2)
     wl_km = round(sum(_to_float(w.get("travel_km")) for w in t["worklogs"]), 1)
     assignees = [u["username"] for u in users.list_users()
-                 if u.get("role") == "admin" or u.get("can_edit_tickets")]
+                 if u.get("role") == "admin" or u.get("can_view_tickets")
+                 or u.get("can_edit_tickets")]
     return HTMLResponse(_tpls["ticket"].render(
         **_common(request, "tickets", f"Ticket #{tid}"), t=t,
         can_edit=_tk_edit(request), assignees=assignees,
@@ -2203,12 +2208,13 @@ def _send_invite_mail(request: Request, display: str, email: str, token: str) ->
 async def users_create(request: Request, username: str = Form(""),
                        role: str = Form("user"), name: str = Form(""),
                        email: str = Form(""), timemoto_name: str = Form(""),
-                       can_view_tickets: str = Form(""),
-                       can_edit_tickets: str = Form("")):
+                       ticket_access: str = Form("none")):
     if (r := _need_admin(request)):
         return r
-    token = users.create_invite(username, role, name, email, timemoto_name,
-                                bool(can_view_tickets), bool(can_edit_tickets))
+    token = users.create_invite(
+        username, role, name, email, timemoto_name,
+        can_view_tickets=ticket_access in ("view", "edit"),
+        can_edit_tickets=ticket_access == "edit")
     if token is None:
         request.session["flash"], request.session["flash_class"] = \
             "Benutzername leer oder bereits vergeben.", "err"
@@ -2237,13 +2243,12 @@ async def users_edit_form(request: Request, username: str):
 async def users_edit_save(request: Request, username: str, name: str = Form(""),
                           email: str = Form(""), timemoto_name: str = Form(""),
                           role: str = Form("user"),
-                          can_view_tickets: str = Form(""),
-                          can_edit_tickets: str = Form("")):
+                          ticket_access: str = Form("none")):
     if (r := _need_admin(request)):
         return r
     if users.set_profile(username, name, email, timemoto_name, role,
-                         can_view_tickets=bool(can_view_tickets),
-                         can_edit_tickets=bool(can_edit_tickets)):
+                         can_view_tickets=ticket_access in ("view", "edit"),
+                         can_edit_tickets=ticket_access == "edit"):
         audit.log(_user(request), "Benutzer bearbeitet",
                   f"{username} (Rolle {role}, TimeMoto '{timemoto_name}')")
         request.session["flash"] = f"Benutzer {username} gespeichert."
