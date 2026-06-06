@@ -20,6 +20,7 @@ import urllib.request
 from datetime import datetime
 from email.message import EmailMessage
 
+import audit
 import config
 import downloads
 from report import Report, render_html, render_text, subject
@@ -31,33 +32,50 @@ def _download_block_html(url: str) -> str:
     if not url:
         return ""
     return (
-        f'<div style="margin:18px 0 4px"><a href="{url}" '
-        f'style="display:inline-block;background:{config.BRAND_COLOR};'
-        'color:#123018;font-weight:bold;text-decoration:none;padding:11px 20px;'
-        'border-radius:999px">Bericht als Excel herunterladen</a></div>'
-        '<div style="color:#64748b;font-size:12px;margin-top:6px">'
+        '<table cellpadding="0" cellspacing="0" style="margin:22px 0 6px">'
+        f'<tr><td style="border-radius:999px;background:{config.BRAND_COLOR}">'
+        f'<a href="{url}" style="display:inline-block;color:#123018;'
+        'font-weight:bold;text-decoration:none;padding:13px 26px;'
+        'border-radius:999px;font-size:15px">⬇  Bericht als Excel herunterladen'
+        '</a></td></tr></table>'
+        '<div style="color:#8a98a6;font-size:12px;margin-top:4px">'
         'Der Link führt direkt zum Download dieser Datei.</div>')
 
 
 def _brand_html(inner: str, download_url: str = "") -> str:
-    """Report-HTML in ein gebrandetes Mail-Layout (Logo + Farbe) huellen.
-    Inline-Styles, damit es in Mail-Clients funktioniert."""
+    """Report-HTML in ein gebrandetes Mail-Layout huellen (weisses Logo auf
+    gruenem Header, runde Karte). Inline-Styles fuer Mail-Client-Kompatibilitaet."""
     inner = inner + _download_block_html(download_url)
     return (
-        '<!doctype html><html><body style="margin:0;background:#f5f7f9;'
-        'font-family:Arial,Helvetica,sans-serif;color:#1e293b">'
-        '<table width="100%" cellpadding="0" cellspacing="0" '
-        'style="background:#f5f7f9;padding:24px 0"><tr><td align="center">'
-        '<table width="640" cellpadding="0" cellspacing="0" '
-        'style="background:#fff;border-radius:14px;overflow:hidden;'
-        'border:1px solid #e6eaef;max-width:640px">'
-        f'<tr><td style="background:{config.BRAND_COLOR};padding:16px 24px">'
-        f'<img src="{config.LOGO_URL}" alt="FBE" height="32" '
-        'style="vertical-align:middle;display:inline-block"></td></tr>'
-        f'<tr><td style="padding:22px 24px">{inner}</td></tr>'
-        '<tr><td style="padding:14px 24px;background:#f0f5ec;color:#64748b;'
-        'font-size:12px">Automatischer Bericht · FBE Projektabrechnung</td></tr>'
-        '</table></td></tr></table></body></html>')
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '</head>'
+        '<body style="margin:0;padding:0;background:#eef2f4;'
+        '-webkit-font-smoothing:antialiased;'
+        'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;'
+        'color:#1e293b">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="background:#eef2f4;padding:28px 12px"><tr><td align="center">'
+        '<table role="presentation" width="600" cellpadding="0" cellspacing="0" '
+        'style="background:#ffffff;border-radius:18px;overflow:hidden;'
+        'max-width:600px;box-shadow:0 8px 28px rgba(40,80,40,.10)">'
+        # Header mit Verlauf von Markenfarbe -> dunkler, weisses Logo
+        f'<tr><td style="background:{config.BRAND_COLOR};'
+        f'background-image:linear-gradient(135deg,{config.BRAND_COLOR},'
+        f'{config.BRAND_COLOR_DARK});padding:26px 30px" align="left">'
+        f'<img src="{config.EMAIL_LOGO_URL}" alt="FBE" height="38" '
+        'style="display:block;border:0;outline:none"></td></tr>'
+        # Inhalt
+        f'<tr><td style="padding:26px 30px 30px">{inner}</td></tr>'
+        # Footer
+        '<tr><td style="padding:18px 30px;background:#f4f8f0;color:#7d8a96;'
+        'font-size:12px;line-height:1.5;border-top:1px solid #e6eaef">'
+        'Diese E-Mail wurde automatisch von der <b>FBE Projektabrechnung</b> '
+        'erstellt.</td></tr>'
+        '</table>'
+        '<div style="color:#aab4be;font-size:11px;margin-top:14px">'
+        'FB Engineering · Projektzeiten</div>'
+        '</td></tr></table></body></html>')
 
 
 def _save_to_disk(label: str, text: str, html: str) -> str:
@@ -70,8 +88,17 @@ def _save_to_disk(label: str, text: str, html: str) -> str:
     return str(base)
 
 
-def send(subject_line: str, text: str, html: str,
-         recipients: list[str], label: str = "", download_url: str = "") -> dict:
+def _log_send(actor: str, subject_line: str, result: dict) -> None:
+    rec = ", ".join(result.get("recipients") or [])
+    if result.get("mailed"):
+        audit.log(actor, "Mail gesendet", f"{subject_line} → {rec}")
+    elif result.get("reason") != "no_recipients":
+        audit.log(actor, "Mail fehlgeschlagen",
+                  f"{subject_line} → {rec} ({result.get('reason')})")
+
+
+def send(subject_line: str, text: str, html: str, recipients: list[str],
+         label: str = "", download_url: str = "", actor: str = "System") -> dict:
     """Bericht an konkrete Empfaenger zustellen (Datei + ggf. Mail).
 
     Wird IMMER als Datei gespeichert. Gemailt wird nur, wenn ein SMTP-Server
@@ -90,23 +117,25 @@ def send(subject_line: str, text: str, html: str,
     if not recipients or not has_transport:
         reason = "no_recipients" if not recipients else "no_transport"
         print(f"[report] kein Mailversand ({reason}) -> nur Datei.", flush=True)
-        return {"mailed": False, "reason": reason,
-                "saved_path": saved_path, "recipients": recipients}
-
-    try:
-        if config.BREVO_API_KEY:
-            _send_via_brevo_api(subject_line, text, branded, recipients)
-            via = "Brevo-API"
-        else:
-            via = _send_via_smtp(subject_line, text, branded, recipients)
-        print(f"[report] Mail an {', '.join(recipients)} versendet ({via}).",
-              flush=True)
-        return {"mailed": True, "saved_path": saved_path,
-                "recipients": recipients}
-    except Exception as exc:  # Versand-Fehler nicht eskalieren lassen
-        print(f"[report] FEHLER beim Mailversand: {exc}", flush=True)
-        return {"mailed": False, "reason": f"smtp_error: {exc}",
-                "saved_path": saved_path, "recipients": recipients}
+        result = {"mailed": False, "reason": reason,
+                  "saved_path": saved_path, "recipients": recipients}
+    else:
+        try:
+            if config.BREVO_API_KEY:
+                _send_via_brevo_api(subject_line, text, branded, recipients)
+                via = "Brevo-API"
+            else:
+                via = _send_via_smtp(subject_line, text, branded, recipients)
+            print(f"[report] Mail an {', '.join(recipients)} versendet ({via}).",
+                  flush=True)
+            result = {"mailed": True, "saved_path": saved_path,
+                      "recipients": recipients}
+        except Exception as exc:  # Versand-Fehler nicht eskalieren lassen
+            print(f"[report] FEHLER beim Mailversand: {exc}", flush=True)
+            result = {"mailed": False, "reason": f"smtp_error: {exc}",
+                      "saved_path": saved_path, "recipients": recipients}
+    _log_send(actor, subject_line, result)
+    return result
 
 
 def _send_via_brevo_api(subject_line: str, text: str, html: str,
@@ -164,7 +193,7 @@ def _login_and_send(server: smtplib.SMTP, msg: EmailMessage) -> None:
 
 def send_report(subject_line: str, text: str, html: str, recipients: list[str],
                 xlsx_bytes: bytes | None, filename: str, base_url: str = "",
-                label: str = "") -> dict:
+                label: str = "", actor: str = "System") -> dict:
     """Wie send(), legt aber zusaetzlich die Excel-Datei als tokenisierten
     Download ab und haengt den Link (statt Anhang) in die Mail."""
     url = ""
@@ -172,7 +201,7 @@ def send_report(subject_line: str, text: str, html: str, recipients: list[str],
         token = downloads.register(xlsx_bytes, filename, _XLSX_MIME)
         url = downloads.link(base_url, token)
     return send(subject_line, text, html, recipients, label=label,
-                download_url=url)
+                download_url=url, actor=actor)
 
 
 def deliver(rep: Report) -> dict:

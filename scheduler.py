@@ -36,7 +36,7 @@ def run_report_config(report_id: str) -> dict:
     return mailer.send_report(subject_grouped(rep), render_grouped_text(rep),
                               render_grouped_html(rep), cfg["recipients"],
                               xlsx, fname, base_url=config.PUBLIC_BASE_URL,
-                              label=cfg["name"])
+                              label=cfg["name"], actor="Automatik")
 
 
 def reschedule() -> None:

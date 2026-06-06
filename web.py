@@ -177,7 +177,7 @@ _BASE = """
         {% if role=='admin' %}
         <div class="plabel">Administration</div>
         <a href="/users">{{ icons.users|safe }} Benutzer</a>
-        <a href="/audit">{{ icons.history|safe }} Änderungen</a>
+        <a href="/audit">{{ icons.history|safe }} Verlauf</a>
         {% endif %}
         <div class="pdiv"></div>
         <a href="/logout" class="danger">{{ icons.logout|safe }} Abmelden</a>
@@ -499,7 +499,8 @@ _AUDIT = """
 {% extends base %}
 {% block body %}
 <div class="card glass">
-  <h1>Änderungen (Audit-Log)</h1>
+  <h1>Verlauf</h1>
+  <p class="muted">Alle Änderungen und versendeten Mails – wer, wann, was.</p>
   {% if entries %}
   <table>
     <thead><tr><th>Zeit</th><th>Benutzer</th><th>Aktion</th><th>Details</th></tr></thead>
@@ -910,7 +911,8 @@ async def send_now(request: Request, project: str = Form(""),
         result = mailer.send_report(
             report_subject(rep), render_text(rep), render_html(rep),
             config.REPORT_RECIPIENTS, xlsx, fname,
-            base_url=str(request.base_url), label=project or "alle")
+            base_url=str(request.base_url), label=project or "alle",
+            actor=_user(request))
         request.session["flash"], request.session["flash_class"] = \
             _delivery_flash(result)
     except Exception as exc:
@@ -1191,7 +1193,7 @@ async def versand_send(request: Request, name: str = Form(""),
     fname = f"{(name or 'bericht')}_{s:%Y%m%d}.xlsx".replace(" ", "_")
     result = mailer.send_report(subj, text, html, rlist, xlsx, fname,
                                 base_url=str(request.base_url),
-                                label=name or "Versand")
+                                label=name or "Versand", actor=_user(request))
     request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
     return RedirectResponse("/versand", status_code=303)
 
@@ -1414,7 +1416,7 @@ async def reports_send(request: Request, rid: str):
     result = mailer.send_report(subject_grouped(rep), render_grouped_text(rep),
                                 render_grouped_html(rep), cfg["recipients"],
                                 xlsx, fname, base_url=str(request.base_url),
-                                label=cfg["name"])
+                                label=cfg["name"], actor=_user(request))
     request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
     return RedirectResponse("/reports", status_code=303)
 

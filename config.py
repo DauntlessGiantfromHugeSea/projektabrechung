@@ -15,7 +15,14 @@ from zoneinfo import ZoneInfo
 # Marke (fuer Web-UI und Mail-Design)
 LOGO_URL = os.getenv(
     "LOGO_URL", "https://fb-eng.de/wp-content/uploads/2024/10/FBE_green.png")
+LOGO_URL_WHITE = os.getenv(
+    "LOGO_URL_WHITE", "https://fb-eng.de/wp-content/uploads/2026/02/FBE_white.png")
+LOGO_URL_DARK = os.getenv(
+    "LOGO_URL_DARK", "https://fb-eng.de/wp-content/uploads/2024/10/FBE_midnight.png")
+# Logo fuer Mails (auf gruenem Header -> weisses Logo).
+EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", LOGO_URL_WHITE)
 BRAND_COLOR = os.getenv("BRAND_COLOR", "#92c57a")
+BRAND_COLOR_DARK = os.getenv("BRAND_COLOR_DARK", "#6fa84f")
 
 
 def _bool(name: str, default: bool) -> bool:
