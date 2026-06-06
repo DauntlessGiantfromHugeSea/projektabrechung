@@ -1,27 +1,34 @@
-# Produktiv-Stack: App hinter Caddy mit automatischem HTTPS.
-# Start aus diesem Verzeichnis:  docker compose up --build -d
+# Deployment HINTER dem vorhandenen Reverse-Proxy "fbe-caddy".
 #
-# Caddy terminiert TLS fuer intern.rss-fb.com und leitet intern an die App
-# weiter. Die App selbst veroeffentlicht KEINE Ports mehr -- sie ist nur ueber
-# Caddy erreichbar.
+# Diese App startet KEINEN eigenen Caddy. Sie laeuft nur intern und haengt
+# sich in das Docker-Netz des bestehenden Proxys (fbe-tools_default), damit
+# fbe-caddy sie als "projektabrechnung:8080" erreichen kann.
+#
+# Zusaetzlich wird 8080 NUR auf 127.0.0.1 veroeffentlicht -- so kannst du die
+# /report/*-Endpoints lokal (bzw. per SSH-Tunnel) erreichen, ohne sie ins
+# Internet zu haengen.
+#
+# Start:  docker compose up --build -d
 
 name: projektabrechnung
 
 services:
   app:
-    build: ..                      # baut das Image aus dem Repo-Root
+    build: ..
     container_name: projektabrechnung
     restart: unless-stopped
     expose:
-      - "8080"                     # nur containerintern, nicht zum Host
+      - "8080"                       # erreichbar fuer fbe-caddy im selben Netz
+    ports:
+      - "127.0.0.1:8080:8080"        # nur lokal: fuer /report/* und Tests
     environment:
       # --- Webhook-Empfang ---
       WEBHOOK_PATH: "/timemoto"
-      SHARED_SECRET: ""            # falls TimeMoto ein Secret bietet: hier + dort setzen
+      SHARED_SECRET: ""
       LOG_FILE: "/data/events.jsonl"
 
       # --- Bericht ---
-      PROJECT_CODE: ""             # Projekt(teil)code; leer = alle Projekte
+      PROJECT_CODE: ""               # Projekt(teil)code; leer = alle Projekte
       # PROJECT_FIELD: "projectCode"
       REPORT_DIR: "/data/reports"
       REPORT_TIMEZONE: "Europe/Berlin"
@@ -44,21 +51,11 @@ services:
       REPORT_SUBJECT_PREFIX: "Projektzeiten"
     volumes:
       - ./data:/data
+    networks:
+      - fbe-tools
 
-  caddy:
-    image: caddy:2
-    container_name: projektabrechnung-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"                    # noetig fuer Let's-Encrypt (HTTP-Challenge + Redirect)
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data           # gespeicherte Zertifikate (NICHT loeschen)
-      - caddy_config:/config
-    depends_on:
-      - app
-
-volumes:
-  caddy_data:
-  caddy_config:
+# Das bestehende Netz des fbe-caddy-Stacks einbinden (nicht selbst anlegen).
+networks:
+  fbe-tools:
+    external: true
+    name: fbe-tools_default

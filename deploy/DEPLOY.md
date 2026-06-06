@@ -1,106 +1,101 @@
-# Deployment auf deinem Server (Docker + Caddy + HTTPS)
+# Deployment auf dem Server (hinter dem vorhandenen `fbe-caddy`)
 
-Ziel: Der Dienst läuft als Docker-Container hinter Caddy und ist unter
-`https://intern.rss-fb.com/` erreichbar. TimeMoto schickt seine Webhooks an
-`https://intern.rss-fb.com/timemoto`.
+Auf dem Server läuft bereits ein Reverse-Proxy **`fbe-caddy`** (Caddy), der
+Port 80/443 und das TLS für die anderen Dienste macht. Diese App startet
+deshalb **keinen eigenen Caddy**, sondern wird in `fbe-caddy` eingehängt.
 
-## Voraussetzungen
+Aufbau:
+- App-Container `projektabrechnung` läuft nur intern (Port 8080), im selben
+  Docker-Netz wie `fbe-caddy` (`fbe-tools_default`).
+- `fbe-caddy` bekommt einen Site-Block für `intern.rss-fb.com`, der an
+  `projektabrechnung:8080` weiterleitet und das Zertifikat automatisch holt.
+- 8080 ist zusätzlich nur auf `127.0.0.1` veröffentlicht — für lokale Tests
+  und die `/report/*`-Endpoints (die von außen gesperrt sind).
 
-- Ein Server mit **öffentlicher IPv4** (und optional IPv6) und Docker +
-  Docker-Compose-Plugin.
-- Zugriff auf die **DNS-Verwaltung der Zone `rss-fb.com`**.
-- Die Firewall erlaubt eingehend **TCP 80 und 443** auf den Server.
-  (Port 80 wird für die Let's-Encrypt-Prüfung und den HTTPS-Redirect
-  gebraucht, danach läuft alles über 443.)
+## Voraussetzungen (sind hier bereits erfüllt)
 
-## 1. DNS setzen
+- `intern.rss-fb.com` zeigt per A-Record auf den Server (`202.61.227.170`).
+- `fbe-caddy` bedient 80/443 → ACME funktioniert bereits.
+- Netz: `fbe-tools_default`, Caddyfile: `/opt/fbe-tools/Caddyfile`.
 
-Lege in der Zone `rss-fb.com` einen **A-Record** für den Host `intern` an,
-der auf die **öffentliche IP deines Servers** zeigt:
-
-| Typ | Name (Host) | Wert / Ziel              | TTL  | Proxy |
-|-----|-------------|--------------------------|------|-------|
-| A   | `intern`    | `<ÖFFENTLICHE_IPV4>`     | 3600 | aus   |
-
-- „Name" ist nur der Host-Teil; viele Provider hängen die Zone automatisch an
-  → Ergebnis ist `intern.rss-fb.com`. (Falls dein Panel den vollen Namen
-  will: `intern.rss-fb.com`.)
-- Hast du **IPv6**, zusätzlich einen **AAAA-Record** `intern` → `<IPV6>`.
-- **Cloudflare-Nutzer:** Die orange Wolke (Proxy) für den ersten Start besser
-  **auf „DNS only" (grau)** stellen, damit Caddy das Zertifikat sauber per
-  HTTP-Challenge zieht. Danach kannst du den Proxy optional wieder einschalten.
-- **Kein** CNAME nötig — bei dieser Variante zeigt der Host direkt per A/AAAA
-  auf die Server-IP.
-
-Prüfen, dass es greift (kann je nach TTL ein paar Minuten dauern):
+## 1. App starten
 
 ```bash
-dig +short intern.rss-fb.com        # muss deine Server-IP zeigen
-```
-
-## 2. Code auf den Server holen
-
-```bash
-git clone https://github.com/DauntlessGiantfromHugeSea/projektabrechung.git
-cd projektabrechung
-git checkout claude/relaxed-hawking-VJjx3
+cd ~/projektabrechung && git pull
 cd deploy
+docker compose up --build -d
+docker compose ps        # "projektabrechnung" muss "Up" sein
 ```
 
-## 3. Konfiguration prüfen
-
-- In `Caddyfile` ggf. die `email`-Zeile auf eine echte Kontaktadresse setzen.
-- In `docker-compose.yml` bei Bedarf `PROJECT_CODE`, Zeitzone und Cron-Zeiten
-  anpassen. SMTP kann vorerst leer bleiben (Bericht wird dann nur als Datei in
-  `deploy/data/reports/` abgelegt).
-
-## 4. Starten
+Lokaler Funktionstest (umgeht den Proxy):
 
 ```bash
-docker compose up --build -d
-docker compose logs -f          # Caddy holt jetzt das Zertifikat
+curl http://127.0.0.1:8080/health
 ```
 
-Im Caddy-Log sollte eine Zeile wie „certificate obtained successfully" für
-`intern.rss-fb.com` auftauchen. Test:
+## 2. Block in fbe-caddy eintragen
+
+Die Vorlage liegt in `deploy/fbe-caddy.snippet`. Inhalt an die bestehende
+Caddyfile anhängen:
+
+```bash
+cat ~/projektabrechung/deploy/fbe-caddy.snippet >> /opt/fbe-tools/Caddyfile
+```
+
+Der Block (zur Kontrolle):
+
+```caddy
+intern.rss-fb.com {
+	encode gzip
+	@report_extern {
+		path /report/*
+		not remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/8
+	}
+	respond @report_extern "Forbidden" 403
+	reverse_proxy projektabrechnung:8080
+}
+```
+
+## 3. fbe-caddy neu laden (ohne Downtime)
+
+```bash
+docker exec fbe-caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+Dann prüfen:
 
 ```bash
 curl https://intern.rss-fb.com/health
+docker logs fbe-caddy --tail 20 | grep -i intern   # Zertifikat erhalten?
 ```
 
-## 5. Webhook in TimeMoto eintragen
+`/health` muss `{"status":"ok",...}` liefern.
 
-In der TimeMoto Cloud als Webhook-Ziel eintragen:
+## 4. Webhook in TimeMoto eintragen
 
 ```
 https://intern.rss-fb.com/timemoto
 ```
 
-Danach ein paar Test-Stempelungen machen und prüfen, was ankommt
-(intern, z. B. per SSH-Tunnel oder aus dem LAN — von außen sind die
-`/report/*`-Endpoints absichtlich gesperrt):
+Danach Test-Stempelungen machen und lokal prüfen, was ankommt:
 
 ```bash
-curl https://intern.rss-fb.com/report/inspect   # nur aus internem Netz erlaubt
+curl http://127.0.0.1:8080/report/inspect      # /report/* ist von außen 403
+curl http://127.0.0.1:8080/report/preview
 ```
 
-## Sicherheit / Hinweise
+## Hinweise
 
-- **`/report/*` ist von außen mit 403 gesperrt** (siehe `Caddyfile`), weil
-  diese Endpoints keine eigene Authentifizierung haben. Öffentlich erreichbar
-  sind nur `/timemoto` (Webhook) und `/health`.
-- Setzt TimeMoto ein **Secret**, trag denselben Wert in `SHARED_SECRET` ein.
-- Das Volume **`caddy_data` nicht löschen** — dort liegen die Zertifikate
-  (sonst drohen Let's-Encrypt-Rate-Limits beim Neuausstellen).
-- Die Roh-Events und Berichte liegen in `deploy/data/` — bei Bedarf ins Backup
-  aufnehmen.
+- **`/report/*` ist von außen gesperrt** (403), weil ohne eigene
+  Authentifizierung. Nutze diese Endpoints lokal über `127.0.0.1:8080`
+  (z. B. per SSH-Tunnel: `ssh -L 8080:127.0.0.1:8080 <server>`).
+- **Mailversand** später über die `SMTP_*`- und `REPORT_RECIPIENTS`-Variablen
+  in `docker-compose.yml`. Solange leer, landet der Bericht nur als Datei in
+  `deploy/data/reports/` und im Log.
 
 ## Update einspielen
 
 ```bash
-cd projektabrechung && git pull
+cd ~/projektabrechung && git pull
 cd deploy && docker compose up --build -d
 ```
-
-> Der Compose-Projektname ist auf **`projektabrechnung`** gesetzt (`name:` in
-> `docker-compose.yml`), der App-Container heißt ebenfalls `projektabrechnung`.

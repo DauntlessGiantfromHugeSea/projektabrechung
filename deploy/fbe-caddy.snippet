@@ -1,0 +1,23 @@
+# >>> Block fuer die TimeMoto-Projektabrechnung >>>
+# Diesen Block in /opt/fbe-tools/Caddyfile einfuegen (als eigene Site, auf
+# oberster Ebene, NICHT in einen anderen Block hinein). Danach fbe-caddy neu
+# laden:  docker exec fbe-caddy caddy reload --config /etc/caddy/Caddyfile
+#
+# fbe-caddy holt das Let's-Encrypt-Zertifikat fuer intern.rss-fb.com beim
+# Reload automatisch (Port 80/443 bedient es ja schon fuer die anderen Seiten).
+
+intern.rss-fb.com {
+	encode gzip
+
+	# /report/* hat keine eigene Authentifizierung -> von aussen sperren.
+	# Oeffentlich erreichbar bleiben nur der Webhook (/timemoto) und /health.
+	# Lokal nutzt du /report/* ueber 127.0.0.1:8080 (siehe docker-compose.yml).
+	@report_extern {
+		path /report/*
+		not remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/8
+	}
+	respond @report_extern "Forbidden" 403
+
+	reverse_proxy projektabrechnung:8080
+}
+# <<< Ende Block TimeMoto-Projektabrechnung <<<
