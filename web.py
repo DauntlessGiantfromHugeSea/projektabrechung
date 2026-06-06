@@ -187,6 +187,13 @@ _BASE = """
   code{background:rgba(255,255,255,.65);padding:.12rem .4rem;border-radius:7px;
     font-size:.86em}
   .toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .tdetail{display:grid;grid-template-columns:1fr 330px;gap:1.2rem;align-items:start}
+  .tside .card{position:sticky;top:84px;max-height:calc(100vh - 110px);overflow:auto}
+  .hist{border-left:2px solid rgba(146,197,122,.5);padding:.1rem 0 .1rem .8rem;
+    margin:0 0 .7rem;position:relative}
+  .hist .meta{font-size:.78rem;color:var(--muted)}
+  @media(max-width:900px){.tdetail{grid-template-columns:1fr}
+    .tside .card{position:static;max-height:none}}
   .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
     gap:1.1rem;margin-top:1.3rem}
   .tile{display:block;background:var(--card);
@@ -1107,6 +1114,8 @@ _USER_EDIT = """
   <p class="muted">Benutzername: <b>{{ u.username }}</b> · Status:
     {% if u.status=='active' %}aktiv{% else %}eingeladen{% endif %}</p>
   <form method="post" action="/users/{{ u.username|urlencode }}/edit">
+    <label>Benutzername (Login)</label>
+    <input name="new_username" value="{{ u.username }}">
     <label>Anzeigename</label>
     <input name="name" value="{{ u.name or '' }}">
     <label>E-Mail (für Einladung, Reset &amp; Erinnerungen)</label>
@@ -1284,10 +1293,16 @@ _TICKET_NEW = """
 _TICKET = """
 {% extends base %}
 {% block body %}
+<div class="tdetail">
+<div class="tmain">
 <div class="card glass">
   <div class="toolbar" style="justify-content:space-between;">
     <h1 style="margin:0;">#{{ t.id }} · {{ t.title }}</h1>
-    <a class="btn ghost" href="/tickets">Zurück</a>
+    <div class="toolbar">
+      {% if can_edit %}<form method="post" action="/tickets/{{ t.id }}/delete">
+        <button class="danger" onclick="return confirm('Ticket #{{ t.id }} wirklich löschen?')">Ticket löschen</button></form>{% endif %}
+      <a class="btn ghost" href="/tickets">Zurück</a>
+    </div>
   </div>
   <p style="margin:.5rem 0;">
     <span class="pill s-{{ t.status }}">{{ statuses[t.status] }}</span>
@@ -1382,6 +1397,19 @@ _TICKET = """
     <div style="margin-top:.6rem;"><button type="submit">Aufwand erfassen</button></div>
   </form>
   {% endif %}
+</div>
+</div>
+<aside class="tside">
+  <div class="card glass">
+    <h2>Verlauf</h2>
+    {% for h in t.history|reverse %}
+      <div class="hist">
+        <div class="meta">{{ h.at_disp }} · <b>{{ h.by }}</b></div>
+        <div>{{ h.text }}</div>
+      </div>
+    {% else %}<p class="muted">Noch keine Aktivität.</p>{% endfor %}
+  </div>
+</aside>
 </div>
 {% endblock %}
 """
@@ -2247,6 +2275,8 @@ async def ticket_detail(request: Request, tid: int):
     t["created_disp"] = _disp(t.get("created_at", ""))
     t["updated_disp"] = _disp(t.get("updated_at", ""))
     t["comments"] = [dict(c, at_disp=_disp(c.get("at", ""))) for c in t["comments"]]
+    t["history"] = [dict(h, at_disp=_disp(h.get("at", "")))
+                    for h in t.get("history", [])]
     wl_hours = round(sum(_to_float(w.get("hours")) for w in t["worklogs"]), 2)
     wl_km = round(sum(_to_float(w.get("travel_km")) for w in t["worklogs"]), 1)
     assignees = [u["username"] for u in users.list_users()
@@ -2272,6 +2302,18 @@ async def ticket_edit(request: Request, tid: int, status: str = Form(""),
     tickets.update_fields(tid, status=status, priority=priority,
                           category=category, assigned_to=assigned_to)
     audit.log(_user(request), "Ticket geändert", f"#{tid} -> {status}")
+    who = request.session.get("name") or _user(request)
+    chg = []
+    if status and status != old.get("status"):
+        chg.append(f"Status → {tickets.STATUSES.get(status, status)}")
+    if priority and priority != old.get("priority"):
+        chg.append(f"Priorität → {tickets.PRIORITIES.get(priority, priority)}")
+    if category and category != old.get("category"):
+        chg.append(f"Kategorie → {tickets.CATEGORIES.get(category, category)}")
+    if assigned_to != old.get("assigned_to"):
+        chg.append("Bearbeiter → " + (assigned_to or "—"))
+    if chg:
+        tickets.log_event(tid, who, "; ".join(chg))
     if (assigned_to and assigned_to != old.get("assigned_to")
             and assigned_to != _user(request)):
         _notify_ticket_assignee(request, tid, assigned_to)
@@ -2291,6 +2333,8 @@ async def ticket_status(request: Request, tid: int, status: str = Form("")):
         return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
     tickets.update_fields(tid, status=status)
     audit.log(_user(request), "Ticket-Status", f"#{tid} -> {status}")
+    tickets.log_event(tid, request.session.get("name") or _user(request),
+                      f"Status → {tickets.STATUSES.get(status, status)}")
     if status == "closed":
         n = tickets.purge_attachments(tid)
         if n:
@@ -2306,7 +2350,9 @@ async def ticket_assign_me(request: Request, tid: int):
     if not _tk_edit(request):
         return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
     tickets.update_fields(tid, assigned_to=_user(request))
+    who = request.session.get("name") or _user(request)
     audit.log(_user(request), "Ticket zugewiesen", f"#{tid} -> {_user(request)}")
+    tickets.log_event(tid, who, "hat sich selbst als Bearbeiter eingetragen")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
@@ -2314,7 +2360,9 @@ async def ticket_assign_me(request: Request, tid: int):
 async def ticket_comment(request: Request, tid: int, body: str = Form("")):
     if (r := _need_tickets(request)):
         return r
-    tickets.add_comment(tid, _user(request), body)
+    if tickets.add_comment(tid, _user(request), body):
+        tickets.log_event(tid, request.session.get("name") or _user(request),
+                          "Kommentar hinzugefügt")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
@@ -2326,8 +2374,12 @@ async def ticket_worklog(request: Request, tid: int, date: str = Form(""),
         return r
     if not _tk_edit(request):
         return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
-    tickets.add_worklog(tid, _user(request), date, _to_float(travel_km),
-                        _to_float(hours), material, description)
+    km, hrs = _to_float(travel_km), _to_float(hours)
+    tickets.add_worklog(tid, _user(request), date, km, hrs, material, description)
+    detail = f"Aufwand erfasst: {hrs} Std, {km} km"
+    if material.strip():
+        detail += f", Material: {material.strip()[:40]}"
+    tickets.log_event(tid, request.session.get("name") or _user(request), detail)
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
@@ -2337,8 +2389,26 @@ async def ticket_worklog_delete(request: Request, tid: int, wid: str):
         return r
     if not _tk_edit(request):
         return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    t = tickets.get(tid) or {}
+    w = next((x for x in t.get("worklogs", []) if x.get("id") == wid), None)
     tickets.delete_worklog(tid, wid)
+    if w:
+        tickets.log_event(tid, request.session.get("name") or _user(request),
+                          f"Aufwand gelöscht: {w.get('hours')} Std, "
+                          f"{w.get('travel_km')} km")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.post("/tickets/{tid:int}/delete")
+async def ticket_delete(request: Request, tid: int):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    tickets.delete(tid)
+    audit.log(_user(request), "Ticket gelöscht", f"#{tid}")
+    request.session["flash"] = f"Ticket #{tid} gelöscht."
+    return RedirectResponse("/tickets", status_code=303)
 
 
 @router.post("/tickets/{tid:int}/attach")
@@ -2361,6 +2431,8 @@ async def ticket_attach(request: Request, tid: int, file: UploadFile = File(...)
     stored.write_bytes(content)
     tickets.add_attachment(tid, safe, str(stored), _user(request))
     audit.log(_user(request), "Ticket-Anhang", f"#{tid}: {safe}")
+    tickets.log_event(tid, request.session.get("name") or _user(request),
+                      f"Anhang hochgeladen: {safe}")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
@@ -2388,6 +2460,8 @@ async def ticket_attachment_delete(request: Request, tid: int, att_id: str):
             Path(a["stored"]).unlink(missing_ok=True)
         except Exception:
             pass
+        tickets.log_event(tid, request.session.get("name") or _user(request),
+                          f"Anhang gelöscht: {a.get('filename', '')}")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
@@ -2678,13 +2752,26 @@ async def users_edit_form(request: Request, username: str):
 
 
 @router.post("/users/{username}/edit")
-async def users_edit_save(request: Request, username: str, name: str = Form(""),
+async def users_edit_save(request: Request, username: str,
+                          new_username: str = Form(""), name: str = Form(""),
                           email: str = Form(""), timemoto_name: str = Form(""),
                           role: str = Form("user"),
                           ticket_access: str = Form("none")):
     if (r := _need_admin(request)):
         return r
-    if users.set_profile(username, name, email, timemoto_name, role,
+    target = username
+    nu = (new_username or "").strip()
+    if nu and nu != username:
+        ok, err = users.rename(username, nu)
+        if ok:
+            tickets.rename_user(username, nu)
+            if _user(request) == username:
+                request.session["user"] = nu
+            target = nu
+        else:
+            request.session["flash"], request.session["flash_class"] = err, "err"
+            return RedirectResponse(f"/users/{username}/edit", status_code=303)
+    if users.set_profile(target, name, email, timemoto_name, role,
                          can_view_tickets=ticket_access in ("view", "edit"),
                          can_edit_tickets=ticket_access == "edit"):
         audit.log(_user(request), "Benutzer bearbeitet",
@@ -2875,6 +2962,14 @@ async def invite_submit(request: Request, token: str, new1: str = Form(""),
             "Passwort min. 8 Zeichen und beide Felder gleich.", "err"
         return RedirectResponse(f"/invite/{token}", status_code=303)
     users.set_password(u["username"], new1)
-    _finalize_login(request, users.get(u["username"]) or u)
+    u2 = users.get(u["username"]) or u
+    # 2FA ist Pflicht: externe/lokale Konten richten sie direkt nach dem
+    # Aktivieren ein (Microsoft-Konten laufen nie hier durch).
+    if config.TWOFA_REQUIRED and not u2.get("twofa_enabled"):
+        request.session.clear()
+        request.session["pending_user"] = u2["username"]
+        request.session["flash"] = "Konto aktiviert. Bitte jetzt 2FA einrichten."
+        return RedirectResponse("/2fa/setup", status_code=303)
+    _finalize_login(request, u2)
     request.session["flash"] = "Konto aktiviert. Willkommen!"
     return RedirectResponse("/start", status_code=303)

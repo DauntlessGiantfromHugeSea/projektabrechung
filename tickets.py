@@ -86,10 +86,19 @@ def create(title: str, description: str, priority: str, category: str,
             "status": "open", "created_by": created_by, "assigned_to": None,
             "created_at": _now(), "updated_at": _now(),
             "comments": [], "worklogs": [], "attachments": [],
+            "history": [{"at": _now(), "by": created_by, "text": "Ticket erstellt"}],
         }
         data["tickets"].append(ticket)
         _save(data)
     return ticket
+
+
+def log_event(ticket_id: int, by: str, text: str) -> None:
+    """Aktivitaet im Ticket-Verlauf festhalten (wer/wann/was)."""
+    def fn(t):
+        t.setdefault("history", []).append(
+            {"at": _now(), "by": by, "text": text})
+    _update(ticket_id, fn)
 
 
 def _update(ticket_id: int, fn) -> bool:
@@ -185,6 +194,43 @@ def find_attachment(ticket_id: int, att_id: str) -> dict | None:
         if a.get("id") == att_id:
             return a
     return None
+
+
+def delete(ticket_id: int) -> bool:
+    """Ticket komplett loeschen (inkl. Anhang-Dateien)."""
+    with _LOCK:
+        data = _load()
+        before = len(data["tickets"])
+        for t in data["tickets"]:
+            if t.get("id") == ticket_id:
+                for a in t.get("attachments", []):
+                    try:
+                        os.remove(a.get("stored", ""))
+                    except OSError:
+                        pass
+        data["tickets"] = [t for t in data["tickets"] if t.get("id") != ticket_id]
+        if len(data["tickets"]) != before:
+            _save(data)
+            return True
+    return False
+
+
+def rename_user(old: str, new: str) -> None:
+    """Benutzernamen in allen Tickets (Ersteller/Bearbeiter/Autor) anpassen."""
+    with _LOCK:
+        data = _load()
+        for t in data["tickets"]:
+            if t.get("created_by") == old:
+                t["created_by"] = new
+            if t.get("assigned_to") == old:
+                t["assigned_to"] = new
+            for c in t.get("comments", []):
+                if c.get("author") == old:
+                    c["author"] = new
+            for w in t.get("worklogs", []):
+                if w.get("performed_by") == old:
+                    w["performed_by"] = new
+        _save(data)
 
 
 def counts_by_status() -> dict[str, int]:

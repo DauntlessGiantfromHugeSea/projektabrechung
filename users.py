@@ -267,6 +267,26 @@ def consume_reset(token: str, new_password: str) -> str | None:
     return None
 
 
+def rename(old: str, new: str) -> tuple[bool, str]:
+    """Benutzername (Login) aendern. Liefert (ok, fehler)."""
+    new = (new or "").strip()
+    if not new:
+        return False, "Benutzername darf nicht leer sein."
+    if new == old:
+        return True, ""
+    with _LOCK:
+        users = _load()
+        if old not in users:
+            return False, "Benutzer nicht gefunden."
+        if new in users:
+            return False, "Benutzername ist bereits vergeben."
+        entry = users.pop(old)
+        entry["username"] = new
+        users[new] = entry
+        _save(users)
+    return True, ""
+
+
 def by_email(email: str) -> dict[str, Any] | None:
     email = (email or "").strip().lower()
     if not email:

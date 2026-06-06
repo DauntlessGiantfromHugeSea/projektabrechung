@@ -27,6 +27,8 @@ def collect_intervals() -> list[Interval]:
     hidden = manual.hidden_ids()
     ivs = [iv for iv in pair_intervals(_punches()) if iv.id not in hidden]
     ivs += manual.to_intervals()
+    if config.REQUIRE_PROJECT:
+        ivs = [iv for iv in ivs if (iv.project or "").strip()]
     desc = activities.mapping()
     for iv in ivs:
         if iv.id in desc:
@@ -36,7 +38,10 @@ def collect_intervals() -> list[Interval]:
 
 def collect_open() -> list[OpenPunch]:
     """Offene Stempelungen (eingestempelt, noch nicht ausgestempelt)."""
-    return open_punches(_punches())
+    opens = open_punches(_punches())
+    if config.REQUIRE_PROJECT:
+        opens = [o for o in opens if (o.project or "").strip()]
+    return opens
 
 
 @dataclass

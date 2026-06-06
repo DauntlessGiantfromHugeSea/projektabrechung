@@ -74,6 +74,9 @@ PROJECT_CODE = os.getenv("PROJECT_CODE", "").strip()
 # Nur noetig, wenn die Auto-Erkennung das falsche Feld erwischt.
 PROJECT_FIELD = os.getenv("PROJECT_FIELD", "").strip()
 
+# Buchungen ohne Projekt nicht erfassen (werden ueberall ausgeblendet).
+REQUIRE_PROJECT = _bool("REQUIRE_PROJECT", True)
+
 # Zeitzone fuer Wochengrenzen und Anzeige.
 TIMEZONE = ZoneInfo(os.getenv("REPORT_TIMEZONE", "Europe/Berlin"))
 
