@@ -781,6 +781,23 @@ def _fmt_dur(hours: float) -> str:
     return f"{m // 60}:{m % 60:02d} h"
 
 
+def _delivery_flash(result: dict) -> tuple[str, str]:
+    """Aus dem Zustell-Ergebnis eine verstaendliche Meldung bauen."""
+    if result.get("mailed"):
+        return f"Bericht an {', '.join(result['recipients'])} versendet.", ""
+    reason = result.get("reason", "") or "unbekannt"
+    if reason == "no_smtp_host":
+        m = "SMTP nicht konfiguriert (SMTP_HOST in deploy/.env setzen, neu starten)"
+    elif reason == "no_recipients":
+        m = "keine Empfänger angegeben"
+    elif reason.startswith("smtp_error"):
+        m = "SMTP-Fehler: " + reason.split(":", 1)[1].strip()
+    else:
+        m = reason
+    return (f"NICHT per Mail gesendet ({m}). Als Datei gespeichert: "
+            f"{result.get('saved_path', '')}", "err")
+
+
 def _need_login(request: Request):
     return None if _user(request) else RedirectResponse("/login", status_code=303)
 
@@ -893,10 +910,8 @@ async def send_now(request: Request, project: str = Form(""),
             report_subject(rep), render_text(rep), render_html(rep),
             config.REPORT_RECIPIENTS, xlsx, fname,
             base_url=str(request.base_url), label=project or "alle")
-        request.session["flash"] = (
-            f"Bericht an {', '.join(result['recipients'])} versendet."
-            if result.get("mailed")
-            else f"Als Datei gespeichert: {result.get('saved_path')}")
+        request.session["flash"], request.session["flash_class"] = \
+            _delivery_flash(result)
     except Exception as exc:
         request.session["flash"] = f"Fehler beim Senden: {exc}"
         request.session["flash_class"] = "err"
@@ -1176,10 +1191,7 @@ async def versand_send(request: Request, name: str = Form(""),
     result = mailer.send_report(subj, text, html, rlist, xlsx, fname,
                                 base_url=str(request.base_url),
                                 label=name or "Versand")
-    request.session["flash"] = (
-        f"Bericht an {', '.join(result['recipients'])} versendet."
-        if result.get("mailed")
-        else f"Als Datei gespeichert (kein Mailversand): {result.get('saved_path')}")
+    request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
     return RedirectResponse("/versand", status_code=303)
 
 
@@ -1402,11 +1414,7 @@ async def reports_send(request: Request, rid: str):
                                 render_grouped_html(rep), cfg["recipients"],
                                 xlsx, fname, base_url=str(request.base_url),
                                 label=cfg["name"])
-    request.session["flash"] = (
-        f"'{cfg['name']}' an {', '.join(result['recipients'])} versendet."
-        if result.get("mailed")
-        else f"'{cfg['name']}' als Datei gespeichert (kein Mailversand): "
-             f"{result.get('saved_path')}")
+    request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
     return RedirectResponse("/reports", status_code=303)
 
 

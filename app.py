@@ -76,6 +76,10 @@ async def health():
         "time": _now(),
         "scheduler_enabled": config.SCHEDULER_ENABLED,
         "mail_configured": config.mail_configured(),
+        "smtp_host_set": bool(config.SMTP_HOST),
+        "smtp_host": config.SMTP_HOST or "(leer)",
+        "smtp_from": config.SMTP_FROM or "(leer)",
+        "default_recipients": config.REPORT_RECIPIENTS,
         "project_filter": config.PROJECT_CODE or "(alle)",
     }
 
