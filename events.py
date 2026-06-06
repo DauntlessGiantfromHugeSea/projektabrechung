@@ -18,29 +18,44 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import config
 
 # Feldnamen-Kandidaten (alles lowercase verglichen). Reihenfolge = Prioritaet.
+# Die ersten Eintraege sind die von TimeMoto v2 Cloud tatsaechlich genutzten.
 _TIME_KEYS = [
+    # TimeMoto: timeInserted ist sauberes UTC ("...Z"), timeLogged lokal.
+    "timeinserted", "timelogged", "timeloggedrounded",
     "timestamp", "datetime", "date_time", "punchtime", "punch_time",
-    "eventtime", "event_time", "occurredat", "occurred_at", "time", "date",
-    "clocktime", "clock_time", "createdat", "created_at",
+    "eventtime", "event_time", "occurredat", "occurred_at",
+    "time", "date", "clocktime", "clock_time", "createdat", "created_at",
+    "dispatchedat",
 ]
 _EMPLOYEE_KEYS = [
-    "employeename", "employee_name", "username", "user_name", "fullname",
-    "full_name", "employee", "user", "name", "employeeid", "employee_id",
+    # TimeMoto: userFullName ("Vorname Nachname").
+    "userfullname", "employeename", "employee_name", "fullname", "full_name",
+    "username", "user_name", "userfirstname", "useremployeenumber",
+    "employee", "user", "name", "employeeid", "employee_id",
     "userid", "user_id", "personid", "person_id", "badge",
 ]
 _PROJECT_KEYS = [
-    "projectcode", "project_code", "projectname", "project_name", "project",
+    # TimeMoto: projectName ("26344 - ..."), projectCode ("5543"), projectId.
+    "projectname", "project_name", "projectcode", "project_code", "project",
     "workcode", "work_code", "costcenter", "cost_center", "job", "jobcode",
     "task", "activity", "projectid", "project_id",
 ]
 _DIRECTION_KEYS = [
-    "direction", "inout", "in_out", "punchtype", "punch_type", "action",
-    "type", "event", "eventtype", "event_type", "status", "state", "kind",
+    # TimeMoto: clockingType ("In"/"Out").
+    "clockingtype", "direction", "inout", "in_out", "punchtype", "punch_type",
+    "action", "type", "event", "eventtype", "event_type", "status", "state",
+    "kind",
 ]
+# Schluessel, der Ein-/Ausstempeln eines Vorgangs verbindet (TimeMoto liefert
+# das selbst -> exakte Paarung statt Heuristik).
+_PAIR_KEYS = ["clockingpairid", "pairid", "pair_id", "sessionid", "session_id"]
+# Zeitzonen-Feld (fuer Zeitstempel ohne explizite Zone).
+_TZ_KEYS = ["timezone", "time_zone", "tz"]
 
 # Wertemuster, die "kommt rein" bzw. "geht raus" bedeuten.
 _IN_VALUES = {"in", "clockin", "clock_in", "checkin", "check_in", "start",
@@ -57,6 +72,7 @@ class Punch:
     employee: str
     project: str | None
     direction: str | None  # "in" | "out" | None
+    pair_id: str | None    # verbindet Ein-/Ausstempeln eines Vorgangs
     raw: dict[str, Any]
 
 
@@ -97,8 +113,21 @@ def _find_first(obj: Any, candidate_keys: list[str]) -> Any:
     return None
 
 
-def _parse_time(value: Any) -> datetime | None:
-    """Verschiedene Zeitformate tolerant nach UTC-aware datetime parsen."""
+def _zone(name: str | None) -> ZoneInfo | None:
+    if not name:
+        return None
+    try:
+        return ZoneInfo(str(name))
+    except Exception:
+        return None
+
+
+def _parse_time(value: Any, tz_name: str | None = None) -> datetime | None:
+    """Verschiedene Zeitformate tolerant nach aware datetime parsen.
+
+    Zeitstempel ohne explizite Zone werden in tz_name interpretiert (falls
+    angegeben), sonst als UTC.
+    """
     if value is None:
         return None
     # Epoch (Sekunden oder Millisekunden)
@@ -111,19 +140,24 @@ def _parse_time(value: Any) -> datetime | None:
         s = value.strip()
         if not s:
             return None
-        # ISO 8601 (inkl. "Z")
+        dt: datetime | None = None
         try:
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
         except ValueError:
-            pass
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
-                    "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M",
-                    "%Y/%m/%d %H:%M:%S", "%m/%d/%Y %H:%M:%S"):
-            try:
-                return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-            except ValueError:
-                continue
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                        "%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M:%S",
+                        "%d.%m.%Y %H:%M", "%Y/%m/%d %H:%M:%S",
+                        "%m/%d/%Y %H:%M:%S"):
+                try:
+                    dt = datetime.strptime(s, fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_zone(tz_name) or timezone.utc)
+        return dt
     return None
 
 
@@ -172,7 +206,8 @@ def normalize(record: dict[str, Any]) -> Punch | None:
     if not isinstance(body, (dict, list)):
         return None
 
-    when = _parse_time(_find_first(body, _TIME_KEYS))
+    tz_name = _find_first(body, _TZ_KEYS)
+    when = _parse_time(_find_first(body, _TIME_KEYS), tz_name)
     if when is None:
         # Fallback: Empfangszeit des Webhooks
         when = _parse_time(record.get("received_at"))
@@ -180,55 +215,75 @@ def normalize(record: dict[str, Any]) -> Punch | None:
         return None
 
     employee = _find_first(body, _EMPLOYEE_KEYS)
-    employee = str(employee) if employee is not None else "unbekannt"
+    employee = str(employee).strip() if employee is not None else "unbekannt"
 
     project_keys = [config.PROJECT_FIELD.lower()] if config.PROJECT_FIELD else _PROJECT_KEYS
     project = _find_first(body, project_keys)
-    project = str(project) if project not in (None, "") else None
+    project = str(project).strip() if project not in (None, "") else None
 
     direction = _parse_direction(_find_first(body, _DIRECTION_KEYS))
 
+    pair_id = _find_first(body, _PAIR_KEYS)
+    pair_id = str(pair_id) if pair_id not in (None, "") else None
+
     return Punch(time=when, employee=employee, project=project,
-                 direction=direction, raw=body if isinstance(body, dict) else {"_": body})
+                 direction=direction, pair_id=pair_id,
+                 raw=body if isinstance(body, dict) else {"_": body})
 
 
 def pair_intervals(punches: list[Punch]) -> list[Interval]:
-    """Stempelungen pro Mitarbeiter zeitlich paaren (in -> out).
+    """Stempelungen zu Arbeitsintervallen paaren.
 
-    Strategie:
-    - Pro Mitarbeiter chronologisch sortieren.
-    - Wenn Richtungen bekannt sind: 'in' oeffnet, naechstes 'out' schliesst.
-    - Wenn Richtungen unbekannt sind: paarweise (1./2., 3./4., ...) paaren.
-    Das Projekt des Intervalls stammt aus der Einstempel-Stempelung (oder,
-    falls dort leer, aus der Ausstempel-Stempelung).
+    Bevorzugt wird der von TimeMoto gelieferte ``clockingPairId``: alle
+    Stempelungen mit derselben pair_id gehoeren zu einem Vorgang -> Start =
+    fruehestes Ein-/erstes Event, Ende = spaetestes Aus-/letztes Event. Das
+    ist robust gegen doppelt zugestellte Events.
+
+    Gibt es keine pair_id, faellt es auf die Heuristik zurueck: pro
+    Mitarbeiter chronologisch, 'in' oeffnet und 'out' schliesst (bzw. ohne
+    Richtungsinfo paarweise).
     """
-    by_employee: dict[str, list[Punch]] = {}
-    for p in punches:
-        by_employee.setdefault(p.employee, []).append(p)
-
+    paired = [p for p in punches if p.pair_id]
+    unpaired = [p for p in punches if not p.pair_id]
     intervals: list[Interval] = []
+
+    # 1) Exakte Paarung ueber pair_id
+    groups: dict[tuple[str, str], list[Punch]] = {}
+    for p in paired:
+        groups.setdefault((p.employee, p.pair_id), []).append(p)  # type: ignore[arg-type]
+    for (employee, _pid), plist in groups.items():
+        plist.sort(key=lambda x: x.time)
+        ins = [p for p in plist if p.direction == "in"]
+        outs = [p for p in plist if p.direction == "out"]
+        if ins and outs:
+            start, end = min(p.time for p in ins), max(p.time for p in outs)
+        elif len(plist) >= 2:
+            start, end = plist[0].time, plist[-1].time
+        else:
+            continue  # offener Vorgang (nur Ein- oder nur Ausstempeln)
+        project = next((p.project for p in plist if p.project), None)
+        intervals.append(Interval(employee, project, start, end))
+
+    # 2) Heuristik fuer Events ohne pair_id
+    by_employee: dict[str, list[Punch]] = {}
+    for p in unpaired:
+        by_employee.setdefault(p.employee, []).append(p)
     for employee, plist in by_employee.items():
         plist.sort(key=lambda x: x.time)
-        have_directions = any(p.direction for p in plist)
-
-        if have_directions:
+        if any(p.direction for p in plist):
             open_in: Punch | None = None
             for p in plist:
                 if p.direction == "in":
                     open_in = p
                 elif p.direction == "out" and open_in is not None:
                     intervals.append(Interval(
-                        employee=employee,
-                        project=open_in.project or p.project,
-                        start=open_in.time, end=p.time))
+                        employee, open_in.project or p.project,
+                        open_in.time, p.time))
                     open_in = None
         else:
-            # Ohne Richtungsinfo: schlicht paarweise.
             for i in range(0, len(plist) - 1, 2):
                 a, b = plist[i], plist[i + 1]
-                intervals.append(Interval(
-                    employee=employee,
-                    project=a.project or b.project,
-                    start=a.time, end=b.time))
+                intervals.append(Interval(employee, a.project or b.project,
+                                          a.time, b.time))
 
     return intervals
