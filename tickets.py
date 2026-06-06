@@ -9,6 +9,7 @@ Datum, Anfahrt km, Stunden, Material, Tätigkeit). Datei-Anhänge folgen separat
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import threading
 from datetime import datetime, timezone
@@ -156,6 +157,24 @@ def delete_attachment(ticket_id: int, att_id: str) -> dict | None:
                             if a.get("id") != att_id]
     _update(ticket_id, fn)
     return removed or None
+
+
+def purge_attachments(ticket_id: int) -> int:
+    """Alle Anhang-Dateien eines Tickets loeschen + Liste leeren (z. B. beim
+    Schliessen, um Speicher zu sparen). Liefert Anzahl entfernter Dateien."""
+    removed = 0
+
+    def fn(t):
+        nonlocal removed
+        for a in t.get("attachments", []):
+            try:
+                os.remove(a.get("stored", ""))
+            except OSError:
+                pass
+            removed += 1
+        t["attachments"] = []
+    _update(ticket_id, fn)
+    return removed
 
 
 def find_attachment(ticket_id: int, att_id: str) -> dict | None:

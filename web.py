@@ -1212,7 +1212,8 @@ _TICKET = """
     <span class="pill p-{{ t.priority }}">{{ priorities[t.priority] }}</span>
     <span class="pill role">{{ categories[t.category] }}</span></p>
   <p class="muted">Erstellt von {{ t.created_by }} · {{ t.created_disp }}
-    {% if t.assigned_to %} · Bearbeiter: <b>{{ t.assigned_to }}</b>{% endif %}</p>
+    {% if t.assigned_to %} · Bearbeiter: <b>{{ t.assigned_to }}</b>{% endif %}
+    · zuletzt aktualisiert {{ t.updated_disp }}</p>
   {% if can_edit %}
   <div class="toolbar" style="margin-top:.6rem;">
     {% for k,v in statuses.items() %}
@@ -1258,6 +1259,8 @@ _TICKET = """
 
 <div class="card glass">
   <h2>Anhänge</h2>
+  <p class="muted" style="margin-top:-.3rem;">Hinweis: Anhänge werden beim
+    <b>Schließen</b> des Tickets automatisch gelöscht (Speicher sparen).</p>
   {% for a in t.attachments %}
     <div style="display:flex;align-items:center;gap:.6rem;border-bottom:1px solid var(--line);padding:.45rem 0;">
       <a href="/tickets/{{ t.id }}/attachment/{{ a.id }}">{{ a.filename }}</a>
@@ -1272,19 +1275,20 @@ _TICKET = """
   </form>
 </div>
 
-{% if can_edit %}
 <div class="card glass">
-  <h2>Aufwand · Summe {{ wl_hours }} Std, {{ wl_km }} km</h2>
+  <h2>Bearbeitungsstand &amp; Aufwand · Summe {{ wl_hours }} Std, {{ wl_km }} km</h2>
   {% if t.worklogs %}<div class="tablewrap"><table>
     <thead><tr><th>Datum</th><th>Bearbeiter</th><th class="num">Anfahrt km</th>
-      <th class="num">Stunden</th><th>Material</th><th>Tätigkeit</th><th></th></tr></thead>
+      <th class="num">Stunden</th><th>Material</th><th>Tätigkeit</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
     <tbody>{% for w in t.worklogs %}<tr>
       <td>{{ w.date }}</td><td class="muted">{{ w.performed_by }}</td>
       <td class="num">{{ w.travel_km }}</td><td class="num">{{ w.hours }}</td>
       <td>{{ w.material }}</td><td>{{ w.description }}</td>
-      <td><form method="post" action="/tickets/{{ t.id }}/worklog/{{ w.id }}/delete">
-        <button class="danger" onclick="return confirm('Eintrag löschen?')">löschen</button></form></td>
-    </tr>{% endfor %}</tbody></table></div>{% endif %}
+      {% if can_edit %}<td><form method="post" action="/tickets/{{ t.id }}/worklog/{{ w.id }}/delete">
+        <button class="danger" onclick="return confirm('Eintrag löschen?')">löschen</button></form></td>{% endif %}
+    </tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="muted">Noch keine Aufwands-/Bearbeitungseinträge.</p>{% endif %}
+  {% if can_edit %}
   <form method="post" action="/tickets/{{ t.id }}/worklog" style="margin-top:.8rem;">
     <div class="row">
       <div style="flex:0 0 160px;"><label>Datum</label><input type="date" name="date" value="{{ today }}"></div>
@@ -1295,8 +1299,8 @@ _TICKET = """
     <label>Tätigkeit</label><textarea name="description"></textarea>
     <div style="margin-top:.6rem;"><button type="submit">Aufwand erfassen</button></div>
   </form>
+  {% endif %}
 </div>
-{% endif %}
 {% endblock %}
 """
 
@@ -2088,6 +2092,26 @@ _TZ_ZONES = ["Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Europe/Paris",
 
 # --- Tickets ---------------------------------------------------------------
 
+def _notify_ticket_assignee(request: Request, tid: int, assignee: str) -> None:
+    u = users.get(assignee)
+    if not u or not u.get("email"):
+        return
+    t = tickets.get(tid) or {}
+    link = f"{config.PUBLIC_BASE_URL}/tickets/{tid}"
+    title = t.get("title", "")
+    subj = f"Ticket #{tid} wurde dir zugewiesen"
+    text = (f"Hallo {u.get('name') or assignee},\n\ndir wurde Ticket #{tid} "
+            f"„{title}“ zugewiesen.\n{link}\n")
+    html = (f"<p>Hallo {escape(u.get('name') or assignee)},</p>"
+            f"<p>dir wurde Ticket <b>#{tid}</b> „{escape(title)}“ zugewiesen.</p>"
+            f'<p><a href="{link}" style="display:inline-block;'
+            f'background:{config.BRAND_COLOR};color:#123018;font-weight:bold;'
+            'text-decoration:none;padding:11px 22px;border-radius:999px">'
+            "Ticket öffnen</a></p>")
+    mailer.send(subj, text, html, [u["email"]], label="Ticket-Zuweisung",
+                actor=_user(request))
+
+
 @router.get("/tickets", response_class=HTMLResponse)
 async def tickets_list(request: Request, status: str = "", q: str = ""):
     if (r := _need_tickets(request)):
@@ -2130,6 +2154,7 @@ async def ticket_detail(request: Request, tid: int):
         return RedirectResponse("/tickets", status_code=303)
     t = dict(t)
     t["created_disp"] = _disp(t.get("created_at", ""))
+    t["updated_disp"] = _disp(t.get("updated_at", ""))
     t["comments"] = [dict(c, at_disp=_disp(c.get("at", ""))) for c in t["comments"]]
     wl_hours = round(sum(_to_float(w.get("hours")) for w in t["worklogs"]), 2)
     wl_km = round(sum(_to_float(w.get("travel_km")) for w in t["worklogs"]), 1)
@@ -2152,9 +2177,18 @@ async def ticket_edit(request: Request, tid: int, status: str = Form(""),
         return r
     if not _tk_edit(request):
         return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    old = tickets.get(tid) or {}
     tickets.update_fields(tid, status=status, priority=priority,
                           category=category, assigned_to=assigned_to)
     audit.log(_user(request), "Ticket geändert", f"#{tid} -> {status}")
+    if (assigned_to and assigned_to != old.get("assigned_to")
+            and assigned_to != _user(request)):
+        _notify_ticket_assignee(request, tid, assigned_to)
+    if status == "closed":
+        n = tickets.purge_attachments(tid)
+        if n:
+            audit.log(_user(request), "Anhänge gelöscht",
+                      f"#{tid}: {n} Datei(en) (Ticket geschlossen)")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
@@ -2166,6 +2200,11 @@ async def ticket_status(request: Request, tid: int, status: str = Form("")):
         return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
     tickets.update_fields(tid, status=status)
     audit.log(_user(request), "Ticket-Status", f"#{tid} -> {status}")
+    if status == "closed":
+        n = tickets.purge_attachments(tid)
+        if n:
+            audit.log(_user(request), "Anhänge gelöscht",
+                      f"#{tid}: {n} Datei(en) (Ticket geschlossen)")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
@@ -2749,8 +2788,6 @@ async def invite_submit(request: Request, token: str, new1: str = Form(""),
             "Passwort min. 8 Zeichen und beide Felder gleich.", "err"
         return RedirectResponse(f"/invite/{token}", status_code=303)
     users.set_password(u["username"], new1)
-    request.session["user"] = u["username"]
-    request.session["role"] = u.get("role", "user")
-    request.session["name"] = u.get("name") or u["username"]
+    _finalize_login(request, users.get(u["username"]) or u)
     request.session["flash"] = "Konto aktiviert. Willkommen!"
     return RedirectResponse("/", status_code=303)
