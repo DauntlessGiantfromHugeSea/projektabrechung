@@ -7,6 +7,7 @@ ausser du willst wirklich Mails verschicken (dann SMTP_* + REPORT_RECIPIENTS).
 """
 
 import os
+import secrets
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -69,3 +70,22 @@ REPORT_SUBJECT_PREFIX = os.getenv("REPORT_SUBJECT_PREFIX", "Projektzeiten")
 def mail_configured() -> bool:
     """True, wenn genug fuer einen echten Mailversand konfiguriert ist."""
     return bool(SMTP_HOST and REPORT_RECIPIENTS)
+
+
+# --- Web-Interface / Login -------------------------------------------------
+# Zugangsdaten fuer das Web-UI. Ohne gesetztes ADMIN_PASSWORD ist kein Login
+# moeglich (die Login-Seite weist dann darauf hin).
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+# Schluessel zum Signieren des Session-Cookies. Wenn nicht gesetzt, wird beim
+# Start ein zufaelliger erzeugt -> alle werden bei jedem Neustart ausgeloggt.
+# Fuer dauerhafte Sessions einen festen Wert setzen (z. B. `openssl rand -hex 32`).
+SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
+# Cookie nur ueber HTTPS senden. Hinter fbe-caddy (HTTPS) korrekt; fuer lokales
+# HTTP-Testen ggf. auf false setzen.
+SESSION_HTTPS_ONLY = _bool("SESSION_HTTPS_ONLY", True)
+
+
+def login_possible() -> bool:
+    """True, wenn ein Passwort gesetzt ist (sonst kein Login moeglich)."""
+    return bool(ADMIN_PASSWORD)

@@ -28,10 +28,12 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 import config
 import mailer
 import scheduler
+import web
 from events import load_records, normalize, pair_intervals
 from report import build_report, previous_week_range, render_text
 
@@ -46,6 +48,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TimeMoto Projektabrechnung", lifespan=lifespan)
+
+# Session-Cookie fuer das Web-Login.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=config.SESSION_SECRET,
+    session_cookie="projektabrechnung_session",
+    https_only=config.SESSION_HTTPS_ONLY,
+    same_site="lax",
+)
+
+# Web-Interface (Login + Dashboard) einbinden.
+app.include_router(web.router)
 
 
 def _now() -> str:

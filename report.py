@@ -49,6 +49,14 @@ def previous_week_range(now: datetime | None = None) -> tuple[datetime, datetime
     return last_monday, this_monday
 
 
+def this_week_range(now: datetime | None = None) -> tuple[datetime, datetime]:
+    """Liefert (Montag 00:00, naechster Montag 00:00) der *laufenden* Woche."""
+    now = (now or datetime.now(config.TIMEZONE)).astimezone(config.TIMEZONE)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    this_monday = today - timedelta(days=today.weekday())
+    return this_monday, this_monday + timedelta(days=7)
+
+
 def _project_matches(interval_project: str | None, wanted: str) -> bool:
     if not wanted:
         return True  # kein Filter -> alles
