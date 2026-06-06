@@ -300,6 +300,20 @@ def upsert_oauth(email: str, name: str) -> dict[str, Any]:
         return users[uname]
 
 
+def import_microsoft(entries: list[dict[str, Any]]) -> tuple[int, int]:
+    """Liste von {email,name} aus dem Tenant uebernehmen. Liefert
+    (neu_angelegt, gesamt). Vorhandene bleiben unveraendert."""
+    created = 0
+    for e in entries:
+        email = (e.get("email") or "").strip().lower()
+        if not email:
+            continue
+        if not by_email(email):
+            upsert_oauth(email, e.get("name") or email)
+            created += 1
+    return created, len(entries)
+
+
 def by_timemoto(timemoto_name: str) -> dict[str, Any] | None:
     if not timemoto_name:
         return None

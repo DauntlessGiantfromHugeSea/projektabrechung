@@ -693,8 +693,12 @@ _USERS = """
 {% extends base %}
 {% block body %}
 <div class="card glass">
-  <h1>Benutzer</h1>
-  <div class="tablewrap"><table>
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Benutzer</h1>
+    {% if ms_enabled %}<form method="post" action="/users/import-microsoft">
+      <button type="submit" class="ghost">Aus Microsoft importieren</button></form>{% endif %}
+  </div>
+  <div class="tablewrap" style="margin-top:.8rem;"><table>
     <thead><tr><th>Name</th><th>Benutzer</th><th>E-Mail</th><th>TimeMoto-Name</th>
       <th>Rolle</th><th>Status</th><th>Aktionen</th></tr></thead>
     <tbody>
@@ -2258,7 +2262,8 @@ async def users_page(request: Request):
         return r
     return HTMLResponse(_tpls["users"].render(
         **_common(request, "users", "Benutzer"),
-        userlist=users.list_users(), base_url=str(request.base_url)))
+        userlist=users.list_users(), base_url=str(request.base_url),
+        ms_enabled=config.ms_enabled()))
 
 
 def _send_invite_mail(request: Request, display: str, email: str, token: str) -> bool:
@@ -2278,6 +2283,28 @@ def _send_invite_mail(request: Request, display: str, email: str, token: str) ->
     res = mailer.send(subj, text, html, [email], label="Einladung",
                       actor=_user(request))
     return bool(res.get("mailed"))
+
+
+@router.post("/users/import-microsoft")
+async def users_import_ms(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    if not config.ms_enabled():
+        request.session["flash"], request.session["flash_class"] = \
+            "Microsoft ist nicht konfiguriert.", "err"
+        return RedirectResponse("/users", status_code=303)
+    entries, err = msauth.list_tenant_users()
+    if err and not entries:
+        request.session["flash"], request.session["flash_class"] = \
+            f"Import fehlgeschlagen (Berechtigung User.Read.All + Admin-Consent?): {err}", "err"
+        return RedirectResponse("/users", status_code=303)
+    created, total = users.import_microsoft(entries)
+    audit.log(_user(request), "Microsoft-Import", f"{created} neu / {total} gesamt")
+    msg = f"{total} Tenant-Nutzer geprüft, {created} neu angelegt."
+    if err:
+        msg += f" (teilweiser Abruf: {err})"
+    request.session["flash"] = msg
+    return RedirectResponse("/users", status_code=303)
 
 
 @router.post("/users/create")

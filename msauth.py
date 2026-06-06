@@ -80,3 +80,63 @@ def exchange(code: str) -> dict | None:
         if dom not in [d.lower() for d in config.MS_ALLOWED_DOMAINS]:
             return {"error": "domain_not_allowed", "email": email}
     return {"email": email, "name": name or email}
+
+
+_GRAPH_USERS = ("https://graph.microsoft.com/v1.0/users?"
+                "$select=displayName,mail,userPrincipalName,userType,accountEnabled"
+                "&$top=200")
+
+
+def _app_token() -> tuple[str | None, str | None]:
+    """App-only Token (Client-Credentials) fuer Microsoft Graph."""
+    data = urllib.parse.urlencode({
+        "client_id": config.MS_CLIENT_ID,
+        "client_secret": config.MS_CLIENT_SECRET,
+        "grant_type": "client_credentials",
+        "scope": "https://graph.microsoft.com/.default",
+    }).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            _TOKEN.format(tenant=config.MS_TENANT_ID), data=data,
+            headers={"content-type": "application/x-www-form-urlencoded"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            tok = json.loads(resp.read().decode("utf-8"))
+        return tok.get("access_token"), None
+    except urllib.error.HTTPError as e:
+        return None, e.read().decode("utf-8", "replace")[:400]
+    except Exception as exc:
+        return None, str(exc)
+
+
+def list_tenant_users() -> tuple[list[dict], str | None]:
+    """Alle (aktiven, Nicht-Gast-)Nutzer des Tenants via Graph holen.
+    Benoetigt App-Berechtigung User.Read.All + Admin-Consent in Azure."""
+    token, err = _app_token()
+    if not token:
+        return [], f"Kein App-Token: {err}"
+    allowed = [d.lower() for d in config.MS_ALLOWED_DOMAINS]
+    out: list[dict] = []
+    url: str | None = _GRAPH_USERS
+    try:
+        while url:
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            for u in data.get("value", []):
+                if u.get("userType") == "Guest" or u.get("accountEnabled") is False:
+                    continue
+                email = (u.get("mail") or u.get("userPrincipalName") or "").strip().lower()
+                if not email or "#ext#" in email:
+                    continue
+                if allowed and email.split("@")[-1] not in allowed:
+                    continue
+                out.append({"email": email,
+                            "name": (u.get("displayName") or email).strip()})
+            url = data.get("@odata.nextLink")
+    except urllib.error.HTTPError as e:
+        return out, e.read().decode("utf-8", "replace")[:400]
+    except Exception as exc:
+        return out, str(exc)
+    return out, None
