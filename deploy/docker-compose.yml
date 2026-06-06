@@ -50,6 +50,8 @@ services:
       REPORT_CRON_MINUTE: "0"
 
       # --- E-Mail (Werte aus deploy/.env) ---
+      # Empfohlen, wenn der Hoster SMTP blockt: Brevo-HTTP-API (Port 443).
+      BREVO_API_KEY: "${BREVO_API_KEY:-}"
       SMTP_HOST: "${SMTP_HOST:-}"
       SMTP_PORT: "${SMTP_PORT:-587}"
       SMTP_USER: "${SMTP_USER:-}"

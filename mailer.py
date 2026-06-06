@@ -12,8 +12,11 @@ Der Bericht wird IMMER zusaetzlich als Datei gespeichert (Audit/Nachschau).
 
 from __future__ import annotations
 
+import json
 import smtplib
 import ssl
+import urllib.error
+import urllib.request
 from datetime import datetime
 from email.message import EmailMessage
 
@@ -78,42 +81,79 @@ def send(subject_line: str, text: str, html: str,
     if download_url:
         text = f"{text}\nDownload (Excel): {download_url}\n"
     saved_path = _save_to_disk(label or subject_line, text, html)
+    branded = _brand_html(html, download_url)
     print("=" * 70, flush=True)
     print(f"[report] {subject_line}", flush=True)
     print(f"[report] gespeichert unter: {saved_path}", flush=True)
 
-    if not config.SMTP_HOST or not recipients:
-        reason = "no_smtp_host" if not config.SMTP_HOST else "no_recipients"
+    has_transport = bool(config.BREVO_API_KEY or config.SMTP_HOST)
+    if not recipients or not has_transport:
+        reason = "no_recipients" if not recipients else "no_transport"
         print(f"[report] kein Mailversand ({reason}) -> nur Datei.", flush=True)
         return {"mailed": False, "reason": reason,
                 "saved_path": saved_path, "recipients": recipients}
 
-    msg = EmailMessage()
-    msg["Subject"] = subject_line
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = ", ".join(recipients)
-    msg.set_content(text)
-    msg.add_alternative(_brand_html(html, download_url), subtype="html")
-
     try:
-        if config.SMTP_SSL:
-            ctx = ssl.create_default_context()
-            with smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT,
-                                  context=ctx, timeout=30) as s:
-                _login_and_send(s, msg)
+        if config.BREVO_API_KEY:
+            _send_via_brevo_api(subject_line, text, branded, recipients)
+            via = "Brevo-API"
         else:
-            with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT,
-                              timeout=30) as s:
-                if config.SMTP_STARTTLS:
-                    s.starttls(context=ssl.create_default_context())
-                _login_and_send(s, msg)
-        print(f"[report] Mail an {msg['To']} versendet.", flush=True)
+            via = _send_via_smtp(subject_line, text, branded, recipients)
+        print(f"[report] Mail an {', '.join(recipients)} versendet ({via}).",
+              flush=True)
         return {"mailed": True, "saved_path": saved_path,
                 "recipients": recipients}
     except Exception as exc:  # Versand-Fehler nicht eskalieren lassen
         print(f"[report] FEHLER beim Mailversand: {exc}", flush=True)
         return {"mailed": False, "reason": f"smtp_error: {exc}",
                 "saved_path": saved_path, "recipients": recipients}
+
+
+def _send_via_brevo_api(subject_line: str, text: str, html: str,
+                        recipients: list[str]) -> None:
+    """Versand ueber die Brevo Transactional-Email-API (HTTPS, Port 443)."""
+    payload = {
+        "sender": {"email": config.SMTP_FROM or "noreply@rss-fb.com"},
+        "to": [{"email": r} for r in recipients],
+        "subject": subject_line,
+        "htmlContent": html,
+        "textContent": text,
+    }
+    req = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"api-key": config.BREVO_API_KEY,
+                 "content-type": "application/json",
+                 "accept": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if not (200 <= resp.status < 300):
+                raise RuntimeError(f"HTTP {resp.status}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:200]
+        raise RuntimeError(f"Brevo-API {e.code}: {body}") from None
+
+
+def _send_via_smtp(subject_line: str, text: str, html: str,
+                   recipients: list[str]) -> str:
+    msg = EmailMessage()
+    msg["Subject"] = subject_line
+    msg["From"] = config.SMTP_FROM
+    msg["To"] = ", ".join(recipients)
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+    if config.SMTP_SSL:
+        with smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT,
+                              context=ssl.create_default_context(),
+                              timeout=30) as s:
+            _login_and_send(s, msg)
+    else:
+        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as s:
+            if config.SMTP_STARTTLS:
+                s.starttls(context=ssl.create_default_context())
+            _login_and_send(s, msg)
+    return f"SMTP:{config.SMTP_PORT}"
 
 
 def _login_and_send(server: smtplib.SMTP, msg: EmailMessage) -> None:

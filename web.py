@@ -786,8 +786,9 @@ def _delivery_flash(result: dict) -> tuple[str, str]:
     if result.get("mailed"):
         return f"Bericht an {', '.join(result['recipients'])} versendet.", ""
     reason = result.get("reason", "") or "unbekannt"
-    if reason == "no_smtp_host":
-        m = "SMTP nicht konfiguriert (SMTP_HOST in deploy/.env setzen, neu starten)"
+    if reason in ("no_smtp_host", "no_transport"):
+        m = ("kein Versandweg konfiguriert – BREVO_API_KEY (empfohlen) oder "
+             "SMTP_HOST in deploy/.env setzen und neu starten")
     elif reason == "no_recipients":
         m = "keine Empfänger angegeben"
     elif reason.startswith("smtp_error"):

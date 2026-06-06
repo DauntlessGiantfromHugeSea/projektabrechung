@@ -69,13 +69,19 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
 SMTP_STARTTLS = _bool("SMTP_STARTTLS", True)
 SMTP_SSL = _bool("SMTP_SSL", False)
+# Alternativer Versand ueber die Brevo-HTTP-API (Port 443) -- funktioniert auch,
+# wenn der Hoster ausgehendes SMTP (25/465/587/2525) blockiert. Wenn gesetzt,
+# wird die API bevorzugt. API-Key in Brevo unter "SMTP & API" -> "API Keys"
+# erzeugen (beginnt mit xkeysib-).
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 REPORT_RECIPIENTS = _list("REPORT_RECIPIENTS")
 REPORT_SUBJECT_PREFIX = os.getenv("REPORT_SUBJECT_PREFIX", "Projektzeiten")
 
 
 def mail_configured() -> bool:
-    """True, wenn genug fuer einen echten Mailversand konfiguriert ist."""
-    return bool(SMTP_HOST and REPORT_RECIPIENTS)
+    """True, wenn genug fuer einen echten Mailversand konfiguriert ist
+    (SMTP-Server ODER Brevo-API, plus Standard-Empfaenger)."""
+    return bool((SMTP_HOST or BREVO_API_KEY) and REPORT_RECIPIENTS)
 
 
 # --- Web-Interface / Login -------------------------------------------------
