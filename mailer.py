@@ -64,40 +64,36 @@ def _contact_html() -> str:
 
 
 def _brand_html(inner: str, download_url: str = "", message: str = "") -> str:
-    """Report-HTML in ein gebrandetes Mail-Layout huellen (weisses Logo auf
-    gruenem Header, runde Karte). Inline-Styles fuer Mail-Client-Kompatibilitaet."""
+    """Report-HTML in ein gebrandetes Mail-Layout huellen (Firmenfarbe #92c57a,
+    dunkles Logo, helle Karte). Inline-Styles fuer Mail-Client-Kompatibilitaet."""
     inner = (_intro_html(message) + inner + _download_block_html(download_url)
              + _contact_html())
     return (
-        '<!doctype html><html><head><meta charset="utf-8">'
+        '<!doctype html><html lang="de"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '</head>'
+        '<meta name="color-scheme" content="light only">'
+        '<meta name="supported-color-schemes" content="light"></head>'
         '<body style="margin:0;padding:0;background:#eef2f4;'
         '-webkit-font-smoothing:antialiased;'
         'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;'
-        'color:#1e293b">'
+        'color:#1f2933">'
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        'style="background:#eef2f4;padding:28px 12px"><tr><td align="center">'
+        'style="background:#eef2f4;padding:30px 12px"><tr><td align="center">'
         '<table role="presentation" width="600" cellpadding="0" cellspacing="0" '
-        'style="background:#ffffff;border-radius:18px;overflow:hidden;'
-        'max-width:600px;box-shadow:0 8px 28px rgba(40,80,40,.10)">'
-        # Header mit Verlauf von Markenfarbe -> dunkler, weisses Logo
-        f'<tr><td style="background:{config.BRAND_COLOR};'
-        f'background-image:linear-gradient(135deg,{config.BRAND_COLOR},'
-        f'{config.BRAND_COLOR_DARK});padding:26px 30px" align="left">'
-        f'<img src="{config.EMAIL_LOGO_URL}" alt="FBE" height="38" '
+        'style="background:#ffffff;border-radius:16px;overflow:hidden;'
+        'max-width:600px;border:1px solid #e3e8ee">'
+        # Header in der Firmenfarbe, dunkles Logo
+        f'<tr><td style="background:{config.BRAND_COLOR};padding:24px 32px" '
+        f'align="left"><img src="{config.EMAIL_LOGO_URL}" alt="FBE" height="42" '
         'style="display:block;border:0;outline:none"></td></tr>'
         # Inhalt
-        f'<tr><td style="padding:26px 30px 30px">{inner}</td></tr>'
+        '<tr><td style="padding:28px 32px;font-size:15px;line-height:1.6;'
+        f'color:#1f2933">{inner}</td></tr>'
         # Footer
-        '<tr><td style="padding:18px 30px;background:#f4f8f0;color:#7d8a96;'
-        'font-size:12px;line-height:1.5;border-top:1px solid #e6eaef">'
-        'Diese E-Mail wurde automatisch von der <b>FBE Projektabrechnung</b> '
-        'erstellt.</td></tr>'
-        '</table>'
-        '<div style="color:#aab4be;font-size:11px;margin-top:14px">'
-        'FB Engineering · Projektzeiten</div>'
-        '</td></tr></table></body></html>')
+        '<tr><td style="padding:18px 32px;background:#f4f8f0;color:#5b6b5f;'
+        'font-size:12px;line-height:1.5;border-top:1px solid #e3e8ee">'
+        'Flüssigboden Engineering GmbH – Projektmanagement</td></tr>'
+        '</table></td></tr></table></body></html>')
 
 
 def _save_to_disk(label: str, text: str, html: str) -> str:

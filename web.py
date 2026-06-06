@@ -1082,7 +1082,9 @@ _MEINE = """
           <td><form method="post" action="/meine-zeiten/describe" style="display:flex;gap:.3rem;align-items:center">
             <input type="hidden" name="iid" value="{{ s.id }}">
             <input name="description" value="{{ s.description }}" placeholder="Was wurde gemacht?" style="min-width:240px">
-            <button type="submit" title="Speichern">✓</button></form></td></tr>
+            <button type="submit" title="Speichern">✓</button></form>
+            {% if s.description %}<div class="muted" style="margin-top:.3rem;color:#2f6b1f;">✓ gespeichert: {{ s.description }}</div>{% endif %}
+          </td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -2319,6 +2321,8 @@ async def meine_describe(request: Request, iid: str = Form(""),
         return HTMLResponse("Kein Zugriff auf diese Buchung.", status_code=403)
     activities.set_description(iid, description, _user(request))
     audit.log(_user(request), "Tätigkeit (eigene)", f"{iid}: {description[:80]}")
+    request.session["flash"] = ("Tätigkeit gespeichert." if description.strip()
+                                else "Tätigkeit entfernt.")
     return RedirectResponse("/meine-zeiten", status_code=303)
 
 

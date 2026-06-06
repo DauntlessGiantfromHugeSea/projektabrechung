@@ -19,8 +19,8 @@ LOGO_URL_WHITE = os.getenv(
     "LOGO_URL_WHITE", "https://fb-eng.de/wp-content/uploads/2026/02/FBE_white.png")
 LOGO_URL_DARK = os.getenv(
     "LOGO_URL_DARK", "https://fb-eng.de/wp-content/uploads/2024/10/FBE_midnight.png")
-# Logo fuer Mails (auf gruenem Header -> weisses Logo).
-EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", LOGO_URL_WHITE)
+# Logo fuer Mails (auf hellgruenem Header -> dunkles Logo, gut lesbar).
+EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", LOGO_URL_DARK)
 BRAND_COLOR = os.getenv("BRAND_COLOR", "#92c57a")
 BRAND_COLOR_DARK = os.getenv("BRAND_COLOR_DARK", "#6fa84f")
 
