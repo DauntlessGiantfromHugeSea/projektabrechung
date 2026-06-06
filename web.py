@@ -207,8 +207,7 @@ _BASE = """
   .hero{background:linear-gradient(135deg,rgba(146,197,122,.22),rgba(146,197,122,.06));}
   .loginbg{position:fixed;inset:0;z-index:0;background-size:cover;
     background-position:center}
-  .loginbg.tint{background:linear-gradient(135deg,rgba(111,168,79,.78),
-    rgba(20,54,31,.70))}
+  .loginbg.tint{background:rgba(146,197,122,.20)}
   .loginwrap{position:fixed;inset:0;z-index:1;display:flex;align-items:center;
     justify-content:center;padding:1.2rem}
   .rowactions{display:flex;gap:.4rem;align-items:center;white-space:nowrap}
@@ -310,7 +309,7 @@ _LOGIN = """
     </form>
     <p style="text-align:left;margin-top:1rem;"><a href="/reset">Passwort vergessen?</a></p>
   {% elif ms_enabled %}
-    <p style="margin-top:1.3rem;"><a href="/login?local=1" class="muted" style="font-size:.8rem;">Admin-Anmeldung</a></p>
+    <p style="margin-top:1.3rem;"><a href="/login?local=1" class="muted" style="font-size:.8rem;">Mit Passwort anmelden (Admin / extern)</a></p>
   {% endif %}
 </div>
 </div>
@@ -924,9 +923,11 @@ _USERS = """
     </tbody>
   </table></div>
 </div>
-{% if local_users_enabled %}
 <div class="card glass" style="max-width:560px;">
-  <h2>Neuen Benutzer einladen</h2>
+  <h2>Externen Benutzer hinzufügen (Passwort-Login)</h2>
+  <p class="muted" style="margin:-.3rem 0 .6rem;">Für Personen ohne Microsoft-Konto.
+    Es wird ein Einladungslink erzeugt; die Person setzt ihr eigenes Passwort.
+    Für vollen Zugriff Rolle <b>admin</b> wählen.</p>
   <p class="muted">Es wird ein Einladungslink erzeugt – die Person setzt darüber
     ihr eigenes Passwort (kein Mailversand nötig).</p>
   <form method="post" action="/users/create">
@@ -953,7 +954,6 @@ _USERS = """
     <div style="margin-top:1rem;"><button type="submit">Einladung erstellen</button></div>
   </form>
 </div>
-{% endif %}
 {% endblock %}
 """
 
@@ -1605,12 +1605,8 @@ async def login_submit(request: Request, username: str = Form(""),
         request.session["flash"] = "Benutzer oder Passwort falsch."
         request.session["flash_class"] = "err"
         return RedirectResponse("/login", status_code=303)
-    # Wenn Microsoft aktiv ist: Passwort-Login nur fuer Admin; alle anderen
-    # melden sich ueber Microsoft an.
-    if config.ms_enabled() and user.get("role") != "admin":
-        request.session["flash"] = "Bitte über „Mit Microsoft anmelden“ einloggen."
-        request.session["flash_class"] = "err"
-        return RedirectResponse("/login", status_code=303)
+    # Passwort ok (lokale Konten: Admin + externe). Microsoft-Konten haben
+    # kein Passwort und melden sich ohnehin per Microsoft an.
     # Passwort ok -> zweiter Faktor
     if user.get("twofa_enabled") and user.get("totp_secret"):
         request.session["pending_user"] = user["username"]
@@ -2653,10 +2649,6 @@ async def users_create(request: Request, username: str = Form(""),
                        ticket_access: str = Form("none")):
     if (r := _need_admin(request)):
         return r
-    if not config.LOCAL_USERS_ENABLED:
-        request.session["flash"], request.session["flash_class"] = \
-            "Lokale Benutzer sind deaktiviert – Anmeldung erfolgt über Microsoft.", "err"
-        return RedirectResponse("/users", status_code=303)
     token = users.create_invite(
         username, role, name, email, timemoto_name,
         can_view_tickets=ticket_access in ("view", "edit"),
