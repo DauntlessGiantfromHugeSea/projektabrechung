@@ -33,6 +33,25 @@ Lokaler Funktionstest (umgeht den Proxy):
 curl http://127.0.0.1:8080/health
 ```
 
+### Login fürs Web-Interface einrichten
+
+Die Zugangsdaten kommen aus `deploy/.env` (nicht im Git, wird automatisch von
+Compose gelesen). Datei anlegen — **nur das Passwort anpassen**, der
+Session-Schlüssel wird automatisch erzeugt:
+
+```bash
+cd ~/projektabrechung/deploy
+cat > .env <<EOF
+ADMIN_USER=admin
+ADMIN_PASSWORD=HierDeinPasswort
+SESSION_SECRET=$(openssl rand -hex 32)
+EOF
+docker compose up --build -d
+```
+
+Danach Login im Browser: **`https://intern.rss-fb.com/login`**
+(die nackte Domain `/` leitet ebenfalls dorthin).
+
 ## 2. Block in fbe-caddy eintragen
 
 Die Vorlage liegt in `deploy/fbe-caddy.snippet`. Inhalt an die bestehende

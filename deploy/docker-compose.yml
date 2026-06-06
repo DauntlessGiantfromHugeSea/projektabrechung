@@ -34,11 +34,12 @@ services:
       REPORT_TIMEZONE: "Europe/Berlin"
 
       # --- Web-Interface / Login ---
-      ADMIN_USER: "admin"
-      ADMIN_PASSWORD: ""           # SETZEN! ohne Passwort ist kein Login moeglich
-      # Fester Schluessel = Sessions ueberleben Neustarts (sonst zufaellig):
-      SESSION_SECRET: ""           # z. B. Ausgabe von: openssl rand -hex 32
-      SESSION_HTTPS_ONLY: "true"   # bei reinem HTTP-Test auf "false"
+      # Werte kommen aus der Datei deploy/.env (siehe DEPLOY.md). Ohne
+      # gesetztes ADMIN_PASSWORD ist kein Login moeglich.
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      SESSION_SECRET: "${SESSION_SECRET:-}"
+      SESSION_HTTPS_ONLY: "${SESSION_HTTPS_ONLY:-true}"
 
       # --- Wochenplan ---
       SCHEDULER_ENABLED: "true"
