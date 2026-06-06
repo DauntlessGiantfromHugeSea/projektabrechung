@@ -93,3 +93,6 @@ def login_possible() -> bool:
 
 # Datei der Benutzerverwaltung (Nutzer, Passwort-Hashes, Rollen).
 USERS_FILE = Path(os.getenv("USERS_FILE", "/data/users.json"))
+
+# Datei der online konfigurierten Bericht-Definitionen (Projekte/Empfaenger/Plan).
+SETTINGS_FILE = Path(os.getenv("SETTINGS_FILE", "/data/settings.json"))

@@ -49,6 +49,26 @@ def previous_week_range(now: datetime | None = None) -> tuple[datetime, datetime
     return last_monday, this_monday
 
 
+def detail_sessions(start: datetime, end: datetime,
+                    project: str | None = None) -> list[Interval]:
+    """Einzelne Arbeitsintervalle im Zeitraum (optional auf ein Projekt
+    gefiltert), chronologisch -- fuer die Detailansicht mit Kommt/Geht."""
+    wanted = (project if project is not None else config.PROJECT_CODE).strip()
+    records = load_records()
+    punches = [p for p in (normalize(r) for r in records) if p is not None]
+    start = start.astimezone(config.TIMEZONE)
+    end = end.astimezone(config.TIMEZONE)
+    out: list[Interval] = []
+    for iv in pair_intervals(punches):
+        if not (start <= iv.start.astimezone(config.TIMEZONE) < end):
+            continue
+        if not _project_matches(iv.project, wanted):
+            continue
+        out.append(iv)
+    out.sort(key=lambda iv: iv.start)
+    return out
+
+
 def this_week_range(now: datetime | None = None) -> tuple[datetime, datetime]:
     """Liefert (Montag 00:00, naechster Montag 00:00) der *laufenden* Woche."""
     now = (now or datetime.now(config.TIMEZONE)).astimezone(config.TIMEZONE)
@@ -181,3 +201,129 @@ def render_html(rep: Report) -> str:
 def subject(rep: Report) -> str:
     proj = rep.project or "alle Projekte"
     return f"{config.REPORT_SUBJECT_PREFIX} {proj} - {_period_label(rep)}"
+
+
+# --- Gruppierter Bericht (mehrere Projekte, Abschnitt je Projekt) -----------
+
+@dataclass
+class GroupedSection:
+    project: str
+    rows: list[ReportRow] = field(default_factory=list)
+
+    @property
+    def total_hours(self) -> float:
+        return sum(r.hours for r in self.rows)
+
+
+@dataclass
+class GroupedReport:
+    name: str
+    start: datetime
+    end: datetime
+    projects_filter: list[str]
+    sections: list[GroupedSection] = field(default_factory=list)
+
+    @property
+    def total_hours(self) -> float:
+        return sum(s.total_hours for s in self.sections)
+
+    @property
+    def has_data(self) -> bool:
+        return any(s.rows for s in self.sections)
+
+
+def build_grouped(start: datetime, end: datetime,
+                  projects: list[str], name: str = "Bericht") -> GroupedReport:
+    """Bericht ueber AUSGEWAEHLTE Projekte, gruppiert nach Projekt.
+
+    Ein Intervall zaehlt, wenn sein Projekt zu IRGENDEINEM der Filter passt
+    (Teilstring, case-insensitive). Leere Projektliste => keine Daten
+    (es wird absichtlich nicht "alles" einbezogen)."""
+    records = load_records()
+    punches = [p for p in (normalize(r) for r in records) if p is not None]
+    intervals = pair_intervals(punches)
+
+    start = start.astimezone(config.TIMEZONE)
+    end = end.astimezone(config.TIMEZONE)
+    wanted = [w.lower() for w in projects if w.strip()]
+
+    # je echtem Projektnamen -> {employee -> ReportRow}
+    buckets: dict[str, dict[str, ReportRow]] = {}
+    for iv in intervals:
+        ivp = iv.start.astimezone(config.TIMEZONE)
+        if not (start <= ivp < end):
+            continue
+        if not iv.project:
+            continue
+        low = iv.project.lower()
+        if not any(w in low for w in wanted):
+            continue
+        emp = buckets.setdefault(iv.project, {})
+        row = emp.setdefault(iv.employee, ReportRow(employee=iv.employee))
+        row.sessions += 1
+        row.hours += max(iv.duration_hours, 0.0)
+
+    sections = []
+    for project in sorted(buckets):
+        rows = sorted(buckets[project].values(),
+                      key=lambda r: r.hours, reverse=True)
+        sections.append(GroupedSection(project=project, rows=rows))
+
+    return GroupedReport(name=name, start=start, end=end,
+                         projects_filter=projects, sections=sections)
+
+
+def _period_label_g(rep: GroupedReport) -> str:
+    last_day = rep.end - timedelta(days=1)
+    return (f"KW {rep.start.isocalendar().week:02d} "
+            f"({rep.start:%d.%m.%Y} - {last_day:%d.%m.%Y})")
+
+
+def render_grouped_text(rep: GroupedReport) -> str:
+    lines = [f"{rep.name}", f"Zeitraum: {_period_label_g(rep)}", "=" * 52]
+    if not rep.has_data:
+        lines += ["", "Keine Buchungen für die gewählten Projekte in diesem "
+                  "Zeitraum."]
+        return "\n".join(lines) + "\n"
+    for s in rep.sections:
+        lines += ["", f"Projekt: {s.project}", "-" * 52]
+        name_w = max([len("Mitarbeiter")] + [len(r.employee) for r in s.rows])
+        for r in s.rows:
+            lines.append(f"{r.employee:<{name_w}}  {_fmt_hours(r.hours):>9}  "
+                         f"{r.sessions:>3} Sessions")
+        lines.append(f"{'Summe':<{name_w}}  {_fmt_hours(s.total_hours):>9}")
+    lines += ["", "=" * 52,
+              f"Gesamtsumme: {_fmt_hours(rep.total_hours)}"]
+    return "\n".join(lines) + "\n"
+
+
+def render_grouped_html(rep: GroupedReport) -> str:
+    head = (f"<h2>{escape(rep.name)}</h2>"
+            f"<p><b>Zeitraum:</b> {escape(_period_label_g(rep))}</p>")
+    if not rep.has_data:
+        return head + ("<p>Keine Buchungen für die gewählten Projekte in "
+                       "diesem Zeitraum.</p>")
+    parts = [head]
+    for s in rep.sections:
+        rows_html = "".join(
+            f"<tr><td>{escape(r.employee)}</td>"
+            f"<td style='text-align:right'>{_fmt_hours(r.hours)}</td>"
+            f"<td style='text-align:right'>{r.sessions}</td></tr>"
+            for r in s.rows)
+        parts.append(
+            f"<h3 style='margin:1rem 0 .3rem'>{escape(s.project)}</h3>"
+            f"<table border='1' cellpadding='6' cellspacing='0' "
+            f"style='border-collapse:collapse'>"
+            f"<thead><tr style='background:#eef5e9'>"
+            f"<th align='left'>Mitarbeiter</th><th>Stunden</th><th>Sessions</th>"
+            f"</tr></thead><tbody>{rows_html}</tbody>"
+            f"<tfoot><tr style='font-weight:bold'><td>Summe</td>"
+            f"<td style='text-align:right'>{_fmt_hours(s.total_hours)}</td>"
+            f"<td></td></tr></tfoot></table>")
+    parts.append(f"<p style='margin-top:1rem;font-weight:bold'>Gesamtsumme: "
+                 f"{_fmt_hours(rep.total_hours)}</p>")
+    return "".join(parts)
+
+
+def subject_grouped(rep: GroupedReport) -> str:
+    return f"{config.REPORT_SUBJECT_PREFIX}: {rep.name} - {_period_label_g(rep)}"

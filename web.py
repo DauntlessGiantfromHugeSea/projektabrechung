@@ -1,15 +1,9 @@
 """
-Passwortgeschuetztes Web-Interface inkl. Benutzerverwaltung.
+Web-Interface: Login, Dashboard (Bericht + Einzelbuchungen), Konto,
+Benutzerverwaltung und online konfigurierbare Berichte (Projekte/Empfaenger/
+Zeitplan). Design: helles Glassmorphism im FBE-Look (#92c57a).
 
-Seiten:
-- /login              Anmeldung (gegen die User-DB)
-- /logout             Abmelden
-- /                   Dashboard: Wochenbericht, Filter, "Bericht jetzt senden"
-- /account            eigenes Passwort aendern
-- /users              Benutzerverwaltung (nur Admin): anlegen, einladen, loeschen
-- /invite/<token>     Eingeladener Nutzer setzt sein Passwort (ohne Mail noetig)
-
-Templates sind inline (Jinja2), damit das Docker-Image schlank bleibt.
+Templates inline (Jinja2), damit das Image schlank bleibt.
 """
 
 from __future__ import annotations
@@ -23,77 +17,115 @@ from jinja2 import Template
 
 import config
 import mailer
+import scheduler
+import settings
 import users
 from events import load_records, normalize, pair_intervals
-from report import (build_report, previous_week_range, render_html,
+from report import (build_grouped, build_report, detail_sessions,
+                    previous_week_range, render_grouped_html,
+                    render_grouped_text, render_html, subject_grouped,
                     this_week_range)
 
 router = APIRouter()
+
+LOGO_URL = "https://fb-eng.de/wp-content/uploads/2024/10/FBE_green.png"
 
 _BASE = """
 <!doctype html><html lang="de"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} – Projektabrechnung</title>
 <style>
-  :root { --fg:#1f2933; --muted:#647382; --line:#e1e7ef; --bg:#f5f7fa;
-          --brand:#92c57a; --accent:#92c57a; --accent-d:#7eb863;
-          --accent-text:#14361f; --link:#5f9e45; --danger:#dc2626; }
-  * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;
-         color:var(--fg); background:var(--bg); }
-  header { background:#fff; border-bottom:3px solid var(--brand);
-           padding:.6rem 1.2rem; display:flex; align-items:center;
-           justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
-  header .brand { display:flex; align-items:center; gap:.6rem;
-           font-weight:700; }
-  header .brand img { height:30px; display:block; }
-  nav a { color:var(--muted); text-decoration:none; margin-left:1rem;
-          font-size:.9rem; }
-  nav a:hover, nav a.active { color:var(--link); }
-  main { max-width:920px; margin:1.5rem auto; padding:0 1.2rem; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:10px;
-          padding:1.2rem 1.3rem; margin-bottom:1.2rem; }
-  h1 { font-size:1.3rem; margin:.2rem 0 1rem; }
-  h2 { font-size:1.05rem; margin:0 0 .8rem; }
-  label { display:block; font-size:.85rem; color:var(--muted); margin:.6rem 0 .2rem; }
-  input, select { width:100%; padding:.55rem .6rem; border:1px solid var(--line);
-          border-radius:7px; font:inherit; background:#fff; }
-  button { background:var(--accent); color:var(--accent-text); border:0;
-           border-radius:7px; padding:.55rem 1rem; font:inherit;
-           font-weight:700; cursor:pointer; }
-  button:hover { background:var(--accent-d); }
-  a { color:var(--link); }
-  button.danger { background:#fff; color:var(--danger);
-           border:1px solid var(--danger); padding:.35rem .7rem; font-size:.85rem; }
-  table { border-collapse:collapse; width:100%; margin-top:.4rem; }
-  th,td { padding:.5rem .6rem; border-bottom:1px solid var(--line); text-align:left; }
-  td.num,th.num { text-align:right; }
-  .row { display:flex; gap:1rem; flex-wrap:wrap; align-items:end; }
-  .row > div { flex:1; min-width:140px; }
-  .pill { display:inline-block; padding:.15rem .55rem; border-radius:999px;
-          font-size:.8rem; font-weight:600; }
-  .ok { background:#dcfce7; color:#166534; }
-  .no { background:#fee2e2; color:#991b1b; }
-  .role { background:#e0e7ff; color:#3730a3; }
-  .inv { background:#fef9c3; color:#854d0e; }
-  .muted { color:var(--muted); font-size:.9rem; }
-  .flash { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af;
-           padding:.7rem .9rem; border-radius:8px; margin-bottom:1rem;
-           word-break:break-all; }
-  .err { background:#fef2f2; border-color:#fecaca; color:#991b1b; }
-  .tags span { display:inline-block; background:#eef2f7; border-radius:6px;
-           padding:.15rem .5rem; margin:.15rem .2rem 0 0; font-size:.85rem; }
-  code { background:#eef2f7; padding:.1rem .35rem; border-radius:5px; }
+  :root{
+    --fg:#16331f; --muted:#5b6b5f; --brand:#92c57a; --brand-d:#6fa84f;
+    --accent-text:#123018; --link:#4d8838; --danger:#c0392b;
+    --glass:rgba(255,255,255,.55); --glass-strong:rgba(255,255,255,.72);
+    --stroke:rgba(255,255,255,.65); --shadow:0 10px 30px rgba(40,80,40,.18);
+    --radius:22px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;color:var(--fg);
+    font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #d8eecb 0%, transparent 55%),
+      radial-gradient(1000px 700px at 110% 10%, #bfe3cf 0%, transparent 50%),
+      linear-gradient(135deg,#eef6e8 0%,#e3f0ea 45%,#dceef3 100%);
+    background-attachment:fixed;}
+  a{color:var(--link);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .glass{background:var(--glass);backdrop-filter:blur(18px) saturate(160%);
+    -webkit-backdrop-filter:blur(18px) saturate(160%);
+    border:1px solid var(--stroke);border-radius:var(--radius);
+    box-shadow:var(--shadow);}
+  header{position:sticky;top:0;z-index:10;margin:0;padding:.7rem 1.4rem;
+    display:flex;align-items:center;justify-content:space-between;
+    flex-wrap:wrap;gap:.6rem;border-radius:0 0 var(--radius) var(--radius);
+    background:var(--glass-strong);backdrop-filter:blur(18px) saturate(160%);
+    -webkit-backdrop-filter:blur(18px) saturate(160%);
+    border-bottom:1px solid var(--stroke);box-shadow:var(--shadow);}
+  header .brand{display:flex;align-items:center;gap:.7rem;font-weight:800;
+    letter-spacing:.2px}
+  header .brand img{height:30px;display:block}
+  nav a{color:var(--muted);margin-left:1.1rem;font-size:.92rem;font-weight:600}
+  nav a:hover,nav a.active{color:var(--brand-d);text-decoration:none}
+  main{max-width:960px;margin:1.6rem auto;padding:0 1.2rem}
+  .card{padding:1.3rem 1.4rem;margin-bottom:1.3rem}
+  h1{font-size:1.4rem;margin:.1rem 0 1rem}
+  h2{font-size:1.1rem;margin:0 0 .9rem}
+  h3{font-size:1rem;margin:1rem 0 .4rem}
+  label{display:block;font-size:.83rem;color:var(--muted);margin:.7rem 0 .25rem;
+    font-weight:600}
+  input,select,textarea{width:100%;padding:.6rem .7rem;border-radius:14px;
+    border:1px solid rgba(146,197,122,.45);background:rgba(255,255,255,.7);
+    font:inherit;color:var(--fg);outline:none;transition:.15s}
+  input:focus,select:focus,textarea:focus{border-color:var(--brand);
+    box-shadow:0 0 0 3px rgba(146,197,122,.3);background:#fff}
+  textarea{min-height:80px;resize:vertical}
+  button,.btn{background:linear-gradient(135deg,var(--brand),var(--brand-d));
+    color:var(--accent-text);border:0;border-radius:999px;padding:.6rem 1.15rem;
+    font:inherit;font-weight:800;cursor:pointer;box-shadow:0 6px 16px rgba(111,168,79,.35);
+    transition:.15s;display:inline-block}
+  button:hover,.btn:hover{transform:translateY(-1px);text-decoration:none;
+    box-shadow:0 10px 22px rgba(111,168,79,.45)}
+  button.ghost,.btn.ghost{background:rgba(255,255,255,.6);color:var(--brand-d);
+    border:1px solid rgba(111,168,79,.5);box-shadow:none;font-weight:700}
+  button.danger{background:rgba(255,255,255,.6);color:var(--danger);
+    border:1px solid rgba(192,57,43,.5);box-shadow:none;padding:.4rem .8rem;
+    font-size:.85rem}
+  table{border-collapse:collapse;width:100%;margin-top:.5rem;font-size:.95rem}
+  th,td{padding:.55rem .6rem;border-bottom:1px solid rgba(90,107,95,.18);
+    text-align:left}
+  th{font-size:.8rem;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.4px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .row{display:flex;gap:1rem;flex-wrap:wrap;align-items:end}
+  .row>div{flex:1;min-width:150px}
+  .pill{display:inline-block;padding:.18rem .6rem;border-radius:999px;
+    font-size:.78rem;font-weight:700}
+  .ok{background:rgba(146,197,122,.35);color:#2f6b1f}
+  .no{background:rgba(192,57,43,.18);color:#922}
+  .role{background:rgba(99,102,241,.18);color:#3730a3}
+  .inv{background:rgba(234,179,8,.22);color:#854d0e}
+  .muted{color:var(--muted);font-size:.9rem}
+  .chip{display:inline-block;background:rgba(146,197,122,.25);
+    border:1px solid rgba(111,168,79,.35);border-radius:999px;
+    padding:.15rem .6rem;margin:.15rem .25rem 0 0;font-size:.84rem}
+  .chip.click{cursor:pointer}
+  .flash{padding:.75rem .95rem;border-radius:16px;margin-bottom:1rem;
+    background:rgba(146,197,122,.25);border:1px solid rgba(111,168,79,.4);
+    color:#2f6b1f;word-break:break-word}
+  .flash.err{background:rgba(192,57,43,.14);border-color:rgba(192,57,43,.4);
+    color:#922}
+  code{background:rgba(255,255,255,.65);padding:.12rem .4rem;border-radius:7px;
+    font-size:.86em}
+  .toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 </style></head><body>
 {% if user %}
 <header>
-  <span class="brand">
-    <img src="{{ logo_url }}" alt="FBE">
-    <span>Projektabrechnung</span>
-  </span>
+  <span class="brand"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></span>
   <nav>
     <a href="/" class="{{ 'active' if page=='dash' }}">Bericht</a>
-    {% if role=='admin' %}<a href="/users" class="{{ 'active' if page=='users' }}">Benutzer</a>{% endif %}
+    {% if role=='admin' %}<a href="/reports" class="{{ 'active' if page=='reports' }}">Berichte</a>
+    <a href="/users" class="{{ 'active' if page=='users' }}">Benutzer</a>{% endif %}
     <a href="/account" class="{{ 'active' if page=='account' }}">Konto</a>
     <span class="muted">· {{ user }}</span>
     <a href="/logout">Abmelden</a>
@@ -110,19 +142,18 @@ _BASE = """
 _LOGIN = """
 {% extends base %}
 {% block body %}
-<div class="card" style="max-width:380px;margin:6vh auto 0;text-align:center;">
-  <img src="{{ logo_url }}" alt="FBE" style="height:48px;margin:.3rem 0 1rem;">
+<div class="card glass" style="max-width:390px;margin:8vh auto 0;text-align:center;">
+  <img src="{{ logo_url }}" alt="FBE" style="height:52px;margin:.4rem 0 1.1rem;">
   <h1 style="text-align:left;">Anmelden</h1>
   {% if not login_possible %}
-    <div class="flash err">Noch kein Benutzer vorhanden. Bitte
-      <code>ADMIN_PASSWORD</code> in der .env setzen und neu starten.</div>
-  {% endif %}
-  <form method="post" action="/login">
+    <div class="flash err">Noch kein Benutzer. <code>ADMIN_PASSWORD</code> in
+      der .env setzen und neu starten.</div>{% endif %}
+  <form method="post" action="/login" style="text-align:left;">
     <label>Benutzer</label>
     <input name="username" autofocus autocomplete="username">
     <label>Passwort</label>
     <input name="password" type="password" autocomplete="current-password">
-    <div style="margin-top:1rem;"><button type="submit">Einloggen</button></div>
+    <div style="margin-top:1.1rem;"><button type="submit">Einloggen</button></div>
   </form>
 </div>
 {% endblock %}
@@ -131,7 +162,7 @@ _LOGIN = """
 _DASH = """
 {% extends base %}
 {% block body %}
-<div class="card">
+<div class="card glass">
   <h2>Zeitraum &amp; Projekt</h2>
   <form method="get" action="/">
     <div class="row">
@@ -142,7 +173,8 @@ _DASH = """
           <option value="custom" {{ 'selected' if week=='custom' }}>Eigener Zeitraum</option>
         </select></div>
       <div><label>Projektfilter (leer = alle)</label>
-        <input name="project" value="{{ project }}" placeholder="z. B. 26344"></div>
+        <input name="project" value="{{ project }}" placeholder="z. B. 26344" list="projlist">
+        <datalist id="projlist">{% for p in all_projects %}<option value="{{ p }}">{% endfor %}</datalist></div>
       {% if week=='custom' %}
       <div><label>Von</label><input name="start" value="{{ start_in }}" placeholder="2026-06-01"></div>
       <div><label>Bis</label><input name="end" value="{{ end_in }}" placeholder="2026-06-08"></div>
@@ -151,29 +183,44 @@ _DASH = """
     </div>
   </form>
 </div>
-<div class="card">
-  <h2>Bericht: {{ report_title }}</h2>
+
+<div class="card glass">
+  <h2>Zusammenfassung: {{ report_title }}</h2>
   <p class="muted">{{ period }}</p>
   {{ report_html|safe }}
-  <form method="post" action="/send" style="margin-top:1rem;">
+  <form method="post" action="/send" style="margin-top:1rem;" class="toolbar">
     <input type="hidden" name="project" value="{{ project }}">
     <input type="hidden" name="start" value="{{ start_iso }}">
     <input type="hidden" name="end" value="{{ end_iso }}">
-    <button type="submit">Bericht jetzt senden{{ '' if mail_configured else ' (als Datei)' }}</button>
-    {% if not mail_configured %}<span class="muted"> &nbsp;SMTP nicht
-      konfiguriert – wird nur als Datei gespeichert.</span>{% endif %}
+    <button type="submit">Diese Ansicht jetzt senden{{ '' if mail_configured else ' (als Datei)' }}</button>
+    {% if not mail_configured %}<span class="muted">SMTP nicht konfiguriert – nur Datei.</span>{% endif %}
   </form>
 </div>
-<div class="card">
+
+<div class="card glass">
+  <h2>Einzelbuchungen (Kommt / Geht)</h2>
+  {% if sessions %}
+  <table>
+    <thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
+      <th>Kommt</th><th>Geht</th><th class="num">Dauer</th></tr></thead>
+    <tbody>
+    {% for s in sessions %}
+      <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
+        <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">Keine Einzelbuchungen im Zeitraum.</p>{% endif %}
+</div>
+
+<div class="card glass">
   <h2>Datenlage aus den Webhooks</h2>
   <p>Projektcode erkannt:
     {% if has_project %}<span class="pill ok">ja</span>{% else %}<span class="pill no">nein</span>{% endif %}
     &nbsp; Ein-/Ausstempeln erkannt:
     {% if has_direction %}<span class="pill ok">ja</span>{% else %}<span class="pill no">nein</span>{% endif %}</p>
-  <p class="muted">{{ events_total }} Events gespeichert · {{ intervals_paired }} Arbeitsintervalle.</p>
-  {% if projects_seen %}<p>Im Zeitraum erkannte Projekte:</p>
-    <div class="tags">{% for p in projects_seen %}<span>{{ p }}</span>{% endfor %}</div>
-  {% else %}<p class="muted">Im gewählten Zeitraum kein Projektfeld gefunden.</p>{% endif %}
+  <p class="muted">{{ events_total }} Events · {{ intervals_paired }} Arbeitsintervalle.</p>
+  {% if projects_seen %}<div>{% for p in projects_seen %}<span class="chip">{{ p }}</span>{% endfor %}</div>{% endif %}
 </div>
 {% endblock %}
 """
@@ -181,7 +228,7 @@ _DASH = """
 _ACCOUNT = """
 {% extends base %}
 {% block body %}
-<div class="card" style="max-width:480px;">
+<div class="card glass" style="max-width:480px;">
   <h1>Konto: {{ user }}</h1>
   <form method="post" action="/account">
     <label>Aktuelles Passwort</label>
@@ -190,7 +237,7 @@ _ACCOUNT = """
     <input name="new1" type="password" autocomplete="new-password">
     <label>Neues Passwort wiederholen</label>
     <input name="new2" type="password" autocomplete="new-password">
-    <div style="margin-top:1rem;"><button type="submit">Passwort ändern</button></div>
+    <div style="margin-top:1.1rem;"><button type="submit">Passwort ändern</button></div>
   </form>
 </div>
 {% endblock %}
@@ -199,7 +246,7 @@ _ACCOUNT = """
 _USERS = """
 {% extends base %}
 {% block body %}
-<div class="card">
+<div class="card glass">
   <h1>Benutzer</h1>
   <table>
     <thead><tr><th>Benutzer</th><th>Rolle</th><th>Status</th><th></th></tr></thead>
@@ -212,32 +259,30 @@ _USERS = """
             {% else %}<span class="pill inv">eingeladen</span>{% endif %}</td>
         <td>
           {% if u.status=='invited' and u.invite_token %}
-            <span class="muted">Link:</span>
-            <code>{{ base_url }}invite/{{ u.invite_token }}</code>
+            <span class="muted">Link:</span> <code>{{ base_url }}invite/{{ u.invite_token }}</code>
           {% endif %}
           {% if u.username != user %}
           <form method="post" action="/users/delete" style="display:inline;">
             <input type="hidden" name="username" value="{{ u.username }}">
             <button class="danger" onclick="return confirm('Benutzer {{ u.username }} löschen?')">löschen</button>
-          </form>
-          {% endif %}
+          </form>{% endif %}
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
-<div class="card" style="max-width:520px;">
+<div class="card glass" style="max-width:560px;">
   <h2>Neuen Benutzer einladen</h2>
-  <p class="muted">Es wird ein Einladungslink erzeugt. Den Link gibst du der
-    Person – sie setzt darüber ihr eigenes Passwort. (Kein Mailversand nötig.)</p>
+  <p class="muted">Es wird ein Einladungslink erzeugt – die Person setzt darüber
+    ihr eigenes Passwort (kein Mailversand nötig).</p>
   <form method="post" action="/users/create">
     <div class="row">
       <div><label>Benutzername</label><input name="username" placeholder="z. B. m.mustermann"></div>
       <div style="flex:0 0 160px;"><label>Rolle</label>
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select></div>
     </div>
-    <div style="margin-top:1rem;"><button type="submit">Einladung erstellen</button></div>
+    <div style="margin-top:1.1rem;"><button type="submit">Einladung erstellen</button></div>
   </form>
 </div>
 {% endblock %}
@@ -246,68 +291,172 @@ _USERS = """
 _INVITE = """
 {% extends base %}
 {% block body %}
-<div class="card" style="max-width:420px;margin:6vh auto 0;">
-  <h1>Willkommen, {{ invite_user }}</h1>
-  <p class="muted">Lege jetzt dein Passwort fest, um dein Konto zu aktivieren.</p>
-  <form method="post" action="/invite/{{ token }}">
+<div class="card glass" style="max-width:420px;margin:8vh auto 0;text-align:center;">
+  <img src="{{ logo_url }}" alt="FBE" style="height:48px;margin:.3rem 0 1rem;">
+  <h1 style="text-align:left;">Willkommen, {{ invite_user }}</h1>
+  <p class="muted" style="text-align:left;">Lege dein Passwort fest (mind. 8 Zeichen).</p>
+  <form method="post" action="/invite/{{ token }}" style="text-align:left;">
     <label>Passwort</label>
     <input name="new1" type="password" autocomplete="new-password" autofocus>
     <label>Passwort wiederholen</label>
     <input name="new2" type="password" autocomplete="new-password">
-    <div style="margin-top:1rem;"><button type="submit">Konto aktivieren</button></div>
+    <div style="margin-top:1.1rem;"><button type="submit">Konto aktivieren</button></div>
   </form>
 </div>
 {% endblock %}
 """
 
-LOGO_URL = "https://fb-eng.de/wp-content/uploads/2024/10/FBE_green.png"
+_REPORTS = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Berichte</h1>
+    <a class="btn" href="/reports/new">+ Neuer Bericht</a>
+  </div>
+  <p class="muted">Nur diese definierten Berichte werden automatisch versendet.
+    Ohne Eintrag geht keine Mail raus.</p>
+  {% if not reports %}<p>Noch keine Berichte angelegt.</p>{% else %}
+  <table>
+    <thead><tr><th>Name</th><th>Projekte</th><th>Empfänger</th><th>Plan</th>
+      <th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for r in reports %}
+      <tr>
+        <td><b>{{ r.name }}</b></td>
+        <td>{% for p in r.projects %}<span class="chip">{{ p }}</span>{% endfor %}</td>
+        <td class="muted">{{ r.recipients|join(', ') }}</td>
+        <td>{{ r.day_label }} {{ '%02d:%02d'|format(r.hour, r.minute) }}</td>
+        <td>{% if r.enabled %}<span class="pill ok">aktiv</span>{% else %}<span class="pill no">aus</span>{% endif %}</td>
+        <td class="toolbar">
+          <a class="btn ghost" href="/reports/{{ r.id }}/edit">bearbeiten</a>
+          <form method="post" action="/reports/{{ r.id }}/send" style="display:inline;">
+            <button class="ghost" type="submit">jetzt senden</button></form>
+          <form method="post" action="/reports/{{ r.id }}/delete" style="display:inline;">
+            <button class="danger" onclick="return confirm('Bericht löschen?')">löschen</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>{% endif %}
+</div>
+{% endblock %}
+"""
 
+_REPORT_FORM = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:640px;">
+  <h1>{{ 'Bericht bearbeiten' if r.id else 'Neuer Bericht' }}</h1>
+  <form method="post" action="{{ action }}">
+    <label>Name</label>
+    <input name="name" value="{{ r.name }}" placeholder="z. B. Arcadis – wöchentlich">
+
+    <label>Projekte (eines pro Zeile oder mit Komma; Teilstring genügt)</label>
+    <textarea name="projects" placeholder="26344&#10;5543">{{ projects_text }}</textarea>
+    {% if all_projects %}<div style="margin-top:.3rem;">
+      <span class="muted">Erkannt:</span>
+      {% for p in all_projects %}<span class="chip click" onclick="addProj(this.innerText)">{{ p }}</span>{% endfor %}
+    </div>{% endif %}
+
+    <label>Empfänger (Mailadressen, Komma- oder zeilengetrennt)</label>
+    <textarea name="recipients" placeholder="chef@rss-fb.com, buchhaltung@rss-fb.com">{{ recipients_text }}</textarea>
+
+    <div class="row">
+      <div><label>Wochentag</label>
+        <select name="day_of_week">
+          {% for d,lbl in days %}<option value="{{ d }}" {{ 'selected' if r.day_of_week==d }}>{{ lbl }}</option>{% endfor %}
+        </select></div>
+      <div style="flex:0 0 110px;"><label>Stunde</label>
+        <input name="hour" type="number" min="0" max="23" value="{{ r.hour }}"></div>
+      <div style="flex:0 0 110px;"><label>Minute</label>
+        <input name="minute" type="number" min="0" max="59" value="{{ r.minute }}"></div>
+      <div style="flex:0 0 auto;"><label>Aktiv</label>
+        <input type="checkbox" name="enabled" value="1" {{ 'checked' if r.enabled }} style="width:auto;transform:scale(1.4);margin-top:.6rem;"></div>
+    </div>
+
+    <div style="margin-top:1.2rem;" class="toolbar">
+      <button type="submit">Speichern</button>
+      <a class="btn ghost" href="/reports">Abbrechen</a>
+    </div>
+  </form>
+</div>
+<script>
+function addProj(t){var ta=document.getElementsByName('projects')[0];
+  ta.value=(ta.value.trim()?ta.value.trim()+'\\n':'')+t;}
+</script>
+{% endblock %}
+"""
+
+LOGO_GLOBAL = LOGO_URL
 _base_tpl = Template(_BASE)
-_login_tpl = Template(_LOGIN)
-_dash_tpl = Template(_DASH)
-_account_tpl = Template(_ACCOUNT)
-_users_tpl = Template(_USERS)
-_invite_tpl = Template(_INVITE)
-for _tpl in (_base_tpl, _login_tpl, _dash_tpl, _account_tpl, _users_tpl,
-             _invite_tpl):
+_tpls = {n: Template(s) for n, s in {
+    "login": _LOGIN, "dash": _DASH, "account": _ACCOUNT, "users": _USERS,
+    "invite": _INVITE, "reports": _REPORTS, "report_form": _REPORT_FORM,
+}.items()}
+for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
     _tpl.environment.globals["logo_url"] = LOGO_URL    # type: ignore
 
 
-def _session_user(request: Request):
+# --- Helfer ----------------------------------------------------------------
+
+def _user(request: Request):
     return request.session.get("user")
 
 
-def _session_role(request: Request) -> str:
+def _role(request: Request) -> str:
     return request.session.get("role", "user")
 
 
-def _pop_flash(request: Request):
-    return (request.session.pop("flash", None),
-            request.session.pop("flash_class", ""))
-
-
 def _common(request: Request, page: str, title: str):
-    flash, flash_class = _pop_flash(request)
-    return dict(user=_session_user(request), role=_session_role(request),
-                page=page, title=title, flash=flash, flash_class=flash_class)
+    return dict(user=_user(request), role=_role(request), page=page,
+                title=title, flash=request.session.pop("flash", None),
+                flash_class=request.session.pop("flash_class", ""))
+
+
+def _all_projects() -> list[str]:
+    seen = set()
+    for r in load_records():
+        p = normalize(r)
+        if p and p.project:
+            seen.add(p.project)
+    return sorted(seen)
+
+
+def _fmt_dur(hours: float) -> str:
+    m = round(hours * 60)
+    return f"{m // 60}:{m % 60:02d} h"
+
+
+def _need_login(request: Request):
+    return None if _user(request) else RedirectResponse("/login", status_code=303)
+
+
+def _need_admin(request: Request):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    if _role(request) != "admin":
+        return HTMLResponse("Kein Zugriff (nur Admin).", status_code=403)
+    return None
 
 
 # --- Login / Logout --------------------------------------------------------
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    if _session_user(request):
+    if _user(request):
         return RedirectResponse("/", status_code=303)
-    flash, flash_class = _pop_flash(request)
-    return HTMLResponse(_login_tpl.render(
-        title="Login", user=None, flash=flash, flash_class=flash_class,
+    return HTMLResponse(_tpls["login"].render(
+        title="Login", user=None,
+        flash=request.session.pop("flash", None),
+        flash_class=request.session.pop("flash_class", ""),
         login_possible=bool(users.list_users()) or config.login_possible()))
 
 
 @router.post("/login")
-async def login_submit(request: Request,
-                       username: str = Form(""), password: str = Form("")):
+async def login_submit(request: Request, username: str = Form(""),
+                       password: str = Form("")):
     user = users.verify_login(username.strip(), password)
     if not user:
         request.session["flash"] = "Benutzer oder Passwort falsch."
@@ -329,21 +478,18 @@ async def logout(request: Request):
 def _inspect_stats():
     records = load_records()
     valid = [p for p in (normalize(r) for r in records) if p]
-    return {
-        "events_total": len(records),
-        "has_project": any(p.project for p in valid),
-        "has_direction": any(p.direction for p in valid),
-        "intervals_paired": len(pair_intervals(valid)),
-    }
+    return {"events_total": len(records),
+            "has_project": any(p.project for p in valid),
+            "has_direction": any(p.direction for p in valid),
+            "intervals_paired": len(pair_intervals(valid))}
 
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, week: str = "last",
-                    project: str | None = None,
-                    start: str | None = None, end: str | None = None):
-    if not _session_user(request):
-        return RedirectResponse("/login", status_code=303)
-
+                    project: str | None = None, start: str | None = None,
+                    end: str | None = None):
+    if (r := _need_login(request)):
+        return r
     proj = project if project is not None else config.PROJECT_CODE
     start_in, end_in = start or "", end or ""
     if week == "this":
@@ -355,13 +501,21 @@ async def dashboard(request: Request, week: str = "last",
         week, (s, e) = "last", previous_week_range()
 
     rep = build_report(s, e, project=proj)
+    sessions = [{
+        "date": iv.start.astimezone(config.TIMEZONE).strftime("%a %d.%m."),
+        "employee": iv.employee, "project": iv.project or "–",
+        "start": iv.start.astimezone(config.TIMEZONE).strftime("%H:%M"),
+        "end": iv.end.astimezone(config.TIMEZONE).strftime("%H:%M"),
+        "dur": _fmt_dur(iv.duration_hours),
+    } for iv in detail_sessions(s, e, project=proj)]
     stats = _inspect_stats()
-    return HTMLResponse(_dash_tpl.render(
+    return HTMLResponse(_tpls["dash"].render(
         **_common(request, "dash", "Dashboard"),
         week=week, project=proj, start_in=start_in, end_in=end_in,
+        all_projects=_all_projects(),
         report_title=(proj or "alle Projekte"),
         period=f"{rep.start:%d.%m.%Y} – {rep.end:%d.%m.%Y}",
-        report_html=render_html(rep),
+        report_html=render_html(rep), sessions=sessions,
         start_iso=rep.start.date().isoformat(), end_iso=rep.end.date().isoformat(),
         mail_configured=config.mail_configured(),
         has_project=stats["has_project"], has_direction=stats["has_direction"],
@@ -373,17 +527,16 @@ async def dashboard(request: Request, week: str = "last",
 @router.post("/send")
 async def send_now(request: Request, project: str = Form(""),
                    start: str = Form(""), end: str = Form("")):
-    if not _session_user(request):
-        return RedirectResponse("/login", status_code=303)
+    if (r := _need_login(request)):
+        return r
     try:
         s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
         e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
         result = mailer.deliver(build_report(s, e, project=project or None))
-        if result.get("mailed"):
-            request.session["flash"] = f"Bericht an {', '.join(result['recipients'])} versendet."
-        else:
-            request.session["flash"] = ("Als Datei gespeichert (kein Mailversand "
-                                        f"konfiguriert): {result.get('saved_path')}")
+        request.session["flash"] = (
+            f"Bericht an {', '.join(result['recipients'])} versendet."
+            if result.get("mailed")
+            else f"Als Datei gespeichert: {result.get('saved_path')}")
     except Exception as exc:
         request.session["flash"] = f"Fehler beim Senden: {exc}"
         request.session["flash_class"] = "err"
@@ -391,45 +544,43 @@ async def send_now(request: Request, project: str = Form(""),
         f"/?week=custom&project={project}&start={start}&end={end}", status_code=303)
 
 
-# --- Eigenes Konto ---------------------------------------------------------
+# --- Konto -----------------------------------------------------------------
 
 @router.get("/account", response_class=HTMLResponse)
 async def account_form(request: Request):
-    if not _session_user(request):
-        return RedirectResponse("/login", status_code=303)
-    return HTMLResponse(_account_tpl.render(**_common(request, "account", "Konto")))
+    if (r := _need_login(request)):
+        return r
+    return HTMLResponse(_tpls["account"].render(**_common(request, "account", "Konto")))
 
 
 @router.post("/account")
 async def account_submit(request: Request, current: str = Form(""),
                          new1: str = Form(""), new2: str = Form("")):
-    username = _session_user(request)
+    username = _user(request)
     if not username:
         return RedirectResponse("/login", status_code=303)
     if not users.verify_login(username, current):
-        request.session["flash"] = "Aktuelles Passwort ist falsch."
-        request.session["flash_class"] = "err"
+        request.session["flash"], request.session["flash_class"] = \
+            "Aktuelles Passwort ist falsch.", "err"
     elif len(new1) < 8:
-        request.session["flash"] = "Neues Passwort muss mind. 8 Zeichen haben."
-        request.session["flash_class"] = "err"
+        request.session["flash"], request.session["flash_class"] = \
+            "Neues Passwort braucht mind. 8 Zeichen.", "err"
     elif new1 != new2:
-        request.session["flash"] = "Die neuen Passwörter stimmen nicht überein."
-        request.session["flash_class"] = "err"
+        request.session["flash"], request.session["flash_class"] = \
+            "Die neuen Passwörter stimmen nicht überein.", "err"
     else:
         users.set_password(username, new1)
         request.session["flash"] = "Passwort geändert."
     return RedirectResponse("/account", status_code=303)
 
 
-# --- Benutzerverwaltung (Admin) -------------------------------------------
+# --- Benutzerverwaltung ----------------------------------------------------
 
 @router.get("/users", response_class=HTMLResponse)
 async def users_page(request: Request):
-    if not _session_user(request):
-        return RedirectResponse("/login", status_code=303)
-    if _session_role(request) != "admin":
-        return HTMLResponse("Kein Zugriff (nur Admin).", status_code=403)
-    return HTMLResponse(_users_tpl.render(
+    if (r := _need_admin(request)):
+        return r
+    return HTMLResponse(_tpls["users"].render(
         **_common(request, "users", "Benutzer"),
         userlist=users.list_users(), base_url=str(request.base_url)))
 
@@ -437,58 +588,167 @@ async def users_page(request: Request):
 @router.post("/users/create")
 async def users_create(request: Request, username: str = Form(""),
                        role: str = Form("user")):
-    if _session_role(request) != "admin" or not _session_user(request):
-        return RedirectResponse("/login", status_code=303)
+    if (r := _need_admin(request)):
+        return r
     token = users.create_invite(username, role)
     if token is None:
-        request.session["flash"] = "Benutzername leer oder bereits vergeben."
-        request.session["flash_class"] = "err"
+        request.session["flash"], request.session["flash_class"] = \
+            "Benutzername leer oder bereits vergeben.", "err"
     else:
-        link = f"{request.base_url}invite/{token}"
-        request.session["flash"] = f"Einladung erstellt. Link: {link}"
+        request.session["flash"] = f"Einladung: {request.base_url}invite/{token}"
     return RedirectResponse("/users", status_code=303)
 
 
 @router.post("/users/delete")
 async def users_delete(request: Request, username: str = Form("")):
-    if _session_role(request) != "admin" or not _session_user(request):
-        return RedirectResponse("/login", status_code=303)
-    if username == _session_user(request):
-        request.session["flash"] = "Sich selbst kann man nicht löschen."
-        request.session["flash_class"] = "err"
+    if (r := _need_admin(request)):
+        return r
+    if username == _user(request):
+        request.session["flash"], request.session["flash_class"] = \
+            "Sich selbst kann man nicht löschen.", "err"
     elif users.delete_user(username):
         request.session["flash"] = f"Benutzer {username} gelöscht."
     else:
-        request.session["flash"] = "Löschen nicht möglich (letzter Admin?)."
-        request.session["flash_class"] = "err"
+        request.session["flash"], request.session["flash_class"] = \
+            "Löschen nicht möglich (letzter Admin?).", "err"
     return RedirectResponse("/users", status_code=303)
 
 
-# --- Einladung annehmen ----------------------------------------------------
+# --- Berichte-Verwaltung ---------------------------------------------------
+
+_DAYS = [("mon", "Montag"), ("tue", "Dienstag"), ("wed", "Mittwoch"),
+         ("thu", "Donnerstag"), ("fri", "Freitag"), ("sat", "Samstag"),
+         ("sun", "Sonntag")]
+
+
+def _report_view(cfg):
+    cfg = dict(cfg)
+    cfg["day_label"] = settings.day_label(cfg["day_of_week"])
+    return cfg
+
+
+@router.get("/reports", response_class=HTMLResponse)
+async def reports_page(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    return HTMLResponse(_tpls["reports"].render(
+        **_common(request, "reports", "Berichte"),
+        reports=[_report_view(c) for c in settings.list_reports()]))
+
+
+@router.get("/reports/new", response_class=HTMLResponse)
+async def reports_new(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    blank = {"id": "", "name": "", "projects": [], "recipients": [],
+             "day_of_week": "mon", "hour": 7, "minute": 0, "enabled": True}
+    return HTMLResponse(_tpls["report_form"].render(
+        **_common(request, "reports", "Neuer Bericht"),
+        r=blank, action="/reports/new", days=_DAYS, all_projects=_all_projects(),
+        projects_text="", recipients_text=""))
+
+
+@router.post("/reports/new")
+async def reports_create(request: Request, name: str = Form(""),
+                         projects: str = Form(""), recipients: str = Form(""),
+                         day_of_week: str = Form("mon"), hour: str = Form("7"),
+                         minute: str = Form("0"), enabled: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    settings.add_report({"name": name, "projects": projects,
+                         "recipients": recipients, "day_of_week": day_of_week,
+                         "hour": hour, "minute": minute,
+                         "enabled": bool(enabled)})
+    scheduler.reschedule()
+    request.session["flash"] = "Bericht angelegt."
+    return RedirectResponse("/reports", status_code=303)
+
+
+@router.get("/reports/{rid}/edit", response_class=HTMLResponse)
+async def reports_edit(request: Request, rid: str):
+    if (r := _need_admin(request)):
+        return r
+    cfg = settings.get_report(rid)
+    if not cfg:
+        return RedirectResponse("/reports", status_code=303)
+    return HTMLResponse(_tpls["report_form"].render(
+        **_common(request, "reports", "Bericht bearbeiten"),
+        r=cfg, action=f"/reports/{rid}/edit", days=_DAYS,
+        all_projects=_all_projects(),
+        projects_text="\n".join(cfg["projects"]),
+        recipients_text=", ".join(cfg["recipients"])))
+
+
+@router.post("/reports/{rid}/edit")
+async def reports_update(request: Request, rid: str, name: str = Form(""),
+                         projects: str = Form(""), recipients: str = Form(""),
+                         day_of_week: str = Form("mon"), hour: str = Form("7"),
+                         minute: str = Form("0"), enabled: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    settings.update_report(rid, {"name": name, "projects": projects,
+                                "recipients": recipients,
+                                "day_of_week": day_of_week, "hour": hour,
+                                "minute": minute, "enabled": bool(enabled)})
+    scheduler.reschedule()
+    request.session["flash"] = "Bericht gespeichert."
+    return RedirectResponse("/reports", status_code=303)
+
+
+@router.post("/reports/{rid}/delete")
+async def reports_delete(request: Request, rid: str):
+    if (r := _need_admin(request)):
+        return r
+    settings.delete_report(rid)
+    scheduler.reschedule()
+    request.session["flash"] = "Bericht gelöscht."
+    return RedirectResponse("/reports", status_code=303)
+
+
+@router.post("/reports/{rid}/send")
+async def reports_send(request: Request, rid: str):
+    if (r := _need_admin(request)):
+        return r
+    cfg = settings.get_report(rid)
+    if not cfg:
+        return RedirectResponse("/reports", status_code=303)
+    s, e = previous_week_range()
+    rep = build_grouped(s, e, cfg["projects"], name=cfg["name"])
+    result = mailer.send(subject_grouped(rep), render_grouped_text(rep),
+                         render_grouped_html(rep), cfg["recipients"],
+                         label=cfg["name"])
+    request.session["flash"] = (
+        f"'{cfg['name']}' an {', '.join(result['recipients'])} versendet."
+        if result.get("mailed")
+        else f"'{cfg['name']}' als Datei gespeichert (kein Mailversand): "
+             f"{result.get('saved_path')}")
+    return RedirectResponse("/reports", status_code=303)
+
+
+# --- Einladung -------------------------------------------------------------
 
 @router.get("/invite/{token}", response_class=HTMLResponse)
 async def invite_form(request: Request, token: str):
     u = users.find_by_invite(token)
     if not u:
         return HTMLResponse(_base_tpl.render(
-            title="Einladung", user=None,
-            flash="Einladungslink ungültig oder bereits verwendet.",
-            flash_class="err"), status_code=404)
-    return HTMLResponse(_invite_tpl.render(
+            title="Einladung", user=None, flash_class="err",
+            flash="Einladungslink ungültig oder bereits verwendet."),
+            status_code=404)
+    return HTMLResponse(_tpls["invite"].render(
         title="Einladung", user=None, flash=None, flash_class="",
         invite_user=escape(u["username"]), token=token))
 
 
 @router.post("/invite/{token}")
-async def invite_submit(request: Request, token: str,
-                        new1: str = Form(""), new2: str = Form("")):
+async def invite_submit(request: Request, token: str, new1: str = Form(""),
+                        new2: str = Form("")):
     u = users.find_by_invite(token)
     if not u:
         return HTMLResponse("Einladungslink ungültig.", status_code=404)
     if len(new1) < 8 or new1 != new2:
-        request.session["flash"] = ("Passwort muss mind. 8 Zeichen haben und "
-                                    "beide Felder müssen übereinstimmen.")
-        request.session["flash_class"] = "err"
+        request.session["flash"], request.session["flash_class"] = \
+            "Passwort min. 8 Zeichen und beide Felder gleich.", "err"
         return RedirectResponse(f"/invite/{token}", status_code=303)
     users.set_password(u["username"], new1)
     request.session["user"] = u["username"]
