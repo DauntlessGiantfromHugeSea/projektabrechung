@@ -1,0 +1,177 @@
+"""
+Einfache, dateibasierte Benutzerverwaltung.
+
+- Speichert Nutzer in einer JSON-Datei (USERS_FILE).
+- Passwoerter werden als PBKDF2-HMAC-SHA256-Hash mit Salt abgelegt
+  (nur Standardbibliothek, keine Zusatzabhaengigkeit).
+- Rollen: "admin" (darf Nutzer verwalten) und "user".
+- Einladung: Admin legt einen Nutzer an, dieser bekommt einen Einladungs-Token;
+  ueber /invite/<token> setzt er sein eigenes Passwort (funktioniert ohne Mail).
+
+Bewusst schlicht gehalten (kleine Nutzerzahl, geringe Last). Schreibzugriffe
+sind selten und unkritisch.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import secrets
+import threading
+from datetime import datetime, timezone
+from typing import Any
+
+import config
+
+_LOCK = threading.Lock()
+_ITERATIONS = 200_000
+
+
+# --- Persistenz ------------------------------------------------------------
+
+def _load() -> dict[str, dict[str, Any]]:
+    path = config.USERS_FILE
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save(users: dict[str, dict[str, Any]]) -> None:
+    path = config.USERS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(users, indent=2, ensure_ascii=False),
+                   encoding="utf-8")
+    tmp.replace(path)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# --- Passwort-Hashing ------------------------------------------------------
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _ITERATIONS)
+    return f"pbkdf2_sha256${_ITERATIONS}${salt.hex()}${dk.hex()}"
+
+
+def verify_password(password: str, stored: str | None) -> bool:
+    if not stored:
+        return False
+    try:
+        algo, iters, salt_hex, hash_hex = stored.split("$")
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode(),
+                                 bytes.fromhex(salt_hex), int(iters))
+        return hmac.compare_digest(dk.hex(), hash_hex)
+    except Exception:
+        return False
+
+
+# --- Verwaltung ------------------------------------------------------------
+
+def bootstrap_admin() -> None:
+    """Beim Start: falls noch keine Nutzer existieren und ADMIN_PASSWORD
+    gesetzt ist, einen Admin aus den Env-Vars anlegen (Migration vom
+    bisherigen Einzel-Login)."""
+    with _LOCK:
+        users = _load()
+        if users:
+            return
+        if not config.ADMIN_PASSWORD:
+            return
+        users[config.ADMIN_USER] = {
+            "username": config.ADMIN_USER,
+            "role": "admin",
+            "password": hash_password(config.ADMIN_PASSWORD),
+            "status": "active",
+            "invite_token": None,
+            "created_at": _now(),
+        }
+        _save(users)
+
+
+def verify_login(username: str, password: str) -> dict[str, Any] | None:
+    user = _load().get(username)
+    if not user or user.get("status") != "active":
+        return None
+    if verify_password(password, user.get("password")):
+        return user
+    return None
+
+
+def get(username: str) -> dict[str, Any] | None:
+    return _load().get(username)
+
+
+def list_users() -> list[dict[str, Any]]:
+    return sorted(_load().values(), key=lambda u: u["username"].lower())
+
+
+def count_admins(users: dict[str, dict[str, Any]] | None = None) -> int:
+    users = users if users is not None else _load()
+    return sum(1 for u in users.values()
+               if u.get("role") == "admin" and u.get("status") == "active")
+
+
+def set_password(username: str, new_password: str) -> bool:
+    with _LOCK:
+        users = _load()
+        if username not in users:
+            return False
+        users[username]["password"] = hash_password(new_password)
+        users[username]["status"] = "active"
+        users[username]["invite_token"] = None
+        _save(users)
+        return True
+
+
+def create_invite(username: str, role: str = "user") -> str | None:
+    """Neuen Nutzer als 'invited' anlegen, Einladungs-Token zurueckgeben.
+    None, wenn der Name schon existiert."""
+    username = username.strip()
+    role = "admin" if role == "admin" else "user"
+    with _LOCK:
+        users = _load()
+        if not username or username in users:
+            return None
+        token = secrets.token_urlsafe(32)
+        users[username] = {
+            "username": username,
+            "role": role,
+            "password": None,
+            "status": "invited",
+            "invite_token": token,
+            "created_at": _now(),
+        }
+        _save(users)
+        return token
+
+
+def find_by_invite(token: str) -> dict[str, Any] | None:
+    if not token:
+        return None
+    for u in _load().values():
+        if u.get("invite_token") and hmac.compare_digest(u["invite_token"], token):
+            return u
+    return None
+
+
+def delete_user(username: str) -> bool:
+    with _LOCK:
+        users = _load()
+        if username not in users:
+            return False
+        # Letzten aktiven Admin nicht loeschen
+        if (users[username].get("role") == "admin"
+                and users[username].get("status") == "active"
+                and count_admins(users) <= 1):
+            return False
+        del users[username]
+        _save(users)
+        return True

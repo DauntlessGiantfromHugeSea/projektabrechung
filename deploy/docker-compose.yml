@@ -28,8 +28,8 @@ services:
       LOG_FILE: "/data/events.jsonl"
 
       # --- Bericht ---
-      PROJECT_CODE: ""               # Projekt(teil)code; leer = alle Projekte
-      # PROJECT_FIELD: "projectCode"
+      PROJECT_CODE: "${PROJECT_CODE:-}"   # Projekt(teil)code; leer = alle Projekte
+      # PROJECT_FIELD: "projectName"
       REPORT_DIR: "/data/reports"
       REPORT_TIMEZONE: "Europe/Berlin"
 
@@ -47,16 +47,16 @@ services:
       REPORT_CRON_HOUR: "7"
       REPORT_CRON_MINUTE: "0"
 
-      # --- E-Mail (spaeter ausfuellen) ---
-      SMTP_HOST: ""
-      SMTP_PORT: "587"
-      SMTP_USER: ""
-      SMTP_PASSWORD: ""
-      SMTP_FROM: ""
-      SMTP_STARTTLS: "true"
-      SMTP_SSL: "false"
-      REPORT_RECIPIENTS: ""
-      REPORT_SUBJECT_PREFIX: "Projektzeiten"
+      # --- E-Mail (Werte aus deploy/.env) ---
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_STARTTLS: "${SMTP_STARTTLS:-true}"
+      SMTP_SSL: "${SMTP_SSL:-false}"
+      REPORT_RECIPIENTS: "${REPORT_RECIPIENTS:-}"
+      REPORT_SUBJECT_PREFIX: "${REPORT_SUBJECT_PREFIX:-Projektzeiten}"
     volumes:
       - ./data:/data
     networks:

@@ -89,3 +89,7 @@ SESSION_HTTPS_ONLY = _bool("SESSION_HTTPS_ONLY", True)
 def login_possible() -> bool:
     """True, wenn ein Passwort gesetzt ist (sonst kein Login moeglich)."""
     return bool(ADMIN_PASSWORD)
+
+
+# Datei der Benutzerverwaltung (Nutzer, Passwort-Hashes, Rollen).
+USERS_FILE = Path(os.getenv("USERS_FILE", "/data/users.json"))
