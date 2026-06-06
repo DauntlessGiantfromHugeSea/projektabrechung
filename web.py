@@ -259,21 +259,25 @@ _LOGIN = """
 <div class="card glass" style="max-width:390px;margin:8vh auto 0;text-align:center;">
   <img src="{{ logo_url }}" alt="FBE" style="height:52px;margin:.4rem 0 1.1rem;">
   <h1 style="text-align:left;">Anmelden</h1>
-  {% if not login_possible %}
+  {% if show_local and not login_possible %}
     <div class="flash err">Noch kein Benutzer. <code>ADMIN_PASSWORD</code> in
       der .env setzen und neu starten.</div>{% endif %}
-  <form method="post" action="/login" style="text-align:left;">
-    <label>Benutzer</label>
-    <input name="username" autofocus autocomplete="username">
-    <label>Passwort</label>
-    <input name="password" type="password" autocomplete="current-password">
-    <div style="margin-top:1.1rem;"><button type="submit">Einloggen</button></div>
-  </form>
   {% if ms_enabled %}
-  <div style="margin:1rem 0;color:var(--muted);font-size:.85rem;">oder</div>
-  <a class="btn ghost" href="/auth/microsoft/login" style="display:block;text-align:center;">Mit Microsoft anmelden</a>
+  <a class="btn" href="/auth/microsoft/login" style="display:block;text-align:center;">Mit Microsoft anmelden</a>
   {% endif %}
-  <p style="text-align:left;margin-top:1rem;"><a href="/reset">Passwort vergessen?</a></p>
+  {% if show_local %}
+    {% if ms_enabled %}<div style="margin:1rem 0;color:var(--muted);font-size:.85rem;">oder</div>{% endif %}
+    <form method="post" action="/login" style="text-align:left;">
+      <label>Benutzer</label>
+      <input name="username" autofocus autocomplete="username">
+      <label>Passwort</label>
+      <input name="password" type="password" autocomplete="current-password">
+      <div style="margin-top:1.1rem;"><button type="submit" class="{{ 'ghost' if ms_enabled }}">Einloggen</button></div>
+    </form>
+    <p style="text-align:left;margin-top:1rem;"><a href="/reset">Passwort vergessen?</a></p>
+  {% elif ms_enabled %}
+    <p style="margin-top:1.3rem;"><a href="/login?local=1" class="muted" style="font-size:.8rem;">Admin-Anmeldung</a></p>
+  {% endif %}
 </div>
 {% endblock %}
 """
@@ -929,13 +933,13 @@ _USER_EDIT = """
     <label>E-Mail (für Einladung, Reset &amp; Erinnerungen)</label>
     <input name="email" type="email" value="{{ u.email or '' }}">
     <label>TimeMoto-Name (Vorname Nachname – für die Stundenzuordnung)</label>
-    <select name="timemoto_name">
-      <option value="">– nicht zugeordnet –</option>
-      {% for e in all_employees %}<option value="{{ e }}" {{ 'selected' if u.timemoto_name==e }}>{{ e }}</option>{% endfor %}
-      {% if u.timemoto_name and u.timemoto_name not in all_employees %}<option value="{{ u.timemoto_name }}" selected>{{ u.timemoto_name }} (frei eingetragen)</option>{% endif %}
-    </select>
-    <p class="muted" style="margin:.3rem 0 0;">Auswahl = aus TimeMoto erkannte
-      Vor-/Nachnamen. Wer fehlt, hatte noch keine Buchung.</p>
+    <input name="timemoto_name" value="{{ u.timemoto_name or '' }}" list="emps"
+      placeholder="{{ u.name or 'Vorname Nachname' }}">
+    <datalist id="emps">{% for e in all_employees %}<option value="{{ e }}">{% endfor %}</datalist>
+    <p class="muted" style="margin:.3rem 0 0;">Genau wie in TimeMoto schreiben
+      (<b>Vorname Nachname</b>). Du kannst den Namen schon <b>jetzt</b> eintragen –
+      sobald Buchungen mit diesem Namen eingehen, werden sie automatisch zugeordnet.
+      Vorschläge stammen aus bereits erkannten Namen.</p>
     <label>Rolle</label>
     <select name="role">
       <option value="user" {{ 'selected' if u.role=='user' }}>user</option>
@@ -1367,6 +1371,8 @@ async def login_form(request: Request):
         flash=request.session.pop("flash", None),
         flash_class=request.session.pop("flash_class", ""),
         ms_enabled=config.ms_enabled(),
+        show_local=(not config.ms_enabled()
+                    or bool(request.query_params.get("local"))),
         login_possible=bool(users.list_users()) or config.login_possible()))
 
 
