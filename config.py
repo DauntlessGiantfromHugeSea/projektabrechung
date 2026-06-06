@@ -27,6 +27,8 @@ BRAND_COLOR_DARK = os.getenv("BRAND_COLOR_DARK", "#6fa84f")
 # Externer Link zum Teilnahmemanagement der Flüssigboden Akademie.
 TEILNAHME_URL = os.getenv(
     "TEILNAHME_URL", "https://teilnahme.fb-akademie.de/dashboard")
+# Externer Link zu TimeMoto (Zeiterfassung & Urlaubsanträge).
+TIMEMOTO_URL = os.getenv("TIMEMOTO_URL", "https://cloud-eu.timemoto.com/")
 # Hintergrundbild der Login-Maske.
 LOGIN_BG_IMAGE = os.getenv(
     "LOGIN_BG_IMAGE",

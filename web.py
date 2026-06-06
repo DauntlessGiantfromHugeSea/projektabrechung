@@ -51,23 +51,29 @@ _BASE = """
 <title>{{ title }} – Projektabrechnung</title>
 <style>
   :root{
-    --fg:#1e293b; --muted:#64748b; --brand:#92c57a; --brand-d:#6fa84f;
+    --fg:#15321f; --muted:#5b6b72; --brand:#92c57a; --brand-d:#6fa84f;
     --accent-text:#123018; --link:#4d8838; --danger:#c0392b;
-    --line:#e6eaef; --card:#ffffff;
-    --shadow:0 1px 2px rgba(16,40,20,.05),0 8px 24px rgba(16,40,20,.07);
-    --radius:18px;
+    --line:rgba(255,255,255,.55); --card:rgba(255,255,255,.62);
+    --shadow:0 2px 8px rgba(20,50,25,.06),0 18px 50px rgba(20,50,25,.12);
+    --radius:24px;
   }
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;color:var(--fg);
-    font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-    background:#f5f7f9;
-    background-image:radial-gradient(900px 360px at 100% -5%, rgba(146,197,122,.13) 0%, transparent 60%);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
+    background:
+      radial-gradient(1100px 700px at 8% -8%, rgba(146,197,122,.40) 0%, transparent 55%),
+      radial-gradient(1000px 800px at 108% 6%, rgba(122,180,210,.34) 0%, transparent 52%),
+      radial-gradient(900px 700px at 50% 120%, rgba(146,197,122,.28) 0%, transparent 55%),
+      linear-gradient(135deg,#eef5e9 0%,#e6eff0 50%,#e8f0e6 100%);
     background-attachment:fixed;}
   a{color:var(--link);text-decoration:none}
   a:hover{text-decoration:underline}
   svg{width:18px;height:18px;flex:0 0 auto;vertical-align:-3px}
-  .glass,.card{background:var(--card);border:1px solid var(--line);
-    border-radius:var(--radius);box-shadow:var(--shadow);}
+  .glass,.card{background:var(--card);
+    backdrop-filter:blur(22px) saturate(180%);
+    -webkit-backdrop-filter:blur(22px) saturate(180%);
+    border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.6);}
   header{position:sticky;top:0;z-index:30;padding:.5rem 1.4rem;
     display:flex;align-items:center;justify-content:flex-start;
     flex-wrap:wrap;gap:.5rem;background:rgba(255,255,255,.9);
@@ -128,8 +134,8 @@ _BASE = """
   h3{font-size:1rem;margin:1rem 0 .4rem}
   label{display:block;font-size:.83rem;color:var(--muted);margin:.7rem 0 .25rem;
     font-weight:600}
-  input,select,textarea{width:100%;padding:.6rem .7rem;border-radius:14px;
-    border:1px solid rgba(146,197,122,.45);background:rgba(255,255,255,.7);
+  input,select,textarea{width:100%;padding:.65rem .8rem;border-radius:16px;
+    border:1px solid rgba(146,197,122,.4);background:rgba(255,255,255,.55);
     font:inherit;color:var(--fg);outline:none;transition:.15s}
   input:focus,select:focus,textarea:focus{border-color:var(--brand);
     box-shadow:0 0 0 3px rgba(146,197,122,.3);background:#fff}
@@ -183,11 +189,15 @@ _BASE = """
   .toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
   .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
     gap:1.1rem;margin-top:1.3rem}
-  .tile{display:block;background:var(--card);border:1px solid var(--line);
-    border-radius:var(--radius);padding:1.4rem;box-shadow:var(--shadow);
-    color:var(--fg);transition:.18s}
-  .tile:hover{transform:translateY(-3px);box-shadow:0 16px 36px rgba(40,80,40,.16);
-    text-decoration:none;border-color:var(--brand)}
+  .tile{display:block;background:var(--card);
+    backdrop-filter:blur(22px) saturate(180%);
+    -webkit-backdrop-filter:blur(22px) saturate(180%);
+    border:1px solid var(--line);
+    border-radius:var(--radius);padding:1.5rem;box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.6);
+    color:var(--fg);transition:.2s}
+  .tile:hover{transform:translateY(-4px);
+    box-shadow:0 22px 50px rgba(20,50,25,.20),inset 0 1px 0 rgba(255,255,255,.7);
+    text-decoration:none;border-color:rgba(146,197,122,.7)}
   .tile .ti{width:48px;height:48px;border-radius:14px;display:flex;
     align-items:center;justify-content:center;color:var(--brand-d);
     background:rgba(146,197,122,.22);margin-bottom:.9rem}
@@ -199,6 +209,8 @@ _BASE = """
     background-position:center}
   .loginbg.tint{background:linear-gradient(135deg,rgba(111,168,79,.78),
     rgba(20,54,31,.70))}
+  .loginwrap{position:fixed;inset:0;z-index:1;display:flex;align-items:center;
+    justify-content:center;padding:1.2rem}
   .rowactions{display:flex;gap:.4rem;align-items:center;white-space:nowrap}
   .rowactions form{display:inline;margin:0}
   .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;
@@ -231,6 +243,7 @@ _BASE = """
         {% if is_billing %}<a href="/abrechnung">{{ icons.list|safe }} Abrechnung</a>{% endif %}
         {% if role=='admin' %}<a href="/versand">{{ icons.mail|safe }} Senden</a>
         <a href="/reports">{{ icons.calendar|safe }} Berichte</a>{% endif %}
+        <a href="{{ timemoto_url }}" target="_blank" rel="noopener">{{ icons.clock|safe }} Zeiterfassung &amp; Urlaub ↗</a>
       </div>
     </details>
     {% if tk_view %}
@@ -276,7 +289,8 @@ _LOGIN = """
 {% block body %}
 <div class="loginbg" style="background-image:url('{{ bg_image }}')"></div>
 <div class="loginbg tint"></div>
-<div class="card" style="position:relative;z-index:1;max-width:400px;margin:8vh auto 0;text-align:center;background:rgba(255,255,255,.96);backdrop-filter:blur(6px);box-shadow:0 20px 50px rgba(20,40,20,.35);">
+<div class="loginwrap">
+<div class="card" style="width:100%;max-width:400px;text-align:center;background:rgba(255,255,255,.72);box-shadow:0 24px 60px rgba(20,40,20,.4),inset 0 1px 0 rgba(255,255,255,.7);">
   <img src="{{ logo_url }}" alt="FBE" style="height:54px;margin:.4rem 0 1.1rem;">
   <h1 style="text-align:left;">Anmelden</h1>
   {% if show_local and not login_possible %}
@@ -299,6 +313,7 @@ _LOGIN = """
     <p style="margin-top:1.3rem;"><a href="/login?local=1" class="muted" style="font-size:.8rem;">Admin-Anmeldung</a></p>
   {% endif %}
 </div>
+</div>
 {% endblock %}
 """
 
@@ -318,6 +333,10 @@ _HOME = """
     <div class="ti">{{ icons.history|safe }}</div>
     <h3>Meine Zeiten</h3>
     <p>Eigene Buchungen &amp; Tätigkeitsbeschreibungen.</p></a>
+  <a class="tile" href="{{ timemoto_url }}" target="_blank" rel="noopener">
+    <div class="ti">{{ icons.clock|safe }}</div>
+    <h3>Zeiterfassung &amp; Urlaub ↗</h3>
+    <p>Stempeln &amp; Urlaubsanträge in TimeMoto.</p></a>
   {% if tk_view %}
   <a class="tile" href="/tickets">
     <div class="ti">{{ icons.list|safe }}</div>
@@ -1076,6 +1095,7 @@ ICONS = {
                  'M1 14h6M9 8h6M17 16h6"/>'),
     "logout": _svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'
                    '<path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>'),
+    "clock": _svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
 }
 
 _base_tpl = Template(_BASE)
@@ -1417,6 +1437,8 @@ for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
     _tpl.environment.globals["logo_url"] = LOGO_URL    # type: ignore
     _tpl.environment.globals["icons"] = ICONS          # type: ignore
+    _tpl.environment.globals["timemoto_url"] = config.TIMEMOTO_URL  # type: ignore
+    _tpl.environment.globals["teilnahme_url"] = config.TEILNAHME_URL  # type: ignore
 
 
 # --- Helfer ----------------------------------------------------------------
