@@ -8,21 +8,25 @@ Templates inline (Jinja2), damit das Image schlank bleibt.
 
 from __future__ import annotations
 
+import io
 from datetime import datetime
 from html import escape
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Template
 
+import audit
 import config
 import mailer
+import manual
 import scheduler
 import settings
 import users
 from events import load_records, normalize, pair_intervals
-from report import (build_grouped, build_report, detail_sessions,
-                    filter_intervals, previous_week_range, render_grouped_html,
+from report import (build_grouped, build_report, collect_intervals,
+                    collect_open, detail_sessions, filter_intervals,
+                    previous_week_range, render_grouped_html,
                     render_grouped_text, render_html, subject_grouped,
                     this_week_range)
 
@@ -126,7 +130,9 @@ _BASE = """
     <a href="/" class="{{ 'active' if page=='dash' }}">Bericht</a>
     <a href="/log" class="{{ 'active' if page=='log' }}">Log</a>
     {% if role=='admin' %}<a href="/reports" class="{{ 'active' if page=='reports' }}">Berichte</a>
-    <a href="/users" class="{{ 'active' if page=='users' }}">Benutzer</a>{% endif %}
+    <a href="/users" class="{{ 'active' if page=='users' }}">Benutzer</a>
+    <a href="/audit" class="{{ 'active' if page=='audit' }}">Änderungen</a>{% endif %}
+    <a href="/anleitung" class="{{ 'active' if page=='help' }}">Anleitung</a>
     <a href="/account" class="{{ 'active' if page=='account' }}">Konto</a>
     <span class="muted">· {{ user }}</span>
     <a href="/logout">Abmelden</a>
@@ -230,17 +236,21 @@ _LOG = """
 {% extends base %}
 {% block body %}
 <div class="card glass">
-  <h1>Log – Buchungen</h1>
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Log – Buchungen</h1>
+    <div class="toolbar">
+      {% if role=='admin' %}<a class="btn" href="/log/edit">+ Eintrag hinzufügen</a>{% endif %}
+      <a class="btn ghost" href="/export.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Excel-Export</a>
+    </div>
+  </div>
   <form method="get" action="/log">
     <div class="row">
       <div><label>Mitarbeiter</label>
-        <select name="employee">
-          <option value="">– alle –</option>
+        <select name="employee"><option value="">– alle –</option>
           {% for e in all_employees %}<option value="{{ e }}" {{ 'selected' if employee==e }}>{{ e }}</option>{% endfor %}
         </select></div>
       <div><label>Projekt</label>
-        <select name="project">
-          <option value="">– alle –</option>
+        <select name="project"><option value="">– alle –</option>
           {% for p in all_projects %}<option value="{{ p }}" {{ 'selected' if project==p }}>{{ p }}</option>{% endfor %}
         </select></div>
       <div style="flex:0 0 150px;"><label>Von</label><input type="date" name="start" value="{{ start_in }}"></div>
@@ -249,20 +259,153 @@ _LOG = """
     </div>
   </form>
 </div>
+
+{% if open_sessions %}
+<div class="card glass">
+  <h2>Läuft gerade (eingestempelt, noch nicht ausgestempelt)</h2>
+  <table><thead><tr><th>Mitarbeiter</th><th>Projekt</th><th>Seit</th></tr></thead>
+  <tbody>{% for o in open_sessions %}<tr><td>{{ o.employee }}</td><td>{{ o.project }}</td>
+    <td>{{ o.start }}</td></tr>{% endfor %}</tbody></table>
+</div>
+{% endif %}
+
 <div class="card glass">
   <p class="muted">{{ count }} Buchung(en) · Summe <b>{{ total }}</b></p>
   {% if sessions %}
   <table>
     <thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
-      <th>Kommt</th><th>Geht</th><th class="num">Dauer</th></tr></thead>
+      <th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th>Quelle</th>
+      {% if role=='admin' %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in sessions %}
       <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
-        <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td></tr>
+        <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td>
+        <td>{% if s.source=='manual' %}<span class="pill role">manuell</span>{% else %}<span class="muted">TimeMoto</span>{% endif %}</td>
+        {% if role=='admin' %}<td class="toolbar">
+          <a class="btn ghost" href="/log/edit?iid={{ s.id|urlencode }}">{{ 'bearbeiten' if s.source=='manual' else 'korrigieren' }}</a>
+          <form method="post" action="/log/delete" style="display:inline;">
+            <input type="hidden" name="iid" value="{{ s.id }}">
+            <button class="danger" onclick="return confirm('Eintrag {{ 'löschen' if s.source=='manual' else 'ausblenden' }}?')">{{ 'löschen' if s.source=='manual' else 'ausblenden' }}</button>
+          </form></td>{% endif %}
+      </tr>
     {% endfor %}
     </tbody>
   </table>
   {% else %}<p>Keine Buchungen für diese Filter.</p>{% endif %}
+</div>
+
+{% if role=='admin' and hidden %}
+<div class="card glass">
+  <h2>Ausgeblendete TimeMoto-Buchungen</h2>
+  <table><tbody>
+  {% for h in hidden %}<tr><td><code>{{ h }}</code></td>
+    <td style="text-align:right;"><form method="post" action="/log/restore" style="display:inline;">
+      <input type="hidden" name="iid" value="{{ h }}">
+      <button class="ghost" type="submit">wieder einblenden</button></form></td></tr>{% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+{% endblock %}
+"""
+
+_LOG_FORM = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:560px;">
+  <h1>{{ heading }}</h1>
+  {% if is_correction %}<p class="muted">Korrektur einer TimeMoto-Buchung: das
+    Original wird ausgeblendet und durch diesen Eintrag ersetzt.</p>{% endif %}
+  <form method="post" action="/log/save">
+    <input type="hidden" name="iid" value="{{ iid }}">
+    <div class="row">
+      <div><label>Mitarbeiter</label>
+        <input name="employee" value="{{ f.employee }}" list="emps">
+        <datalist id="emps">{% for e in all_employees %}<option value="{{ e }}">{% endfor %}</datalist></div>
+      <div><label>Projekt</label>
+        <input name="project" value="{{ f.project }}" list="projs">
+        <datalist id="projs">{% for p in all_projects %}<option value="{{ p }}">{% endfor %}</datalist></div>
+    </div>
+    <div class="row">
+      <div style="flex:0 0 180px;"><label>Datum</label><input type="date" name="date" value="{{ f.date }}"></div>
+      <div style="flex:0 0 130px;"><label>Kommt</label><input type="time" name="start_time" value="{{ f.start_time }}"></div>
+      <div style="flex:0 0 130px;"><label>Geht</label><input type="time" name="end_time" value="{{ f.end_time }}"></div>
+    </div>
+    <label>Notiz (optional)</label>
+    <input name="note" value="{{ f.note }}" placeholder="z. B. Nachtrag, Korrektur Pause">
+    <div style="margin-top:1.2rem;" class="toolbar">
+      <button type="submit">Speichern</button>
+      <a class="btn ghost" href="/log">Abbrechen</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+"""
+
+_ANLEITUNG = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <h1>Anleitung</h1>
+  <h2>Überblick</h2>
+  <p>Diese Anwendung sammelt die Stempelungen aus TimeMoto (per Webhook in
+    Echtzeit) und macht daraus Projekt-Zeitberichte – ansehbar im Web und
+    automatisch per E-Mail.</p>
+
+  <h2>Bericht (Startseite)</h2>
+  <ul>
+    <li>Wähle <b>Woche</b> (vorige/diese/eigener Zeitraum) und optional einen
+      <b>Projektfilter</b>.</li>
+    <li>Oben die <b>Zusammenfassung</b> je Mitarbeiter (Stunden mit Minuten),
+      darunter die <b>Einzelbuchungen</b> mit Kommt/Geht.</li>
+    <li><b>Diese Ansicht jetzt senden</b> verschickt den aktuellen Ausschnitt
+      sofort an die Standard-Empfänger.</li>
+  </ul>
+
+  <h2>Log</h2>
+  <ul>
+    <li>Alle Buchungen, filterbar nach <b>Mitarbeiter</b>, <b>Projekt</b> und
+      <b>Zeitraum</b>.</li>
+    <li><b>Läuft gerade</b>: zeigt offene Stempelungen (eingestempelt, noch
+      nicht ausgestempelt) – so siehst du eine frische Buchung sofort.</li>
+    <li><b>Excel-Export</b> exportiert genau die gefilterte Liste.</li>
+    <li>Als Admin: <b>+ Eintrag hinzufügen</b>, einzelne Einträge
+      <b>bearbeiten</b>, manuelle <b>löschen</b> oder TimeMoto-Buchungen
+      <b>korrigieren/ausblenden</b>. Alle Änderungen stehen unter
+      <b>Änderungen</b> (Audit-Log).</li>
+  </ul>
+
+  <h2>Berichte (Automatik, Admin)</h2>
+  <ul>
+    <li>Lege fest: <b>welche Projekte</b>, <b>an wen</b> und <b>wann</b>
+      (Wochentag + Uhrzeit) ein Bericht automatisch verschickt wird.</li>
+    <li>Es wird nur versendet, was hier definiert ist – nie automatisch „alle“.</li>
+    <li><b>jetzt senden</b> testet einen Bericht (Inhalt = vorige Woche).</li>
+  </ul>
+
+  <h2>Benutzer (Admin)</h2>
+  <ul>
+    <li>Neue Personen per <b>Einladungslink</b> hinzufügen (sie setzen ihr
+      eigenes Passwort), Rollen <b>admin</b>/<b>user</b>, Löschen.</li>
+    <li>Eigenes Passwort jederzeit unter <b>Konto</b> ändern.</li>
+  </ul>
+</div>
+{% endblock %}
+"""
+
+_AUDIT = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <h1>Änderungen (Audit-Log)</h1>
+  {% if entries %}
+  <table>
+    <thead><tr><th>Zeit</th><th>Benutzer</th><th>Aktion</th><th>Details</th></tr></thead>
+    <tbody>{% for a in entries %}<tr>
+      <td class="muted">{{ a.when }}</td><td>{{ a.user }}</td>
+      <td><span class="pill role">{{ a.action }}</span></td><td>{{ a.detail }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">Noch keine Änderungen protokolliert.</p>{% endif %}
 </div>
 {% endblock %}
 """
@@ -433,7 +576,8 @@ function addProj(t){var ta=document.getElementsByName('projects')[0];
 LOGO_GLOBAL = LOGO_URL
 _base_tpl = Template(_BASE)
 _tpls = {n: Template(s) for n, s in {
-    "login": _LOGIN, "dash": _DASH, "log": _LOG, "account": _ACCOUNT,
+    "login": _LOGIN, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
+    "anleitung": _ANLEITUNG, "audit": _AUDIT, "account": _ACCOUNT,
     "users": _USERS, "invite": _INVITE, "reports": _REPORTS,
     "report_form": _REPORT_FORM,
 }.items()}
@@ -483,6 +627,7 @@ def _session_view(iv) -> dict:
         "start": iv.start.astimezone(config.TIMEZONE).strftime("%H:%M"),
         "end": iv.end.astimezone(config.TIMEZONE).strftime("%H:%M"),
         "dur": _fmt_dur(iv.duration_hours),
+        "id": iv.id, "source": iv.source,
     }
 
 
@@ -626,12 +771,200 @@ async def log_page(request: Request, employee: str = "", project: str = "",
             e = None
     intervals = filter_intervals(s, e, project=project, employee=employee)
     total_hours = sum(iv.duration_hours for iv in intervals)
+    # Offene Sessions (optional gefiltert)
+    opens = []
+    for o in collect_open():
+        if employee and employee.lower() not in o.employee.lower():
+            continue
+        if project and (not o.project or project.lower() not in o.project.lower()):
+            continue
+        opens.append({"employee": o.employee, "project": o.project or "–",
+                      "start": o.start.astimezone(config.TIMEZONE).strftime("%a %d.%m. %H:%M")})
+    hidden = sorted(manual.hidden_ids()) if _role(request) == "admin" else []
     return HTMLResponse(_tpls["log"].render(
         **_common(request, "log", "Log"),
         all_employees=_all_employees(), all_projects=_all_projects(),
         employee=employee, project=project, start_in=start, end_in=end,
         sessions=[_session_view(iv) for iv in intervals],
+        open_sessions=opens, hidden=hidden,
         count=len(intervals), total=_fmt_dur(total_hours)))
+
+
+def _parse_dt(date: str, t: str) -> datetime:
+    return datetime.fromisoformat(f"{date}T{t}").replace(tzinfo=config.TIMEZONE)
+
+
+def _find_interval(iid: str):
+    for iv in collect_intervals():
+        if iv.id == iid:
+            return iv
+    return None
+
+
+@router.get("/log/edit", response_class=HTMLResponse)
+async def log_edit(request: Request, iid: str = ""):
+    if (r := _need_admin(request)):
+        return r
+    now = datetime.now(config.TIMEZONE)
+    f = {"employee": "", "project": "", "date": now.strftime("%Y-%m-%d"),
+         "start_time": "08:00", "end_time": "17:00", "note": ""}
+    heading, is_correction = "Eintrag hinzufügen", False
+    if iid.startswith("man:"):
+        e = manual.get_entry(iid[4:])
+        if e:
+            st = datetime.fromisoformat(e["start"]).astimezone(config.TIMEZONE)
+            en = datetime.fromisoformat(e["end"]).astimezone(config.TIMEZONE)
+            f = {"employee": e["employee"], "project": e["project"],
+                 "date": st.strftime("%Y-%m-%d"),
+                 "start_time": st.strftime("%H:%M"),
+                 "end_time": en.strftime("%H:%M"), "note": e.get("note", "")}
+            heading = "Eintrag bearbeiten"
+    elif iid.startswith("wh:"):
+        iv = _find_interval(iid)
+        if iv:
+            st = iv.start.astimezone(config.TIMEZONE)
+            en = iv.end.astimezone(config.TIMEZONE)
+            f = {"employee": iv.employee, "project": iv.project or "",
+                 "date": st.strftime("%Y-%m-%d"),
+                 "start_time": st.strftime("%H:%M"),
+                 "end_time": en.strftime("%H:%M"), "note": ""}
+            heading, is_correction = "TimeMoto-Buchung korrigieren", True
+    return HTMLResponse(_tpls["log_form"].render(
+        **_common(request, "log", heading), iid=iid, f=f, heading=heading,
+        is_correction=is_correction, all_employees=_all_employees(),
+        all_projects=_all_projects()))
+
+
+@router.post("/log/save")
+async def log_save(request: Request, iid: str = Form(""),
+                   employee: str = Form(""), project: str = Form(""),
+                   date: str = Form(""), start_time: str = Form(""),
+                   end_time: str = Form(""), note: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    user = _user(request)
+    try:
+        start_dt = _parse_dt(date, start_time)
+        end_dt = _parse_dt(date, end_time)
+        if end_dt <= start_dt:
+            raise ValueError("Geht muss nach Kommt liegen.")
+    except ValueError as exc:
+        request.session["flash"], request.session["flash_class"] = \
+            f"Ungültige Zeit: {exc}", "err"
+        return RedirectResponse(f"/log/edit?iid={iid}", status_code=303)
+
+    data = {"employee": employee, "project": project,
+            "start": start_dt.isoformat(), "end": end_dt.isoformat(), "note": note}
+    label = f"{employee} / {project} {date} {start_time}-{end_time}"
+    if iid.startswith("man:"):
+        manual.update_entry(iid[4:], data)
+        audit.log(user, "bearbeitet", label)
+        request.session["flash"] = "Eintrag gespeichert."
+    elif iid.startswith("wh:"):
+        data["replaces"] = iid
+        manual.add_entry(data, user)
+        manual.hide(iid)
+        audit.log(user, "korrigiert", f"{label} (ersetzt {iid})")
+        request.session["flash"] = "Korrektur gespeichert (Original ausgeblendet)."
+    else:
+        manual.add_entry(data, user)
+        audit.log(user, "hinzugefügt", label)
+        request.session["flash"] = "Eintrag hinzugefügt."
+    return RedirectResponse("/log", status_code=303)
+
+
+@router.post("/log/delete")
+async def log_delete(request: Request, iid: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    user = _user(request)
+    if iid.startswith("man:"):
+        manual.delete_entry(iid[4:])
+        audit.log(user, "gelöscht", iid)
+        request.session["flash"] = "Eintrag gelöscht."
+    elif iid.startswith("wh:"):
+        manual.hide(iid)
+        audit.log(user, "ausgeblendet", iid)
+        request.session["flash"] = "TimeMoto-Buchung ausgeblendet."
+    return RedirectResponse("/log", status_code=303)
+
+
+@router.post("/log/restore")
+async def log_restore(request: Request, iid: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    manual.unhide(iid)
+    audit.log(_user(request), "wieder eingeblendet", iid)
+    request.session["flash"] = "Buchung wieder eingeblendet."
+    return RedirectResponse("/log", status_code=303)
+
+
+@router.get("/export.xlsx")
+async def export_xlsx(request: Request, employee: str = "", project: str = "",
+                      start: str = "", end: str = ""):
+    if (r := _need_login(request)):
+        return r
+    import openpyxl
+    s = e = None
+    try:
+        if start:
+            s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
+        if end:
+            e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
+    except ValueError:
+        pass
+    intervals = filter_intervals(s, e, project=project, employee=employee)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Buchungen"
+    ws.append(["Datum", "Mitarbeiter", "Projekt", "Kommt", "Geht",
+               "Dauer (Std:Min)", "Stunden (dez.)", "Quelle"])
+    total = 0.0
+    for iv in intervals:
+        st = iv.start.astimezone(config.TIMEZONE)
+        en = iv.end.astimezone(config.TIMEZONE)
+        total += iv.duration_hours
+        ws.append([st.strftime("%d.%m.%Y"), iv.employee, iv.project or "",
+                   st.strftime("%H:%M"), en.strftime("%H:%M"),
+                   _fmt_dur(iv.duration_hours).replace(" h", ""),
+                   round(iv.duration_hours, 2),
+                   "manuell" if iv.source == "manual" else "TimeMoto"])
+    ws.append([])
+    ws.append(["", "", "", "", "Summe", _fmt_dur(total).replace(" h", ""),
+               round(total, 2), ""])
+    for col, width in zip("ABCDEFGH", (12, 22, 34, 8, 8, 16, 14, 10)):
+        ws.column_dimensions[col].width = width
+    buf = io.BytesIO()
+    wb.save(buf)
+    fname = f"buchungen_{datetime.now(config.TIMEZONE):%Y%m%d}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@router.get("/anleitung", response_class=HTMLResponse)
+async def anleitung(request: Request):
+    if (r := _need_login(request)):
+        return r
+    return HTMLResponse(_tpls["anleitung"].render(**_common(request, "help", "Anleitung")))
+
+
+@router.get("/audit", response_class=HTMLResponse)
+async def audit_page(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    entries = []
+    for a in audit.list_entries():
+        try:
+            when = datetime.fromisoformat(a["ts"]).astimezone(
+                config.TIMEZONE).strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            when = a.get("ts", "")
+        entries.append({"when": when, "user": a.get("user", "?"),
+                        "action": a.get("action", ""), "detail": a.get("detail", "")})
+    return HTMLResponse(_tpls["audit"].render(
+        **_common(request, "audit", "Änderungen"), entries=entries))
 
 
 # --- Konto -----------------------------------------------------------------

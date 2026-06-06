@@ -96,3 +96,8 @@ USERS_FILE = Path(os.getenv("USERS_FILE", "/data/users.json"))
 
 # Datei der online konfigurierten Bericht-Definitionen (Projekte/Empfaenger/Plan).
 SETTINGS_FILE = Path(os.getenv("SETTINGS_FILE", "/data/settings.json"))
+
+# Manuelle Eintraege/Korrekturen (zusaetzliche Buchungen + ausgeblendete).
+MANUAL_FILE = Path(os.getenv("MANUAL_FILE", "/data/manual.json"))
+# Aenderungsprotokoll (Audit-Log): wer hat wann was geaendert.
+AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "/data/audit.json"))

@@ -83,10 +83,20 @@ class Interval:
     project: str | None
     start: datetime
     end: datetime
+    id: str = ""             # stabile Kennung (fuer Ausblenden/Korrigieren)
+    source: str = "webhook"  # "webhook" | "manual"
 
     @property
     def duration_hours(self) -> float:
         return (self.end - self.start).total_seconds() / 3600.0
+
+
+@dataclass
+class OpenPunch:
+    """Eine offene Stempelung (eingestempelt, noch nicht ausgestempelt)."""
+    employee: str
+    project: str | None
+    start: datetime
 
 
 # --- Hilfsfunktionen: rekursive Feldsuche ----------------------------------
@@ -251,7 +261,7 @@ def pair_intervals(punches: list[Punch]) -> list[Interval]:
     groups: dict[tuple[str, str], list[Punch]] = {}
     for p in paired:
         groups.setdefault((p.employee, p.pair_id), []).append(p)  # type: ignore[arg-type]
-    for (employee, _pid), plist in groups.items():
+    for (employee, pid), plist in groups.items():
         plist.sort(key=lambda x: x.time)
         ins = [p for p in plist if p.direction == "in"]
         outs = [p for p in plist if p.direction == "out"]
@@ -262,7 +272,8 @@ def pair_intervals(punches: list[Punch]) -> list[Interval]:
         else:
             continue  # offener Vorgang (nur Ein- oder nur Ausstempeln)
         project = next((p.project for p in plist if p.project), None)
-        intervals.append(Interval(employee, project, start, end))
+        intervals.append(Interval(employee, project, start, end,
+                                  id=f"wh:{employee}:{pid}"))
 
     # 2) Heuristik fuer Events ohne pair_id
     by_employee: dict[str, list[Punch]] = {}
@@ -278,12 +289,53 @@ def pair_intervals(punches: list[Punch]) -> list[Interval]:
                 elif p.direction == "out" and open_in is not None:
                     intervals.append(Interval(
                         employee, open_in.project or p.project,
-                        open_in.time, p.time))
+                        open_in.time, p.time,
+                        id=f"wh:{employee}:{open_in.time.isoformat()}"))
                     open_in = None
         else:
             for i in range(0, len(plist) - 1, 2):
                 a, b = plist[i], plist[i + 1]
-                intervals.append(Interval(employee, a.project or b.project,
-                                          a.time, b.time))
+                intervals.append(Interval(
+                    employee, a.project or b.project, a.time, b.time,
+                    id=f"wh:{employee}:{a.time.isoformat()}"))
 
     return intervals
+
+
+def open_punches(punches: list[Punch]) -> list[OpenPunch]:
+    """Offene Stempelungen finden: eingestempelt, aber (noch) kein Ausstempeln.
+
+    Erkennt pro clockingPairId Gruppen mit 'in' aber ohne 'out', sowie ein
+    abschliessendes unverbundenes 'in' in der Heuristik-Kette."""
+    opens: list[OpenPunch] = []
+    paired = [p for p in punches if p.pair_id]
+    unpaired = [p for p in punches if not p.pair_id]
+
+    groups: dict[tuple[str, str], list[Punch]] = {}
+    for p in paired:
+        groups.setdefault((p.employee, p.pair_id), []).append(p)  # type: ignore[arg-type]
+    for (employee, _pid), plist in groups.items():
+        ins = [p for p in plist if p.direction == "in"]
+        outs = [p for p in plist if p.direction == "out"]
+        if ins and not outs:
+            first = min(ins, key=lambda p: p.time)
+            opens.append(OpenPunch(employee, first.project, first.time))
+
+    by_emp: dict[str, list[Punch]] = {}
+    for p in unpaired:
+        by_emp.setdefault(p.employee, []).append(p)
+    for employee, plist in by_emp.items():
+        plist.sort(key=lambda x: x.time)
+        if any(p.direction for p in plist):
+            depth = 0
+            last_in: Punch | None = None
+            for p in plist:
+                if p.direction == "in":
+                    depth += 1
+                    last_in = p
+                elif p.direction == "out" and depth > 0:
+                    depth -= 1
+            if depth > 0 and last_in is not None:
+                opens.append(OpenPunch(employee, last_in.project, last_in.time))
+
+    return opens

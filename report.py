@@ -10,7 +10,28 @@ from datetime import datetime, timedelta
 from html import escape
 
 import config
-from events import Interval, load_records, normalize, pair_intervals
+import manual
+from events import (Interval, OpenPunch, load_records, normalize,
+                    open_punches, pair_intervals)
+
+
+def _punches():
+    return [p for p in (normalize(r) for r in load_records()) if p is not None]
+
+
+def collect_intervals() -> list[Interval]:
+    """Alle Arbeitsintervalle: Webhook-Buchungen (ohne ausgeblendete) plus
+    manuell hinzugefuegte/korrigierte Eintraege. Zentrale Datenquelle fuer
+    Bericht, Log und Detailansicht."""
+    hidden = manual.hidden_ids()
+    ivs = [iv for iv in pair_intervals(_punches()) if iv.id not in hidden]
+    ivs += manual.to_intervals()
+    return ivs
+
+
+def collect_open() -> list[OpenPunch]:
+    """Offene Stempelungen (eingestempelt, noch nicht ausgestempelt)."""
+    return open_punches(_punches())
 
 
 @dataclass
@@ -54,12 +75,10 @@ def detail_sessions(start: datetime, end: datetime,
     """Einzelne Arbeitsintervalle im Zeitraum (optional auf ein Projekt
     gefiltert), chronologisch -- fuer die Detailansicht mit Kommt/Geht."""
     wanted = (project if project is not None else config.PROJECT_CODE).strip()
-    records = load_records()
-    punches = [p for p in (normalize(r) for r in records) if p is not None]
     start = start.astimezone(config.TIMEZONE)
     end = end.astimezone(config.TIMEZONE)
     out: list[Interval] = []
-    for iv in pair_intervals(punches):
+    for iv in collect_intervals():
         if not (start <= iv.start.astimezone(config.TIMEZONE) < end):
             continue
         if not _project_matches(iv.project, wanted):
@@ -74,12 +93,10 @@ def filter_intervals(start: datetime | None = None, end: datetime | None = None,
     """Alle Arbeitsintervalle, optional gefiltert nach Zeitraum, Projekt
     (Teilstring) und Mitarbeiter (Teilstring). Neueste zuerst -- fuer die
     Log-/Ansichtsseite."""
-    records = load_records()
-    punches = [p for p in (normalize(r) for r in records) if p is not None]
     proj = (project or "").strip().lower()
     emp = (employee or "").strip().lower()
     out: list[Interval] = []
-    for iv in pair_intervals(punches):
+    for iv in collect_intervals():
         ivp = iv.start.astimezone(config.TIMEZONE)
         if start and ivp < start.astimezone(config.TIMEZONE):
             continue
@@ -115,9 +132,7 @@ def build_report(start: datetime, end: datetime,
     """Bericht fuer [start, end) und optionalen Projektfilter erzeugen."""
     wanted = (project if project is not None else config.PROJECT_CODE).strip()
 
-    records = load_records()
-    punches = [p for p in (normalize(r) for r in records) if p is not None]
-    intervals = pair_intervals(punches)
+    intervals = collect_intervals()
 
     start = start.astimezone(config.TIMEZONE)
     end = end.astimezone(config.TIMEZONE)
@@ -264,9 +279,7 @@ def build_grouped(start: datetime, end: datetime,
     Ein Intervall zaehlt, wenn sein Projekt zu IRGENDEINEM der Filter passt
     (Teilstring, case-insensitive). Leere Projektliste => keine Daten
     (es wird absichtlich nicht "alles" einbezogen)."""
-    records = load_records()
-    punches = [p for p in (normalize(r) for r in records) if p is not None]
-    intervals = pair_intervals(punches)
+    intervals = collect_intervals()
 
     start = start.astimezone(config.TIMEZONE)
     end = end.astimezone(config.TIMEZONE)
