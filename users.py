@@ -94,6 +94,8 @@ def bootstrap_admin() -> None:
             "password": hash_password(config.ADMIN_PASSWORD),
             "status": "active",
             "invite_token": None,
+            "totp_secret": None,
+            "twofa_enabled": False,
             "created_at": _now(),
         }
         _save(users)
@@ -170,9 +172,9 @@ def set_name(username: str, name: str) -> bool:
         return True
 
 
-def set_profile(username: str, name: str, email: str,
-                timemoto_name: str) -> bool:
-    """Vom Admin pflegbare Stammdaten setzen."""
+def set_profile(username: str, name: str, email: str, timemoto_name: str,
+                role: str | None = None) -> bool:
+    """Vom Admin pflegbare Stammdaten setzen (inkl. Rolle)."""
     with _LOCK:
         users = _load()
         if username not in users:
@@ -181,6 +183,13 @@ def set_profile(username: str, name: str, email: str,
         u["name"] = (name or username).strip()
         u["email"] = email.strip()
         u["timemoto_name"] = timemoto_name.strip()
+        if role in ("admin", "user", "buchhaltung"):
+            # Letzten AKTIVEN Admin nicht herabstufen
+            is_last_active_admin = (u.get("role") == "admin"
+                                    and u.get("status") == "active"
+                                    and count_admins(users) <= 1)
+            if not (role != "admin" and is_last_active_admin):
+                u["role"] = role
         _save(users)
         return True
 

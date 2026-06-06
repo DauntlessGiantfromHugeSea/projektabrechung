@@ -119,9 +119,9 @@ _BASE = """
     box-shadow:0 0 0 3px rgba(146,197,122,.3);background:#fff}
   textarea{min-height:80px;resize:vertical}
   button,.btn{background:linear-gradient(135deg,var(--brand),var(--brand-d));
-    color:var(--accent-text);border:0;border-radius:999px;padding:.6rem 1.15rem;
-    font:inherit;font-weight:800;cursor:pointer;box-shadow:0 6px 16px rgba(111,168,79,.35);
-    transition:.15s;display:inline-block}
+    color:var(--accent-text);border:0;border-radius:999px;padding:.5rem 1rem;
+    font:inherit;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(111,168,79,.35);
+    transition:.15s;display:inline-block;white-space:nowrap;font-size:.9rem}
   button:hover,.btn:hover{transform:translateY(-1px);text-decoration:none;
     box-shadow:0 10px 22px rgba(111,168,79,.45)}
   button.ghost,.btn.ghost{background:rgba(255,255,255,.6);color:var(--brand-d);
@@ -156,7 +156,11 @@ _BASE = """
   code{background:rgba(255,255,255,.65);padding:.12rem .4rem;border-radius:7px;
     font-size:.86em}
   .toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
-  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .rowactions{display:flex;gap:.4rem;align-items:center;white-space:nowrap}
+  .rowactions form{display:inline;margin:0}
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;
+    border-radius:12px}
+  td form{margin:0}
   @media (max-width:680px){
     main{margin:1rem auto;padding:0 .7rem}
     header{padding:.5rem .8rem}
@@ -338,10 +342,10 @@ _LOG = """
 <div class="card glass">
   <p class="muted">{{ count }} Buchung(en) · Summe <b>{{ total }}</b></p>
   {% if sessions %}
-  <table>
+  <div class="tablewrap"><table>
     <thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
       <th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th>Tätigkeit</th><th>Quelle</th>
-      {% if role=='admin' %}<th></th>{% endif %}</tr></thead>
+      {% if role=='admin' %}<th>Aktionen</th>{% endif %}</tr></thead>
     <tbody>
     {% for s in sessions %}
       <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
@@ -354,25 +358,25 @@ _LOG = """
           </form>
           {% else %}{{ s.description }}{% endif %}</td>
         <td>{% if s.source=='manual' %}<span class="pill role">manuell</span>{% else %}<span class="muted">TimeMoto</span>{% endif %}</td>
-        {% if role=='admin' %}<td class="toolbar">
-          <a class="btn ghost" href="/log/edit?iid={{ s.id|urlencode }}">{{ 'bearbeiten' if s.source=='manual' else 'korrigieren' }}</a>
+        {% if role=='admin' %}<td><div class="rowactions">
+          <a class="btn ghost" href="/log/edit?iid={{ s.id|urlencode }}">{{ 'Bearbeiten' if s.source=='manual' else 'Korrigieren' }}</a>
           {% if s.source=='manual' %}
-          <form method="post" action="/log/delete" style="display:inline;">
+          <form method="post" action="/log/delete">
             <input type="hidden" name="iid" value="{{ s.id }}">
-            <button class="danger" onclick="return confirm('Eintrag löschen?')">löschen</button></form>
+            <button class="danger" onclick="return confirm('Eintrag löschen?')">Löschen</button></form>
           {% else %}
-          <form method="post" action="/log/delete" style="display:inline;">
+          <form method="post" action="/log/delete">
             <input type="hidden" name="iid" value="{{ s.id }}">
-            <button class="ghost" type="submit">ausblenden</button></form>
-          <form method="post" action="/log/purge" style="display:inline;">
+            <button class="ghost" type="submit">Ausblenden</button></form>
+          <form method="post" action="/log/purge">
             <input type="hidden" name="iid" value="{{ s.id }}">
-            <button class="danger" onclick="return confirm('Diese TimeMoto-Buchung ENDGÜLTIG löschen? Die zugrunde liegenden Events werden entfernt.')">löschen</button></form>
+            <button class="danger" onclick="return confirm('Diese TimeMoto-Buchung ENDGÜLTIG löschen?')">Löschen</button></form>
           {% endif %}
-        </td>{% endif %}
+        </div></td>{% endif %}
       </tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
   {% else %}<p>Keine Buchungen für diese Filter.</p>{% endif %}
 </div>
 
@@ -573,20 +577,21 @@ _USERS = """
 {% block body %}
 <div class="card glass">
   <h1>Benutzer</h1>
-  <table>
-    <thead><tr><th>Name</th><th>Benutzer</th><th>E-Mail</th><th>TimeMoto</th>
-      <th>Rolle</th><th>Status</th><th></th></tr></thead>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Name</th><th>Benutzer</th><th>E-Mail</th><th>TimeMoto-Name</th>
+      <th>Rolle</th><th>Status</th><th>Aktionen</th></tr></thead>
     <tbody>
     {% for u in userlist %}
       <tr>
         <td><b>{{ u.name or u.username }}</b></td>
-        <td>{{ u.username }}</td>
+        <td class="muted">{{ u.username }}</td>
         <td class="muted">{{ u.email or '–' }}</td>
-        <td class="muted">{{ u.timemoto_name or '–' }}</td>
+        <td>{% if u.timemoto_name %}{{ u.timemoto_name }}{% else %}<span class="pill no">nicht zugeordnet</span>{% endif %}</td>
         <td><span class="pill role">{{ u.role }}</span></td>
         <td>{% if u.status=='active' %}<span class="pill ok">aktiv</span>
             {% else %}<span class="pill inv">eingeladen</span>{% endif %}</td>
         <td class="toolbar">
+          <a class="btn ghost" href="/users/{{ u.username|urlencode }}/edit">Bearbeiten</a>
           {% if u.status=='invited' %}
             <form method="post" action="/users/resend" style="display:inline;">
               <input type="hidden" name="username" value="{{ u.username }}">
@@ -601,7 +606,7 @@ _USERS = """
       </tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
 </div>
 <div class="card glass" style="max-width:560px;">
   <h2>Neuen Benutzer einladen</h2>
@@ -769,6 +774,36 @@ ICONS = {
 }
 
 _base_tpl = Template(_BASE)
+_USER_EDIT = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:560px;">
+  <h1>Benutzer bearbeiten</h1>
+  <p class="muted">Benutzername: <b>{{ u.username }}</b> · Status:
+    {% if u.status=='active' %}aktiv{% else %}eingeladen{% endif %}</p>
+  <form method="post" action="/users/{{ u.username|urlencode }}/edit">
+    <label>Anzeigename</label>
+    <input name="name" value="{{ u.name or '' }}">
+    <label>E-Mail (für Einladung, Reset &amp; Erinnerungen)</label>
+    <input name="email" type="email" value="{{ u.email or '' }}">
+    <label>TimeMoto-Name (exakt wie in TimeMoto – für die Stundenzuordnung)</label>
+    <input name="timemoto_name" value="{{ u.timemoto_name or '' }}" list="emps">
+    <datalist id="emps">{% for e in all_employees %}<option value="{{ e }}">{% endfor %}</datalist>
+    <label>Rolle</label>
+    <select name="role">
+      <option value="user" {{ 'selected' if u.role=='user' }}>user</option>
+      <option value="buchhaltung" {{ 'selected' if u.role=='buchhaltung' }}>buchhaltung</option>
+      <option value="admin" {{ 'selected' if u.role=='admin' }}>admin</option>
+    </select>
+    <div class="toolbar" style="margin-top:1.2rem;">
+      <button type="submit">Speichern</button>
+      <a class="btn ghost" href="/users">Abbrechen</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+"""
+
 _MEINE = """
 {% extends base %}
 {% block body %}
@@ -862,7 +897,7 @@ _tpls = {n: Template(s) for n, s in {
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
-    "abrechnung": _ABRECHNUNG, "meine": _MEINE,
+    "abrechnung": _ABRECHNUNG, "meine": _MEINE, "user_edit": _USER_EDIT,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
@@ -1590,6 +1625,34 @@ async def users_create(request: Request, username: str = Form(""),
         request.session["flash"] = f"Einladung an {email.strip()} gesendet (Link 5 Tage gültig)."
     else:
         request.session["flash"] = f"Einladung erstellt. Link (5 Tage gültig): {link}"
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.get("/users/{username}/edit", response_class=HTMLResponse)
+async def users_edit_form(request: Request, username: str):
+    if (r := _need_admin(request)):
+        return r
+    u = users.get(username)
+    if not u:
+        return RedirectResponse("/users", status_code=303)
+    return HTMLResponse(_tpls["user_edit"].render(
+        **_common(request, "users", "Benutzer bearbeiten"),
+        u=u, all_employees=_all_employees()))
+
+
+@router.post("/users/{username}/edit")
+async def users_edit_save(request: Request, username: str, name: str = Form(""),
+                          email: str = Form(""), timemoto_name: str = Form(""),
+                          role: str = Form("user")):
+    if (r := _need_admin(request)):
+        return r
+    if users.set_profile(username, name, email, timemoto_name, role):
+        audit.log(_user(request), "Benutzer bearbeitet",
+                  f"{username} (Rolle {role}, TimeMoto '{timemoto_name}')")
+        request.session["flash"] = f"Benutzer {username} gespeichert."
+    else:
+        request.session["flash"], request.session["flash_class"] = \
+            "Benutzer nicht gefunden.", "err"
     return RedirectResponse("/users", status_code=303)
 
 

@@ -112,6 +112,11 @@ SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
 SESSION_HTTPS_ONLY = _bool("SESSION_HTTPS_ONLY", True)
 # Gueltigkeit von Einladungslinks in Tagen.
 INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "5"))
+# Gueltigkeit von Passwort-Reset-Links in Minuten.
+RESET_TTL_MIN = int(os.getenv("RESET_TTL_MIN", "60"))
+# 2FA (TOTP) verpflichtend fuer alle.
+TWOFA_REQUIRED = _bool("TWOFA_REQUIRED", True)
+TWOFA_ISSUER = os.getenv("TWOFA_ISSUER", "FBE Projektabrechnung")
 
 
 def login_possible() -> bool:
