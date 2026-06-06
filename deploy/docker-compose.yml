@@ -43,6 +43,12 @@ services:
       SESSION_SECRET: "${SESSION_SECRET:-}"
       SESSION_HTTPS_ONLY: "${SESSION_HTTPS_ONLY:-true}"
 
+      # --- Microsoft-Login (Entra ID / Azure AD) ---
+      MS_CLIENT_ID: "${MS_CLIENT_ID:-}"
+      MS_CLIENT_SECRET: "${MS_CLIENT_SECRET:-}"
+      MS_TENANT_ID: "${MS_TENANT_ID:-organizations}"
+      MS_ALLOWED_DOMAINS: "${MS_ALLOWED_DOMAINS:-}"
+
       # --- Wochenplan ---
       SCHEDULER_ENABLED: "true"
       REPORT_CRON_DAY_OF_WEEK: "mon"

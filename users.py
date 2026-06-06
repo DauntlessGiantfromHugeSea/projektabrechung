@@ -267,6 +267,39 @@ def consume_reset(token: str, new_password: str) -> str | None:
     return None
 
 
+def by_email(email: str) -> dict[str, Any] | None:
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    for u in _load().values():
+        if (u.get("email") or "").strip().lower() == email:
+            return u
+    return None
+
+
+def upsert_oauth(email: str, name: str) -> dict[str, Any]:
+    """Microsoft-Konto: vorhandenen Nutzer (per E-Mail) zurueckgeben oder neu
+    anlegen (Rolle 'user', ohne Passwort/2FA -- Anmeldung nur via Microsoft)."""
+    existing = by_email(email)
+    if existing:
+        return existing
+    with _LOCK:
+        users = _load()
+        uname = email
+        if uname not in users:
+            users[uname] = {
+                "username": uname, "name": (name or email).strip(),
+                "email": email.strip().lower(), "timemoto_name": "",
+                "role": "user", "password": None, "status": "active",
+                "invite_token": None, "totp_secret": None,
+                "twofa_enabled": False, "can_view_tickets": False,
+                "can_edit_tickets": False, "auth": "microsoft",
+                "created_at": _now(),
+            }
+            _save(users)
+        return users[uname]
+
+
 def by_timemoto(timemoto_name: str) -> dict[str, Any] | None:
     if not timemoto_name:
         return None

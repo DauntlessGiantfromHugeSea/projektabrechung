@@ -26,6 +26,7 @@ import csvout
 import downloads
 import mailer
 import manual
+import msauth
 import scheduler
 import settings
 import tickets
@@ -260,6 +261,10 @@ _LOGIN = """
     <input name="password" type="password" autocomplete="current-password">
     <div style="margin-top:1.1rem;"><button type="submit">Einloggen</button></div>
   </form>
+  {% if ms_enabled %}
+  <div style="margin:1rem 0;color:var(--muted);font-size:.85rem;">oder</div>
+  <a class="btn ghost" href="/auth/microsoft/login" style="display:block;text-align:center;">Mit Microsoft anmelden</a>
+  {% endif %}
   <p style="text-align:left;margin-top:1rem;"><a href="/reset">Passwort vergessen?</a></p>
 </div>
 {% endblock %}
@@ -1337,6 +1342,7 @@ async def login_form(request: Request):
         title="Login", user=None,
         flash=request.session.pop("flash", None),
         flash_class=request.session.pop("flash_class", ""),
+        ms_enabled=config.ms_enabled(),
         login_possible=bool(users.list_users()) or config.login_possible()))
 
 
@@ -1371,6 +1377,37 @@ async def login_submit(request: Request, username: str = Form(""),
         request.session["pending_user"] = user["username"]
         return RedirectResponse("/2fa/setup", status_code=303)
     _finalize_login(request, user)
+    return RedirectResponse("/", status_code=303)
+
+
+@router.get("/auth/microsoft/login")
+async def ms_login(request: Request):
+    if not config.ms_enabled():
+        return RedirectResponse("/login", status_code=303)
+    state = secrets.token_urlsafe(16)
+    request.session["ms_state"] = state
+    return RedirectResponse(msauth.login_url(state), status_code=303)
+
+
+@router.get("/auth/microsoft/callback")
+async def ms_callback(request: Request, code: str = "", state: str = "",
+                      error: str = ""):
+    if not config.ms_enabled():
+        return RedirectResponse("/login", status_code=303)
+    if error or not code or state != request.session.pop("ms_state", None):
+        request.session["flash"], request.session["flash_class"] = \
+            "Microsoft-Anmeldung abgebrochen oder ungültig.", "err"
+        return RedirectResponse("/login", status_code=303)
+    info = msauth.exchange(code)
+    if not info or info.get("error"):
+        request.session["flash"], request.session["flash_class"] = \
+            ("Diese Microsoft-Domain ist nicht freigegeben."
+             if info and info.get("error") == "domain_not_allowed"
+             else "Microsoft-Anmeldung fehlgeschlagen."), "err"
+        return RedirectResponse("/login", status_code=303)
+    user = users.upsert_oauth(info["email"], info["name"])
+    _finalize_login(request, user)  # Microsoft-MFA genügt -> keine eigene 2FA
+    audit.log(user["username"], "Login via Microsoft", info["email"])
     return RedirectResponse("/", status_code=303)
 
 

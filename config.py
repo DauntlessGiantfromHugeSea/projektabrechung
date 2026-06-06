@@ -124,6 +124,24 @@ def login_possible() -> bool:
     return bool(ADMIN_PASSWORD)
 
 
+# --- Microsoft-Login (Entra ID / Azure AD, OIDC) ---------------------------
+MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "").strip()
+MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "").strip()
+MS_TENANT_ID = os.getenv("MS_TENANT_ID", "organizations").strip()
+# Leer = wird zur Laufzeit aus PUBLIC_BASE_URL gebildet (siehe ms_redirect_uri).
+MS_REDIRECT_URI = os.getenv("MS_REDIRECT_URI", "").strip()
+# Optionale Einschraenkung auf bestimmte Mail-Domains (leer = alle im Tenant).
+MS_ALLOWED_DOMAINS = _list("MS_ALLOWED_DOMAINS")
+
+
+def ms_enabled() -> bool:
+    return bool(MS_CLIENT_ID and MS_CLIENT_SECRET and MS_TENANT_ID)
+
+
+def ms_redirect_uri() -> str:
+    return MS_REDIRECT_URI or f"{PUBLIC_BASE_URL}/auth/microsoft/callback"
+
+
 # Datei der Benutzerverwaltung (Nutzer, Passwort-Hashes, Rollen).
 USERS_FILE = Path(os.getenv("USERS_FILE", "/data/users.json"))
 
