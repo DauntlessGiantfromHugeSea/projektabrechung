@@ -12,6 +12,12 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
+# Marke (fuer Web-UI und Mail-Design)
+LOGO_URL = os.getenv(
+    "LOGO_URL", "https://fb-eng.de/wp-content/uploads/2024/10/FBE_green.png")
+BRAND_COLOR = os.getenv("BRAND_COLOR", "#92c57a")
+
+
 def _bool(name: str, default: bool) -> bool:
     val = os.getenv(name)
     if val is None:

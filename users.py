@@ -87,6 +87,7 @@ def bootstrap_admin() -> None:
             return
         users[config.ADMIN_USER] = {
             "username": config.ADMIN_USER,
+            "name": config.ADMIN_USER,
             "role": "admin",
             "password": hash_password(config.ADMIN_PASSWORD),
             "status": "active",
@@ -131,7 +132,7 @@ def set_password(username: str, new_password: str) -> bool:
         return True
 
 
-def create_invite(username: str, role: str = "user") -> str | None:
+def create_invite(username: str, role: str = "user", name: str = "") -> str | None:
     """Neuen Nutzer als 'invited' anlegen, Einladungs-Token zurueckgeben.
     None, wenn der Name schon existiert."""
     username = username.strip()
@@ -143,6 +144,7 @@ def create_invite(username: str, role: str = "user") -> str | None:
         token = secrets.token_urlsafe(32)
         users[username] = {
             "username": username,
+            "name": (name or username).strip(),
             "role": role,
             "password": None,
             "status": "invited",
@@ -151,6 +153,16 @@ def create_invite(username: str, role: str = "user") -> str | None:
         }
         _save(users)
         return token
+
+
+def set_name(username: str, name: str) -> bool:
+    with _LOCK:
+        users = _load()
+        if username not in users:
+            return False
+        users[username]["name"] = (name or username).strip()
+        _save(users)
+        return True
 
 
 def find_by_invite(token: str) -> dict[str, Any] | None:

@@ -23,7 +23,7 @@ import manual
 import scheduler
 import settings
 import users
-from events import load_records, normalize, pair_intervals
+from events import delete_interval, load_records, normalize, pair_intervals
 from report import (build_grouped, build_report, collect_intervals,
                     collect_open, detail_sessions, filter_intervals,
                     previous_week_range, render_grouped_html,
@@ -40,37 +40,50 @@ _BASE = """
 <title>{{ title }} – Projektabrechnung</title>
 <style>
   :root{
-    --fg:#16331f; --muted:#5b6b5f; --brand:#92c57a; --brand-d:#6fa84f;
+    --fg:#1e293b; --muted:#64748b; --brand:#92c57a; --brand-d:#6fa84f;
     --accent-text:#123018; --link:#4d8838; --danger:#c0392b;
-    --glass:rgba(255,255,255,.55); --glass-strong:rgba(255,255,255,.72);
-    --stroke:rgba(255,255,255,.65); --shadow:0 10px 30px rgba(40,80,40,.18);
-    --radius:22px;
+    --line:#e6eaef; --card:#ffffff;
+    --shadow:0 1px 2px rgba(16,40,20,.05),0 8px 24px rgba(16,40,20,.07);
+    --radius:18px;
   }
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;color:var(--fg);
     font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-    background:
-      radial-gradient(1200px 600px at 10% -10%, #d8eecb 0%, transparent 55%),
-      radial-gradient(1000px 700px at 110% 10%, #bfe3cf 0%, transparent 50%),
-      linear-gradient(135deg,#eef6e8 0%,#e3f0ea 45%,#dceef3 100%);
+    background:#f5f7f9;
+    background-image:radial-gradient(900px 360px at 100% -5%, rgba(146,197,122,.13) 0%, transparent 60%);
     background-attachment:fixed;}
   a{color:var(--link);text-decoration:none}
   a:hover{text-decoration:underline}
-  .glass{background:var(--glass);backdrop-filter:blur(18px) saturate(160%);
-    -webkit-backdrop-filter:blur(18px) saturate(160%);
-    border:1px solid var(--stroke);border-radius:var(--radius);
-    box-shadow:var(--shadow);}
-  header{position:sticky;top:0;z-index:10;margin:0;padding:.7rem 1.4rem;
+  .glass,.card{background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);box-shadow:var(--shadow);}
+  header{position:sticky;top:0;z-index:30;padding:.5rem 1.3rem;
     display:flex;align-items:center;justify-content:space-between;
-    flex-wrap:wrap;gap:.6rem;border-radius:0 0 var(--radius) var(--radius);
-    background:var(--glass-strong);backdrop-filter:blur(18px) saturate(160%);
-    -webkit-backdrop-filter:blur(18px) saturate(160%);
-    border-bottom:1px solid var(--stroke);box-shadow:var(--shadow);}
-  header .brand{display:flex;align-items:center;gap:.7rem;font-weight:800;
-    letter-spacing:.2px}
-  header .brand img{height:30px;display:block}
-  nav a{color:var(--muted);margin-left:1.1rem;font-size:.92rem;font-weight:600}
-  nav a:hover,nav a.active{color:var(--brand-d);text-decoration:none}
+    flex-wrap:wrap;gap:.6rem;background:rgba(255,255,255,.88);
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--line);}
+  header .brand{display:flex;align-items:center;gap:.6rem;font-weight:800;
+    letter-spacing:.2px;color:var(--fg)}
+  header .brand img{height:28px;display:block}
+  nav{display:flex;align-items:center;gap:.15rem;flex-wrap:wrap}
+  nav a,.menu>summary{display:inline-flex;align-items:center;gap:.4rem;
+    color:var(--muted);font-size:.9rem;font-weight:600;padding:.45rem .7rem;
+    border-radius:11px;cursor:pointer;white-space:nowrap}
+  nav a:hover,.menu>summary:hover{background:#eef4e9;color:var(--brand-d);text-decoration:none}
+  nav a.active{background:rgba(146,197,122,.2);color:var(--brand-d)}
+  nav svg,.menu svg{width:17px;height:17px;flex:0 0 auto}
+  .menu{position:relative}
+  .menu>summary{list-style:none}
+  .menu>summary::-webkit-details-marker{display:none}
+  .menu .panel{position:absolute;right:0;top:118%;min-width:190px;background:#fff;
+    border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+    padding:.35rem;display:none;z-index:40}
+  .menu[open] .panel{display:block}
+  .menu .panel a{display:flex;align-items:center;gap:.55rem;padding:.55rem .6rem;
+    border-radius:10px;color:var(--fg);font-weight:600;margin:0}
+  .menu .panel a:hover{background:#eef4e9;text-decoration:none}
+  .avatar{width:26px;height:26px;border-radius:50%;color:#123018;font-size:.8rem;
+    background:linear-gradient(135deg,var(--brand),var(--brand-d));
+    display:inline-flex;align-items:center;justify-content:center;font-weight:800}
   main{max-width:960px;margin:1.6rem auto;padding:0 1.2rem}
   .card{padding:1.3rem 1.4rem;margin-bottom:1.3rem}
   h1{font-size:1.4rem;margin:.1rem 0 1rem}
@@ -125,17 +138,20 @@ _BASE = """
 </style></head><body>
 {% if user %}
 <header>
-  <span class="brand"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></span>
+  <a class="brand" href="/"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></a>
   <nav>
-    <a href="/" class="{{ 'active' if page=='dash' }}">Bericht</a>
-    <a href="/log" class="{{ 'active' if page=='log' }}">Log</a>
-    {% if role=='admin' %}<a href="/reports" class="{{ 'active' if page=='reports' }}">Berichte</a>
-    <a href="/users" class="{{ 'active' if page=='users' }}">Benutzer</a>
-    <a href="/audit" class="{{ 'active' if page=='audit' }}">Änderungen</a>{% endif %}
-    <a href="/anleitung" class="{{ 'active' if page=='help' }}">Anleitung</a>
-    <a href="/account" class="{{ 'active' if page=='account' }}">Konto</a>
-    <span class="muted">· {{ user }}</span>
-    <a href="/logout">Abmelden</a>
+    <a href="/" class="{{ 'active' if page=='dash' }}">{{ icons.chart|safe }}<span>Bericht</span></a>
+    <a href="/log" class="{{ 'active' if page=='log' }}">{{ icons.list|safe }}<span>Log</span></a>
+    {% if role=='admin' %}
+    <a href="/reports" class="{{ 'active' if page=='reports' }}">{{ icons.calendar|safe }}<span>Berichte</span></a>
+    <a href="/versand" class="{{ 'active' if page=='send' }}">{{ icons.mail|safe }}<span>Senden</span></a>
+    <a href="/users" class="{{ 'active' if page=='users' }}">{{ icons.users|safe }}<span>Benutzer</span></a>
+    <a href="/audit" class="{{ 'active' if page=='audit' }}">{{ icons.history|safe }}<span>Änderungen</span></a>
+    {% endif %}
+    <details class="menu"><summary>{{ icons.help|safe }}<span>Doku</span></summary>
+      <div class="panel"><a href="/anleitung">{{ icons.book|safe }}Anleitung</a></div></details>
+    <details class="menu"><summary><span class="avatar">{{ (display_name or user)[:1]|upper }}</span><span>{{ display_name or user }}</span></summary>
+      <div class="panel"><a href="/account">{{ icons.gear|safe }}Konto</a><a href="/logout">{{ icons.logout|safe }}Abmelden</a></div></details>
   </nav>
 </header>
 {% endif %}
@@ -283,10 +299,19 @@ _LOG = """
         <td>{% if s.source=='manual' %}<span class="pill role">manuell</span>{% else %}<span class="muted">TimeMoto</span>{% endif %}</td>
         {% if role=='admin' %}<td class="toolbar">
           <a class="btn ghost" href="/log/edit?iid={{ s.id|urlencode }}">{{ 'bearbeiten' if s.source=='manual' else 'korrigieren' }}</a>
+          {% if s.source=='manual' %}
           <form method="post" action="/log/delete" style="display:inline;">
             <input type="hidden" name="iid" value="{{ s.id }}">
-            <button class="danger" onclick="return confirm('Eintrag {{ 'löschen' if s.source=='manual' else 'ausblenden' }}?')">{{ 'löschen' if s.source=='manual' else 'ausblenden' }}</button>
-          </form></td>{% endif %}
+            <button class="danger" onclick="return confirm('Eintrag löschen?')">löschen</button></form>
+          {% else %}
+          <form method="post" action="/log/delete" style="display:inline;">
+            <input type="hidden" name="iid" value="{{ s.id }}">
+            <button class="ghost" type="submit">ausblenden</button></form>
+          <form method="post" action="/log/purge" style="display:inline;">
+            <input type="hidden" name="iid" value="{{ s.id }}">
+            <button class="danger" onclick="return confirm('Diese TimeMoto-Buchung ENDGÜLTIG löschen? Die zugrunde liegenden Events werden entfernt.')">löschen</button></form>
+          {% endif %}
+        </td>{% endif %}
       </tr>
     {% endfor %}
     </tbody>
@@ -341,6 +366,37 @@ _LOG_FORM = """
 {% endblock %}
 """
 
+_SEND = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:680px;">
+  <h1>Bericht senden</h1>
+  <p class="muted">Projekte, Zeitraum und Empfänger zusammenstellen und sofort
+    als E-Mail verschicken.{% if not mail_configured %} <b>Achtung:</b> SMTP ist
+    nicht konfiguriert – der Bericht wird dann nur als Datei gespeichert.{% endif %}</p>
+  <form method="post" action="/versand">
+    <label>Betreff / Name</label>
+    <input name="name" value="{{ f.name }}" placeholder="z. B. Projektzeiten Arcadis">
+    <label>Projekte (eine pro Zeile oder Komma; leer = alle Projekte)</label>
+    <textarea name="projects">{{ f.projects }}</textarea>
+    {% if all_projects %}<div style="margin-top:.3rem;"><span class="muted">Erkannt:</span>
+      {% for p in all_projects %}<span class="chip click" onclick="addP(this.innerText)">{{ p }}</span>{% endfor %}</div>{% endif %}
+    <label>Empfänger (Mailadressen, Komma/Zeile)</label>
+    <textarea name="recipients">{{ f.recipients }}</textarea>
+    <div class="row">
+      <div style="flex:0 0 180px;"><label>Von</label><input type="date" name="start" value="{{ f.start }}"></div>
+      <div style="flex:0 0 180px;"><label>Bis</label><input type="date" name="end" value="{{ f.end }}"></div>
+    </div>
+    <div style="margin-top:1.2rem;" class="toolbar">
+      <button type="submit">Jetzt senden</button>
+      <a class="btn ghost" href="/">Abbrechen</a></div>
+  </form>
+</div>
+<script>function addP(t){var a=document.getElementsByName('projects')[0];
+  a.value=(a.value.trim()?a.value.trim()+'\\n':'')+t;}</script>
+{% endblock %}
+"""
+
 _ANLEITUNG = """
 {% extends base %}
 {% block body %}
@@ -385,9 +441,25 @@ _ANLEITUNG = """
   <h2>Benutzer (Admin)</h2>
   <ul>
     <li>Neue Personen per <b>Einladungslink</b> hinzufügen (sie setzen ihr
-      eigenes Passwort), Rollen <b>admin</b>/<b>user</b>, Löschen.</li>
-    <li>Eigenes Passwort jederzeit unter <b>Konto</b> ändern.</li>
+      eigenes Passwort), Anzeigename + Rollen <b>admin</b>/<b>user</b>, Löschen.</li>
+    <li>Eigenes Passwort und Anzeigename jederzeit unter <b>Konto</b> ändern.</li>
   </ul>
+
+  {% if role=='admin' %}
+  <hr style="border:none;border-top:1px solid var(--line);margin:1.4rem 0;">
+  <h2>{{ icons.gear|safe }} Webhook einrichten (Admin)</h2>
+  <p>In der <b>TimeMoto Cloud</b> (Plus-Plan) unter <b>Einstellungen →
+    Webhooks</b> einen Webhook anlegen und als Ziel-URL eintragen:</p>
+  <p><code>{{ webhook_url }}</code></p>
+  <p>Als Ereignisse die <b>An-/Abwesenheits-Stempelungen</b> (attendance:
+    Ein- und Ausstempeln) wählen.</p>
+  <p>Hinterlegtes <b>Secret</b> (in TimeMoto identisch eintragen / dort generiert):</p>
+  <p><code>{{ secret if secret else 'kein Secret gesetzt (SHARED_SECRET in .env)' }}</code></p>
+  <p class="muted">Test: einmal unter einem Projekt ein- und ausstempeln –
+    die Buchung erscheint im <b>Log</b> (offene Stempelungen unter „Läuft
+    gerade“). Das Secret/den Endpoint änderst du über die <code>.env</code>
+    auf dem Server.</p>
+  {% endif %}
 </div>
 {% endblock %}
 """
@@ -414,7 +486,15 @@ _ACCOUNT = """
 {% extends base %}
 {% block body %}
 <div class="card glass" style="max-width:480px;">
-  <h1>Konto: {{ user }}</h1>
+  <h1>Konto</h1>
+  <p class="muted">Angemeldet als <b>{{ user }}</b></p>
+  <form method="post" action="/account/name" style="margin-bottom:1.4rem;">
+    <label>Anzeigename</label>
+    <input name="name" value="{{ current_name }}">
+    <div style="margin-top:.8rem;"><button type="submit">Name speichern</button></div>
+  </form>
+  <hr style="border:none;border-top:1px solid var(--line);">
+  <h2 style="margin-top:1.2rem;">Passwort ändern</h2>
   <form method="post" action="/account">
     <label>Aktuelles Passwort</label>
     <input name="current" type="password" autocomplete="current-password">
@@ -434,10 +514,11 @@ _USERS = """
 <div class="card glass">
   <h1>Benutzer</h1>
   <table>
-    <thead><tr><th>Benutzer</th><th>Rolle</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Benutzer</th><th>Rolle</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for u in userlist %}
       <tr>
+        <td><b>{{ u.name or u.username }}</b></td>
         <td>{{ u.username }}</td>
         <td><span class="pill role">{{ u.role }}</span></td>
         <td>{% if u.status=='active' %}<span class="pill ok">aktiv</span>
@@ -463,8 +544,9 @@ _USERS = """
     ihr eigenes Passwort (kein Mailversand nötig).</p>
   <form method="post" action="/users/create">
     <div class="row">
+      <div><label>Anzeigename</label><input name="name" placeholder="z. B. Max Mustermann"></div>
       <div><label>Benutzername</label><input name="username" placeholder="z. B. m.mustermann"></div>
-      <div style="flex:0 0 160px;"><label>Rolle</label>
+      <div style="flex:0 0 150px;"><label>Rolle</label>
         <select name="role"><option value="user">user</option><option value="admin">admin</option></select></div>
     </div>
     <div style="margin-top:1.1rem;"><button type="submit">Einladung erstellen</button></div>
@@ -573,17 +655,44 @@ function addProj(t){var ta=document.getElementsByName('projects')[0];
 {% endblock %}
 """
 
-LOGO_GLOBAL = LOGO_URL
+def _svg(paths: str) -> str:
+    return ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+            f'{paths}</svg>')
+
+
+ICONS = {
+    "chart": _svg('<path d="M3 3v18h18"/><path d="M7 15l3-4 3 2 4-6"/>'),
+    "list": _svg('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>'),
+    "calendar": _svg('<rect x="3" y="4" width="18" height="17" rx="2"/>'
+                     '<path d="M16 2v4M8 2v4M3 10h18"/>'),
+    "mail": _svg('<rect x="2" y="4" width="20" height="16" rx="2"/>'
+                 '<path d="M2 6l10 7 10-7"/>'),
+    "users": _svg('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>'
+                  '<circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>'),
+    "history": _svg('<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>'
+                    '<path d="M12 7v5l3 2"/>'),
+    "help": _svg('<circle cx="12" cy="12" r="10"/>'
+                 '<path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'),
+    "book": _svg('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>'
+                 '<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
+    "gear": _svg('<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3'
+                 'M1 14h6M9 8h6M17 16h6"/>'),
+    "logout": _svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'
+                   '<path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>'),
+}
+
 _base_tpl = Template(_BASE)
 _tpls = {n: Template(s) for n, s in {
     "login": _LOGIN, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
-    "anleitung": _ANLEITUNG, "audit": _AUDIT, "account": _ACCOUNT,
-    "users": _USERS, "invite": _INVITE, "reports": _REPORTS,
-    "report_form": _REPORT_FORM,
+    "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
+    "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
+    "reports": _REPORTS, "report_form": _REPORT_FORM,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
     _tpl.environment.globals["logo_url"] = LOGO_URL    # type: ignore
+    _tpl.environment.globals["icons"] = ICONS          # type: ignore
 
 
 # --- Helfer ----------------------------------------------------------------
@@ -598,7 +707,8 @@ def _role(request: Request) -> str:
 
 def _common(request: Request, page: str, title: str):
     return dict(user=_user(request), role=_role(request), page=page,
-                title=title, flash=request.session.pop("flash", None),
+                title=title, display_name=request.session.get("name"),
+                flash=request.session.pop("flash", None),
                 flash_class=request.session.pop("flash_class", ""))
 
 
@@ -671,6 +781,7 @@ async def login_submit(request: Request, username: str = Form(""),
         return RedirectResponse("/login", status_code=303)
     request.session["user"] = user["username"]
     request.session["role"] = user.get("role", "user")
+    request.session["name"] = user.get("name") or user["username"]
     return RedirectResponse("/", status_code=303)
 
 
@@ -899,6 +1010,23 @@ async def log_restore(request: Request, iid: str = Form("")):
     return RedirectResponse("/log", status_code=303)
 
 
+@router.post("/log/purge")
+async def log_purge(request: Request, iid: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    user = _user(request)
+    if iid.startswith("wh:"):
+        n = delete_interval(iid)
+        manual.unhide(iid)
+        audit.log(user, "endgültig gelöscht", f"{iid} ({n} Event-Zeilen)")
+        request.session["flash"] = f"{n} TimeMoto-Event(s) endgültig gelöscht."
+    elif iid.startswith("man:"):
+        manual.delete_entry(iid[4:])
+        audit.log(user, "gelöscht", iid)
+        request.session["flash"] = "Eintrag gelöscht."
+    return RedirectResponse("/log", status_code=303)
+
+
 @router.get("/export.xlsx")
 async def export_xlsx(request: Request, employee: str = "", project: str = "",
                       start: str = "", end: str = ""):
@@ -943,11 +1071,60 @@ async def export_xlsx(request: Request, employee: str = "", project: str = "",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@router.get("/versand", response_class=HTMLResponse)
+async def versand_form(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    s, e = previous_week_range()
+    f = {"name": "", "projects": "", "recipients": "",
+         "start": s.date().isoformat(), "end": (e.date()).isoformat()}
+    return HTMLResponse(_tpls["send"].render(
+        **_common(request, "send", "Senden"), f=f,
+        all_projects=_all_projects(), mail_configured=config.mail_configured()))
+
+
+@router.post("/versand")
+async def versand_send(request: Request, name: str = Form(""),
+                       projects: str = Form(""), recipients: str = Form(""),
+                       start: str = Form(""), end: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    plist = [x.strip() for x in projects.replace("\n", ",").split(",") if x.strip()]
+    rlist = [x.strip() for x in recipients.replace("\n", ",").split(",") if x.strip()]
+    try:
+        s = (datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
+             if start else previous_week_range()[0])
+        e = (datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
+             if end else previous_week_range()[1])
+    except ValueError:
+        s, e = previous_week_range()
+
+    if plist:
+        rep = build_grouped(s, e, plist, name=name or "Bericht")
+        subj, text, html = (subject_grouped(rep), render_grouped_text(rep),
+                            render_grouped_html(rep))
+    else:
+        rep = build_report(s, e, project=None)
+        from report import render_text, subject as _subj
+        subj = (name + " – " if name else "") + _subj(rep)
+        text, html = render_text(rep), render_html(rep)
+    result = mailer.send(subj, text, html, rlist, label=name or "Versand")
+    request.session["flash"] = (
+        f"Bericht an {', '.join(result['recipients'])} versendet."
+        if result.get("mailed")
+        else f"Als Datei gespeichert (kein Mailversand): {result.get('saved_path')}")
+    return RedirectResponse("/versand", status_code=303)
+
+
 @router.get("/anleitung", response_class=HTMLResponse)
 async def anleitung(request: Request):
     if (r := _need_login(request)):
         return r
-    return HTMLResponse(_tpls["anleitung"].render(**_common(request, "help", "Anleitung")))
+    secret = config.SHARED_SECRET if _role(request) == "admin" else ""
+    webhook_url = f"{request.base_url}{config.WEBHOOK_PATH.lstrip('/')}"
+    return HTMLResponse(_tpls["anleitung"].render(
+        **_common(request, "help", "Anleitung"),
+        webhook_url=webhook_url, secret=secret))
 
 
 @router.get("/audit", response_class=HTMLResponse)
@@ -973,7 +1150,21 @@ async def audit_page(request: Request):
 async def account_form(request: Request):
     if (r := _need_login(request)):
         return r
-    return HTMLResponse(_tpls["account"].render(**_common(request, "account", "Konto")))
+    u = users.get(_user(request)) or {}
+    return HTMLResponse(_tpls["account"].render(
+        **_common(request, "account", "Konto"),
+        current_name=u.get("name") or _user(request)))
+
+
+@router.post("/account/name")
+async def account_name(request: Request, name: str = Form("")):
+    if (r := _need_login(request)):
+        return r
+    username = _user(request)
+    users.set_name(username, name)
+    request.session["name"] = (name or username).strip()
+    request.session["flash"] = "Anzeigename gespeichert."
+    return RedirectResponse("/account", status_code=303)
 
 
 @router.post("/account")
@@ -1010,10 +1201,10 @@ async def users_page(request: Request):
 
 @router.post("/users/create")
 async def users_create(request: Request, username: str = Form(""),
-                       role: str = Form("user")):
+                       role: str = Form("user"), name: str = Form("")):
     if (r := _need_admin(request)):
         return r
-    token = users.create_invite(username, role)
+    token = users.create_invite(username, role, name)
     if token is None:
         request.session["flash"], request.session["flash_class"] = \
             "Benutzername leer oder bereits vergeben.", "err"
@@ -1176,5 +1367,6 @@ async def invite_submit(request: Request, token: str, new1: str = Form(""),
     users.set_password(u["username"], new1)
     request.session["user"] = u["username"]
     request.session["role"] = u.get("role", "user")
+    request.session["name"] = u.get("name") or u["username"]
     request.session["flash"] = "Konto aktiviert. Willkommen!"
     return RedirectResponse("/", status_code=303)

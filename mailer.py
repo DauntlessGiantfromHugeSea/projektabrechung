@@ -21,6 +21,26 @@ import config
 from report import Report, render_html, render_text, subject
 
 
+def _brand_html(inner: str) -> str:
+    """Report-HTML in ein gebrandetes Mail-Layout (Logo + Farbe) huellen.
+    Inline-Styles, damit es in Mail-Clients funktioniert."""
+    return (
+        '<!doctype html><html><body style="margin:0;background:#f5f7f9;'
+        'font-family:Arial,Helvetica,sans-serif;color:#1e293b">'
+        '<table width="100%" cellpadding="0" cellspacing="0" '
+        'style="background:#f5f7f9;padding:24px 0"><tr><td align="center">'
+        '<table width="640" cellpadding="0" cellspacing="0" '
+        'style="background:#fff;border-radius:14px;overflow:hidden;'
+        'border:1px solid #e6eaef;max-width:640px">'
+        f'<tr><td style="background:{config.BRAND_COLOR};padding:16px 24px">'
+        f'<img src="{config.LOGO_URL}" alt="FBE" height="32" '
+        'style="vertical-align:middle;display:inline-block"></td></tr>'
+        f'<tr><td style="padding:22px 24px">{inner}</td></tr>'
+        '<tr><td style="padding:14px 24px;background:#f0f5ec;color:#64748b;'
+        'font-size:12px">Automatischer Bericht · FBE Projektabrechnung</td></tr>'
+        '</table></td></tr></table></body></html>')
+
+
 def _save_to_disk(label: str, text: str, html: str) -> str:
     config.REPORT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(config.TIMEZONE).strftime("%Y%m%d-%H%M%S")
@@ -54,7 +74,7 @@ def send(subject_line: str, text: str, html: str,
     msg["From"] = config.SMTP_FROM
     msg["To"] = ", ".join(recipients)
     msg.set_content(text)
-    msg.add_alternative(html, subtype="html")
+    msg.add_alternative(_brand_html(html), subtype="html")
 
     try:
         if config.SMTP_SSL:

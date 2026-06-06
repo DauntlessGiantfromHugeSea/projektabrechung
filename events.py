@@ -207,6 +207,44 @@ def load_records(log_file: Path | None = None) -> list[dict[str, Any]]:
     return records
 
 
+def delete_interval(interval_id: str, log_file: Path | None = None) -> int:
+    """Loescht ENDGUELTIG alle Webhook-Events, die zur angegebenen Interval-ID
+    gehoeren, aus der JSONL-Datei (fuer Testdaten/Fehlbuchungen). Liefert die
+    Anzahl entfernter Zeilen. Manuelle Eintraege sind hier nicht betroffen."""
+    path = log_file or config.LOG_FILE
+    if not path.exists():
+        return 0
+    kept: list[str] = []
+    removed = 0
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if not s:
+                continue
+            try:
+                rec = json.loads(s)
+            except json.JSONDecodeError:
+                kept.append(s)
+                continue
+            p = normalize(rec)
+            match = False
+            if p is not None:
+                if p.pair_id and f"wh:{p.employee}:{p.pair_id}" == interval_id:
+                    match = True
+                elif (not p.pair_id
+                      and f"wh:{p.employee}:{p.time.isoformat()}" == interval_id):
+                    match = True
+            if match:
+                removed += 1
+            else:
+                kept.append(s)
+    if removed:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+        tmp.replace(path)
+    return removed
+
+
 def normalize(record: dict[str, Any]) -> Punch | None:
     """Ein gespeichertes Webhook-Record in einen Punch ueberfuehren.
 
