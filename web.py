@@ -588,66 +588,163 @@ _ANLEITUNG = """
 {% extends base %}
 {% block body %}
 <div class="card glass">
-  <h1>Anleitung</h1>
-  <h2>Überblick</h2>
-  <p>Diese Anwendung sammelt die Stempelungen aus TimeMoto (per Webhook in
-    Echtzeit) und macht daraus Projekt-Zeitberichte – ansehbar im Web und
-    automatisch per E-Mail.</p>
+  <h1>Hilfe &amp; Dokumentation</h1>
+  <p class="muted">Kurzanleitung zu allen Funktionen. Bei Fragen wende dich an
+    den Projektverantwortlichen oder einen Administrator.</p>
+  <p class="muted" style="font-weight:700;text-transform:uppercase;font-size:.75rem;letter-spacing:.6px;margin-top:1rem;">Inhalt</p>
+  <ul style="line-height:1.9;">
+    <li><a href="#anmeldung">Anmeldung &amp; Sicherheit</a></li>
+    <li><a href="#bericht">Projektabrechnung – Bericht</a></li>
+    <li><a href="#meine">Meine Zeiten (eigene Stunden)</a></li>
+    <li><a href="#log">Log – alle Buchungen</a></li>
+    <li><a href="#tickets">Tickets</a></li>
+    <li><a href="#konto">Mein Konto</a></li>
+    {% if role=='admin' %}<li><a href="#admin">Administration</a></li>{% endif %}
+  </ul>
+</div>
 
-  <h2>Bericht (Startseite)</h2>
+<div class="card glass" id="anmeldung">
+  <h2>Anmeldung &amp; Sicherheit</h2>
   <ul>
-    <li>Wähle <b>Woche</b> (vorige/diese/eigener Zeitraum) und optional einen
+    {% if ms_enabled %}<li><b>Mit Microsoft anmelden</b> – melde dich mit deinem
+      Firmen-Microsoft-Konto an. Die Sicherheit (MFA) übernimmt Microsoft.</li>{% endif %}
+    <li><b>Passwort + 2-Faktor</b> (für Administratoren): nach dem Passwort gibst
+      du einen 6-stelligen Code aus einer Authenticator-App ein. Beim ersten Mal
+      wird die 2FA per QR-Code eingerichtet.</li>
+    <li><b>Passwort vergessen?</b> – Link auf der Login-Seite: du bekommst einen
+      Reset-Link per E-Mail (sofern eine E-Mail hinterlegt ist).</li>
+  </ul>
+</div>
+
+<div class="card glass" id="bericht">
+  <h2>Projektabrechnung – Bericht (Startseite)</h2>
+  <ul>
+    <li>Wähle <b>Woche</b> (vorige / diese / eigener Zeitraum) und optional einen
       <b>Projektfilter</b>.</li>
     <li>Oben die <b>Zusammenfassung</b> je Mitarbeiter (Stunden mit Minuten),
       darunter die <b>Einzelbuchungen</b> mit Kommt/Geht.</li>
     <li><b>Diese Ansicht jetzt senden</b> verschickt den aktuellen Ausschnitt
-      sofort an die Standard-Empfänger.</li>
+      sofort per E-Mail (mit Excel-Download-Link).</li>
   </ul>
+</div>
 
-  <h2>Log</h2>
+<div class="card glass" id="meine">
+  <h2>Meine Zeiten</h2>
+  <ul>
+    <li>Zeigt <b>deine eigenen Buchungen</b> der letzten 30 Tage (Zuordnung über
+      deinen TimeMoto-Namen).</li>
+    <li>Trage je Buchung die <b>Tätigkeitsbeschreibung</b> ein (1–2 Sätze – von
+      Arcadis/Amprion verlangt).</li>
+    <li>Fehlt 24 h nach einer Buchung die Beschreibung, bekommst du eine
+      <b>Erinnerung per E-Mail</b>.</li>
+  </ul>
+</div>
+
+<div class="card glass" id="log">
+  <h2>Log – alle Buchungen</h2>
   <ul>
     <li>Alle Buchungen, filterbar nach <b>Mitarbeiter</b>, <b>Projekt</b> und
-      <b>Zeitraum</b>.</li>
-    <li><b>Läuft gerade</b>: zeigt offene Stempelungen (eingestempelt, noch
-      nicht ausgestempelt) – so siehst du eine frische Buchung sofort.</li>
-    <li><b>Excel-Export</b> exportiert genau die gefilterte Liste.</li>
-    <li>Als Admin: <b>+ Eintrag hinzufügen</b>, einzelne Einträge
-      <b>bearbeiten</b>, manuelle <b>löschen</b> oder TimeMoto-Buchungen
-      <b>korrigieren/ausblenden</b>. Alle Änderungen stehen unter
-      <b>Änderungen</b> (Audit-Log).</li>
+      <b>Zeitraum</b>; <b>Läuft gerade</b> zeigt offene (noch nicht beendete)
+      Stempelungen des Tages.</li>
+    <li><b>Excel</b>- und <b>Arcadis-CSV</b>-Export der gefilterten Liste
+      (Format: Datum; Nachname; Vorname; Stunden; Tätigkeit).</li>
+    <li>Admins: Einträge <b>hinzufügen/bearbeiten</b>, TimeMoto-Buchungen
+      <b>korrigieren/ausblenden/löschen</b>, Tätigkeit direkt eintragen.</li>
   </ul>
-
-  <h2>Berichte (Automatik, Admin)</h2>
-  <ul>
-    <li>Lege fest: <b>welche Projekte</b>, <b>an wen</b> und <b>wann</b>
-      (Wochentag + Uhrzeit) ein Bericht automatisch verschickt wird.</li>
-    <li>Es wird nur versendet, was hier definiert ist – nie automatisch „alle“.</li>
-    <li><b>jetzt senden</b> testet einen Bericht (Inhalt = vorige Woche).</li>
-  </ul>
-
-  <h2>Benutzer (Admin)</h2>
-  <ul>
-    <li>Neue Personen per <b>Einladungslink</b> hinzufügen (sie setzen ihr
-      eigenes Passwort), Anzeigename + Rollen <b>admin</b>/<b>user</b>, Löschen.</li>
-    <li>Eigenes Passwort und Anzeigename jederzeit unter <b>Konto</b> ändern.</li>
-  </ul>
-
-  {% if role=='admin' %}
-  <hr style="border:none;border-top:1px solid var(--line);margin:1.4rem 0;">
-  <h2>{{ icons.gear|safe }} Webhook einrichten (Admin)</h2>
-  <p>In der <b>TimeMoto Cloud</b> (Plus-Plan) unter <b>Einstellungen →
-    Webhooks</b> einen Webhook anlegen und als Ziel-URL eintragen:</p>
-  <p><code>{{ webhook_url }}</code></p>
-  <p>Als Ereignisse die <b>An-/Abwesenheits-Stempelungen</b> (attendance:
-    Ein- und Ausstempeln) wählen.</p>
-  <p>Hinterlegtes <b>Secret</b> (in TimeMoto identisch eintragen / dort generiert):</p>
-  <p><code>{{ secret if secret else 'kein Secret gesetzt (SHARED_SECRET in .env)' }}</code></p>
-  <p class="muted">Test: einmal unter einem Projekt ein- und ausstempeln –
-    die Buchung erscheint im <b>Log</b> (offene Stempelungen unter „Läuft
-    gerade“). Das Secret/den Endpoint änderst du über die <code>.env</code>
-    auf dem Server.</p>
-  {% endif %}
 </div>
+
+<div class="card glass" id="tickets">
+  <h2>Tickets</h2>
+  <ul>
+    <li><b>Neues Ticket</b>: Titel, Beschreibung, Priorität, Kategorie.</li>
+    <li>Im Ticket: <b>Status</b> per Ein-Klick (Offen / In Arbeit / Gelöst /
+      Geschlossen), <b>Mir zuweisen</b>, <b>Kommentare</b> und <b>Anhänge</b>.</li>
+    <li><b>Aufwand (WorkLog)</b>: Datum, Anfahrt (km), Stunden, Material,
+      Tätigkeit – pro Ticket mehrere Einträge mit Summe.</li>
+    <li>Zugriff wird je Benutzer vergeben: <b>Nur ansehen</b> oder
+      <b>Ansehen &amp; bearbeiten</b>.</li>
+  </ul>
+</div>
+
+<div class="card glass" id="konto">
+  <h2>Mein Konto</h2>
+  <ul>
+    <li><b>Anzeigename</b> und (bei Passwort-Konten) <b>Passwort</b> ändern.</li>
+    <li><b>Zwei-Faktor-Authentifizierung</b> einrichten oder neu einrichten
+      (z. B. bei neuem Handy).</li>
+  </ul>
+</div>
+
+{% if role=='admin' %}
+<div class="card glass" id="admin">
+  <h1>{{ icons.gear|safe }} Administration</h1>
+
+  <h2>Benutzer &amp; Rollen</h2>
+  <ul>
+    <li><b>Rollen</b>: <code>admin</code> (alles), <code>buchhaltung</code>
+      (Bereich „Abrechnung“ + Exporte), <code>user</code> (Bericht, Log, Meine
+      Zeiten).</li>
+    <li><b>Ticket-Zugriff</b> pro Benutzer: Kein Zugriff / Nur ansehen /
+      Ansehen &amp; bearbeiten.</li>
+    <li><b>TimeMoto-Name</b> je Benutzer eintragen („Vorname Nachname“ exakt wie
+      in TimeMoto) – verknüpft das Konto mit den Stunden. Kann schon vor der
+      ersten Buchung gesetzt werden; die Zuordnung greift dann automatisch.</li>
+  </ul>
+
+  {% if ms_enabled %}
+  <h2>Microsoft-Konten</h2>
+  <ul>
+    <li><b>Aus Microsoft importieren</b> (Benutzer-Seite): legt alle Tenant-Nutzer
+      als Konten an (Rolle <code>user</code>). Danach Rollen/Rechte/TimeMoto-Name
+      je Person setzen.</li>
+    <li>Bei aktivem Microsoft ist der <b>Passwort-Login nur für Admins</b>; alle
+      anderen melden sich über Microsoft an.</li>
+  </ul>
+  {% endif %}
+
+  <h2>Abrechnung (Buchhaltung)</h2>
+  <ul>
+    <li>Alle Stunden über alle Projekte filtern (Mitarbeiter/Projekt/Zeitraum)
+      und direkt als <b>Excel</b> oder <b>Arcadis-CSV</b> herunterladen.</li>
+  </ul>
+
+  <h2>Automatische Berichte</h2>
+  <ul>
+    <li>Pro Bericht festlegen: <b>welche Projekte</b>, <b>an wen</b> (inkl. CC),
+      <b>Format</b> (Excel/CSV), <b>Nachricht</b> und <b>Wochentag + Uhrzeit</b>.</li>
+    <li>Es wird nur versendet, was definiert ist – nie automatisch „alle“.
+      <b>jetzt senden</b> testet sofort (Inhalt = vorige Woche).</li>
+  </ul>
+
+  <h2>Einstellungen &amp; Verlauf</h2>
+  <ul>
+    <li><b>Einstellungen</b>: Zeitzone (für Wochengrenzen, Anzeige, Versandzeiten).</li>
+    <li><b>Verlauf</b>: lückenloses Protokoll – wer hat wann was geändert und
+      welche Mails wurden versendet.</li>
+  </ul>
+
+  <hr style="border:none;border-top:1px solid var(--line);margin:1.4rem 0;">
+  <h2>Webhook einrichten (TimeMoto)</h2>
+  <p>In der <b>TimeMoto Cloud</b> (Plus-Plan) unter <b>Einstellungen → Webhooks</b>
+    einen Webhook mit dieser Ziel-URL anlegen:</p>
+  <p><code>{{ webhook_url }}</code></p>
+  <p>Ereignisse: An-/Abwesenheits-Stempelungen (Ein- und Ausstempeln).
+    Hinterlegtes <b>Secret</b>:</p>
+  <p><code>{{ secret if secret else 'kein Secret gesetzt (SHARED_SECRET in .env)' }}</code></p>
+
+  <h2>Server-Konfiguration (.env)</h2>
+  <p class="muted">Auf dem Server unter <code>deploy/.env</code>, danach
+    <code>docker compose up -d --build</code>:</p>
+  <ul class="muted">
+    <li><code>BREVO_API_KEY</code> – Mailversand (Brevo HTTP-API)</li>
+    <li><code>PUBLIC_BASE_URL</code> – z. B. https://intern.rss-fb.com (für Links)</li>
+    <li><code>MS_CLIENT_ID / MS_CLIENT_SECRET / MS_TENANT_ID</code> – Microsoft-Login</li>
+    <li><code>SHARED_SECRET</code> – TimeMoto-Webhook-Secret</li>
+    <li><code>REPORT_RECIPIENTS</code> – Standard-Empfänger für „jetzt senden“</li>
+    <li><code>SESSION_SECRET</code> – fester Wert, damit Logins Neustarts überleben</li>
+  </ul>
+</div>
+{% endif %}
 {% endblock %}
 """
 
@@ -1959,7 +2056,7 @@ async def anleitung(request: Request):
     webhook_url = f"{request.base_url}{config.WEBHOOK_PATH.lstrip('/')}"
     return HTMLResponse(_tpls["anleitung"].render(
         **_common(request, "help", "Anleitung"),
-        webhook_url=webhook_url, secret=secret))
+        webhook_url=webhook_url, secret=secret, ms_enabled=config.ms_enabled()))
 
 
 _TZ_ZONES = ["Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Europe/Paris",
