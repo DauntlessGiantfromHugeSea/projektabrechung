@@ -89,10 +89,18 @@ async def receive(request: Request):
     except Exception:
         parsed = None
 
+    # Secret-Pruefung: Wir wissen noch nicht, in welchem Header TimeMoto das
+    # Secret schickt -> mehrere uebliche Stellen pruefen. Alle Header werden
+    # ohnehin geloggt, sodass wir die echte Stelle im ersten Event sehen.
     secret_ok = None
     if config.SHARED_SECRET:
+        auth = headers.get("authorization", "")
         candidate = (
             headers.get("x-webhook-secret")
+            or headers.get("x-api-key")
+            or headers.get("x-timemoto-secret")
+            or headers.get("secret")
+            or (auth.removeprefix("Bearer ").removeprefix("bearer ").strip() or None)
             or request.query_params.get("secret")
             or ""
         )

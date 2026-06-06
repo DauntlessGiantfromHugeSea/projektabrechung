@@ -24,7 +24,7 @@ services:
     environment:
       # --- Webhook-Empfang ---
       WEBHOOK_PATH: "/timemoto"
-      SHARED_SECRET: ""
+      SHARED_SECRET: "${SHARED_SECRET:-}"   # aus deploy/.env (TimeMoto-Secret)
       LOG_FILE: "/data/events.jsonl"
 
       # --- Bericht ---
