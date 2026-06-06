@@ -5,10 +5,12 @@
 # weiter. Die App selbst veroeffentlicht KEINE Ports mehr -- sie ist nur ueber
 # Caddy erreichbar.
 
+name: projektabrechnung
+
 services:
   app:
     build: ..                      # baut das Image aus dem Repo-Root
-    container_name: timemoto-projektabrechnung
+    container_name: projektabrechnung
     restart: unless-stopped
     expose:
       - "8080"                     # nur containerintern, nicht zum Host

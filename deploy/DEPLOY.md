@@ -41,7 +41,7 @@ dig +short intern.rss-fb.com        # muss deine Server-IP zeigen
 ## 2. Code auf den Server holen
 
 ```bash
-git clone <REPO-URL> projektabrechung
+git clone https://github.com/DauntlessGiantfromHugeSea/projektabrechung.git
 cd projektabrechung
 git checkout claude/relaxed-hawking-VJjx3
 cd deploy
@@ -101,3 +101,6 @@ curl https://intern.rss-fb.com/report/inspect   # nur aus internem Netz erlaubt
 cd projektabrechung && git pull
 cd deploy && docker compose up --build -d
 ```
+
+> Der Compose-Projektname ist auf **`projektabrechnung`** gesetzt (`name:` in
+> `docker-compose.yml`), der App-Container heißt ebenfalls `projektabrechnung`.
