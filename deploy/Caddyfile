@@ -1,0 +1,24 @@
+# Automatisches HTTPS fuer intern.rss-fb.com.
+# Caddy holt das Let's-Encrypt-Zertifikat selbst, sobald die Domain
+# oeffentlich auf diesen Server zeigt und Port 80/443 erreichbar sind.
+
+{
+	# ACME-Kontaktadresse (bei Zertifikatsproblemen). Bei Bedarf anpassen.
+	email d.model@fb-eng.de
+}
+
+intern.rss-fb.com {
+	encode gzip
+
+	# Sicherheit: /report/* hat KEINE eigene Authentifizierung. Diese
+	# Endpoints (Vorschau, Sofort-Versand, Inspektion) duerfen daher nur aus
+	# internen Netzen kommen -- von aussen wird geblockt. Nur der Webhook
+	# (/timemoto) und /health bleiben oeffentlich erreichbar.
+	@report_extern {
+		path /report/*
+		not remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/8
+	}
+	respond @report_extern "Forbidden" 403
+
+	reverse_proxy app:8080
+}

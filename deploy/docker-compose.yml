@@ -1,0 +1,62 @@
+# Produktiv-Stack: App hinter Caddy mit automatischem HTTPS.
+# Start aus diesem Verzeichnis:  docker compose up --build -d
+#
+# Caddy terminiert TLS fuer intern.rss-fb.com und leitet intern an die App
+# weiter. Die App selbst veroeffentlicht KEINE Ports mehr -- sie ist nur ueber
+# Caddy erreichbar.
+
+services:
+  app:
+    build: ..                      # baut das Image aus dem Repo-Root
+    container_name: timemoto-projektabrechnung
+    restart: unless-stopped
+    expose:
+      - "8080"                     # nur containerintern, nicht zum Host
+    environment:
+      # --- Webhook-Empfang ---
+      WEBHOOK_PATH: "/timemoto"
+      SHARED_SECRET: ""            # falls TimeMoto ein Secret bietet: hier + dort setzen
+      LOG_FILE: "/data/events.jsonl"
+
+      # --- Bericht ---
+      PROJECT_CODE: ""             # Projekt(teil)code; leer = alle Projekte
+      # PROJECT_FIELD: "projectCode"
+      REPORT_DIR: "/data/reports"
+      REPORT_TIMEZONE: "Europe/Berlin"
+
+      # --- Wochenplan ---
+      SCHEDULER_ENABLED: "true"
+      REPORT_CRON_DAY_OF_WEEK: "mon"
+      REPORT_CRON_HOUR: "7"
+      REPORT_CRON_MINUTE: "0"
+
+      # --- E-Mail (spaeter ausfuellen) ---
+      SMTP_HOST: ""
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: ""
+      SMTP_STARTTLS: "true"
+      SMTP_SSL: "false"
+      REPORT_RECIPIENTS: ""
+      REPORT_SUBJECT_PREFIX: "Projektzeiten"
+    volumes:
+      - ./data:/data
+
+  caddy:
+    image: caddy:2
+    container_name: timemoto-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"                    # noetig fuer Let's-Encrypt (HTTP-Challenge + Redirect)
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data           # gespeicherte Zertifikate (NICHT loeschen)
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
