@@ -69,6 +69,31 @@ def detail_sessions(start: datetime, end: datetime,
     return out
 
 
+def filter_intervals(start: datetime | None = None, end: datetime | None = None,
+                     project: str = "", employee: str = "") -> list[Interval]:
+    """Alle Arbeitsintervalle, optional gefiltert nach Zeitraum, Projekt
+    (Teilstring) und Mitarbeiter (Teilstring). Neueste zuerst -- fuer die
+    Log-/Ansichtsseite."""
+    records = load_records()
+    punches = [p for p in (normalize(r) for r in records) if p is not None]
+    proj = (project or "").strip().lower()
+    emp = (employee or "").strip().lower()
+    out: list[Interval] = []
+    for iv in pair_intervals(punches):
+        ivp = iv.start.astimezone(config.TIMEZONE)
+        if start and ivp < start.astimezone(config.TIMEZONE):
+            continue
+        if end and ivp >= end.astimezone(config.TIMEZONE):
+            continue
+        if proj and (not iv.project or proj not in iv.project.lower()):
+            continue
+        if emp and emp not in iv.employee.lower():
+            continue
+        out.append(iv)
+    out.sort(key=lambda iv: iv.start, reverse=True)
+    return out
+
+
 def this_week_range(now: datetime | None = None) -> tuple[datetime, datetime]:
     """Liefert (Montag 00:00, naechster Montag 00:00) der *laufenden* Woche."""
     now = (now or datetime.now(config.TIMEZONE)).astimezone(config.TIMEZONE)

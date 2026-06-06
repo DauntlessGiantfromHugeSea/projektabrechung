@@ -22,7 +22,7 @@ import settings
 import users
 from events import load_records, normalize, pair_intervals
 from report import (build_grouped, build_report, detail_sessions,
-                    previous_week_range, render_grouped_html,
+                    filter_intervals, previous_week_range, render_grouped_html,
                     render_grouped_text, render_html, subject_grouped,
                     this_week_range)
 
@@ -124,6 +124,7 @@ _BASE = """
   <span class="brand"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></span>
   <nav>
     <a href="/" class="{{ 'active' if page=='dash' }}">Bericht</a>
+    <a href="/log" class="{{ 'active' if page=='log' }}">Log</a>
     {% if role=='admin' %}<a href="/reports" class="{{ 'active' if page=='reports' }}">Berichte</a>
     <a href="/users" class="{{ 'active' if page=='users' }}">Benutzer</a>{% endif %}
     <a href="/account" class="{{ 'active' if page=='account' }}">Konto</a>
@@ -221,6 +222,47 @@ _DASH = """
     {% if has_direction %}<span class="pill ok">ja</span>{% else %}<span class="pill no">nein</span>{% endif %}</p>
   <p class="muted">{{ events_total }} Events · {{ intervals_paired }} Arbeitsintervalle.</p>
   {% if projects_seen %}<div>{% for p in projects_seen %}<span class="chip">{{ p }}</span>{% endfor %}</div>{% endif %}
+</div>
+{% endblock %}
+"""
+
+_LOG = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <h1>Log – Buchungen</h1>
+  <form method="get" action="/log">
+    <div class="row">
+      <div><label>Mitarbeiter</label>
+        <select name="employee">
+          <option value="">– alle –</option>
+          {% for e in all_employees %}<option value="{{ e }}" {{ 'selected' if employee==e }}>{{ e }}</option>{% endfor %}
+        </select></div>
+      <div><label>Projekt</label>
+        <select name="project">
+          <option value="">– alle –</option>
+          {% for p in all_projects %}<option value="{{ p }}" {{ 'selected' if project==p }}>{{ p }}</option>{% endfor %}
+        </select></div>
+      <div style="flex:0 0 150px;"><label>Von</label><input type="date" name="start" value="{{ start_in }}"></div>
+      <div style="flex:0 0 150px;"><label>Bis</label><input type="date" name="end" value="{{ end_in }}"></div>
+      <div style="flex:0 0 auto;"><label>&nbsp;</label><button type="submit">Filtern</button></div>
+    </div>
+  </form>
+</div>
+<div class="card glass">
+  <p class="muted">{{ count }} Buchung(en) · Summe <b>{{ total }}</b></p>
+  {% if sessions %}
+  <table>
+    <thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
+      <th>Kommt</th><th>Geht</th><th class="num">Dauer</th></tr></thead>
+    <tbody>
+    {% for s in sessions %}
+      <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
+        <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>Keine Buchungen für diese Filter.</p>{% endif %}
 </div>
 {% endblock %}
 """
@@ -391,8 +433,9 @@ function addProj(t){var ta=document.getElementsByName('projects')[0];
 LOGO_GLOBAL = LOGO_URL
 _base_tpl = Template(_BASE)
 _tpls = {n: Template(s) for n, s in {
-    "login": _LOGIN, "dash": _DASH, "account": _ACCOUNT, "users": _USERS,
-    "invite": _INVITE, "reports": _REPORTS, "report_form": _REPORT_FORM,
+    "login": _LOGIN, "dash": _DASH, "log": _LOG, "account": _ACCOUNT,
+    "users": _USERS, "invite": _INVITE, "reports": _REPORTS,
+    "report_form": _REPORT_FORM,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
@@ -422,6 +465,25 @@ def _all_projects() -> list[str]:
         if p and p.project:
             seen.add(p.project)
     return sorted(seen)
+
+
+def _all_employees() -> list[str]:
+    seen = set()
+    for r in load_records():
+        p = normalize(r)
+        if p and p.employee and p.employee != "unbekannt":
+            seen.add(p.employee)
+    return sorted(seen)
+
+
+def _session_view(iv) -> dict:
+    return {
+        "date": iv.start.astimezone(config.TIMEZONE).strftime("%a %d.%m.%Y"),
+        "employee": iv.employee, "project": iv.project or "–",
+        "start": iv.start.astimezone(config.TIMEZONE).strftime("%H:%M"),
+        "end": iv.end.astimezone(config.TIMEZONE).strftime("%H:%M"),
+        "dur": _fmt_dur(iv.duration_hours),
+    }
 
 
 def _fmt_dur(hours: float) -> str:
@@ -542,6 +604,34 @@ async def send_now(request: Request, project: str = Form(""),
         request.session["flash_class"] = "err"
     return RedirectResponse(
         f"/?week=custom&project={project}&start={start}&end={end}", status_code=303)
+
+
+# --- Log / Buchungsansicht -------------------------------------------------
+
+@router.get("/log", response_class=HTMLResponse)
+async def log_page(request: Request, employee: str = "", project: str = "",
+                   start: str = "", end: str = ""):
+    if (r := _need_login(request)):
+        return r
+    s = e = None
+    if start:
+        try:
+            s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
+        except ValueError:
+            s = None
+    if end:
+        try:
+            e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
+        except ValueError:
+            e = None
+    intervals = filter_intervals(s, e, project=project, employee=employee)
+    total_hours = sum(iv.duration_hours for iv in intervals)
+    return HTMLResponse(_tpls["log"].render(
+        **_common(request, "log", "Log"),
+        all_employees=_all_employees(), all_projects=_all_projects(),
+        employee=employee, project=project, start_in=start, end_in=end,
+        sessions=[_session_view(iv) for iv in intervals],
+        count=len(intervals), total=_fmt_dur(total_hours)))
 
 
 # --- Konto -----------------------------------------------------------------
