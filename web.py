@@ -18,17 +18,21 @@ from jinja2 import Template
 
 import audit
 import config
+import downloads
 import mailer
 import manual
 import scheduler
 import settings
 import users
+import xlsxout
 from events import delete_interval, load_records, normalize, pair_intervals
+from fastapi.responses import FileResponse
 from report import (build_grouped, build_report, collect_intervals,
                     collect_open, detail_sessions, filter_intervals,
                     previous_week_range, render_grouped_html,
-                    render_grouped_text, render_html, subject_grouped,
-                    this_week_range)
+                    render_grouped_text, render_html, render_text,
+                    scope_intervals, subject_grouped, this_week_range)
+from report import subject as report_subject
 
 router = APIRouter()
 
@@ -881,7 +885,14 @@ async def send_now(request: Request, project: str = Form(""),
     try:
         s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
         e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
-        result = mailer.deliver(build_report(s, e, project=project or None))
+        rep = build_report(s, e, project=project or None)
+        ivs = scope_intervals(s, e, [project] if project else [])
+        xlsx = xlsxout.intervals_xlsx(ivs, title=report_subject(rep))
+        fname = f"{(project or 'alle')}_{s:%Y%m%d}.xlsx".replace(" ", "_")
+        result = mailer.send_report(
+            report_subject(rep), render_text(rep), render_html(rep),
+            config.REPORT_RECIPIENTS, xlsx, fname,
+            base_url=str(request.base_url), label=project or "alle")
         request.session["flash"] = (
             f"Bericht an {', '.join(result['recipients'])} versendet."
             if result.get("mailed")
@@ -1102,6 +1113,21 @@ async def export_xlsx(request: Request, employee: str = "", project: str = "",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@router.get("/download/{token}")
+async def download(token: str):
+    """Oeffentlicher Download EINER tokenisierten Datei. Kein Login, aber auch
+    kein Zugang zu anderen Seiten -- es wird nur diese registrierte Datei
+    ausgeliefert."""
+    entry = downloads.resolve(token)
+    from pathlib import Path
+    if not entry or not Path(entry["path"]).exists():
+        return HTMLResponse("Link ungültig oder abgelaufen.", status_code=404)
+    return FileResponse(
+        entry["path"],
+        media_type=entry.get("media_type", "application/octet-stream"),
+        filename=entry.get("filename", "download.xlsx"))
+
+
 @router.get("/versand", response_class=HTMLResponse)
 async def versand_form(request: Request):
     if (r := _need_admin(request)):
@@ -1123,6 +1149,12 @@ async def versand_send(request: Request, name: str = Form(""),
         return r
     plist = [x.strip() for x in projects.replace("\n", ",").split(",") if x.strip()]
     rlist = [x.strip() for x in recipients.replace("\n", ",").split(",") if x.strip()]
+    if not rlist:
+        rlist = config.REPORT_RECIPIENTS
+    if not rlist:
+        request.session["flash"], request.session["flash_class"] = \
+            "Bitte mindestens einen Empfänger angeben.", "err"
+        return RedirectResponse("/versand", status_code=303)
     try:
         s = (datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
              if start else previous_week_range()[0])
@@ -1137,10 +1169,13 @@ async def versand_send(request: Request, name: str = Form(""),
                             render_grouped_html(rep))
     else:
         rep = build_report(s, e, project=None)
-        from report import render_text, subject as _subj
-        subj = (name + " – " if name else "") + _subj(rep)
+        subj = (name + " – " if name else "") + report_subject(rep)
         text, html = render_text(rep), render_html(rep)
-    result = mailer.send(subj, text, html, rlist, label=name or "Versand")
+    xlsx = xlsxout.intervals_xlsx(scope_intervals(s, e, plist), title=subj)
+    fname = f"{(name or 'bericht')}_{s:%Y%m%d}.xlsx".replace(" ", "_")
+    result = mailer.send_report(subj, text, html, rlist, xlsx, fname,
+                                base_url=str(request.base_url),
+                                label=name or "Versand")
     request.session["flash"] = (
         f"Bericht an {', '.join(result['recipients'])} versendet."
         if result.get("mailed")
@@ -1360,9 +1395,13 @@ async def reports_send(request: Request, rid: str):
         return RedirectResponse("/reports", status_code=303)
     s, e = previous_week_range()
     rep = build_grouped(s, e, cfg["projects"], name=cfg["name"])
-    result = mailer.send(subject_grouped(rep), render_grouped_text(rep),
-                         render_grouped_html(rep), cfg["recipients"],
-                         label=cfg["name"])
+    xlsx = xlsxout.intervals_xlsx(scope_intervals(s, e, cfg["projects"]),
+                                  title=subject_grouped(rep))
+    fname = f"{cfg['name']}_{s:%Y%m%d}.xlsx".replace(" ", "_")
+    result = mailer.send_report(subject_grouped(rep), render_grouped_text(rep),
+                                render_grouped_html(rep), cfg["recipients"],
+                                xlsx, fname, base_url=str(request.base_url),
+                                label=cfg["name"])
     request.session["flash"] = (
         f"'{cfg['name']}' an {', '.join(result['recipients'])} versendet."
         if result.get("mailed")

@@ -88,6 +88,25 @@ def detail_sessions(start: datetime, end: datetime,
     return out
 
 
+def scope_intervals(start: datetime, end: datetime,
+                    projects: list[str]) -> list[Interval]:
+    """Detail-Intervalle im Zeitraum, gefiltert auf eine Projektliste
+    (Teilstring, beliebiges Match). Leere Liste = alle Projekte."""
+    start = start.astimezone(config.TIMEZONE)
+    end = end.astimezone(config.TIMEZONE)
+    wanted = [w.lower() for w in projects if w.strip()]
+    out: list[Interval] = []
+    for iv in collect_intervals():
+        if not (start <= iv.start.astimezone(config.TIMEZONE) < end):
+            continue
+        if wanted:
+            low = (iv.project or "").lower()
+            if not any(w in low for w in wanted):
+                continue
+        out.append(iv)
+    return out
+
+
 def filter_intervals(start: datetime | None = None, end: datetime | None = None,
                      project: str = "", employee: str = "") -> list[Interval]:
     """Alle Arbeitsintervalle, optional gefiltert nach Zeitraum, Projekt

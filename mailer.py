@@ -18,12 +18,28 @@ from datetime import datetime
 from email.message import EmailMessage
 
 import config
+import downloads
 from report import Report, render_html, render_text, subject
 
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-def _brand_html(inner: str) -> str:
+
+def _download_block_html(url: str) -> str:
+    if not url:
+        return ""
+    return (
+        f'<div style="margin:18px 0 4px"><a href="{url}" '
+        f'style="display:inline-block;background:{config.BRAND_COLOR};'
+        'color:#123018;font-weight:bold;text-decoration:none;padding:11px 20px;'
+        'border-radius:999px">Bericht als Excel herunterladen</a></div>'
+        '<div style="color:#64748b;font-size:12px;margin-top:6px">'
+        'Der Link führt direkt zum Download dieser Datei.</div>')
+
+
+def _brand_html(inner: str, download_url: str = "") -> str:
     """Report-HTML in ein gebrandetes Mail-Layout (Logo + Farbe) huellen.
     Inline-Styles, damit es in Mail-Clients funktioniert."""
+    inner = inner + _download_block_html(download_url)
     return (
         '<!doctype html><html><body style="margin:0;background:#f5f7f9;'
         'font-family:Arial,Helvetica,sans-serif;color:#1e293b">'
@@ -52,12 +68,15 @@ def _save_to_disk(label: str, text: str, html: str) -> str:
 
 
 def send(subject_line: str, text: str, html: str,
-         recipients: list[str], label: str = "") -> dict:
+         recipients: list[str], label: str = "", download_url: str = "") -> dict:
     """Bericht an konkrete Empfaenger zustellen (Datei + ggf. Mail).
 
     Wird IMMER als Datei gespeichert. Gemailt wird nur, wenn ein SMTP-Server
-    konfiguriert UND mindestens ein Empfaenger angegeben ist.
+    konfiguriert UND mindestens ein Empfaenger angegeben ist. Ein optionaler
+    download_url wird als Button/Link in die Mail eingebettet (statt Anhang).
     """
+    if download_url:
+        text = f"{text}\nDownload (Excel): {download_url}\n"
     saved_path = _save_to_disk(label or subject_line, text, html)
     print("=" * 70, flush=True)
     print(f"[report] {subject_line}", flush=True)
@@ -74,7 +93,7 @@ def send(subject_line: str, text: str, html: str,
     msg["From"] = config.SMTP_FROM
     msg["To"] = ", ".join(recipients)
     msg.set_content(text)
-    msg.add_alternative(_brand_html(html), subtype="html")
+    msg.add_alternative(_brand_html(html, download_url), subtype="html")
 
     try:
         if config.SMTP_SSL:
@@ -101,6 +120,19 @@ def _login_and_send(server: smtplib.SMTP, msg: EmailMessage) -> None:
     if config.SMTP_USER:
         server.login(config.SMTP_USER, config.SMTP_PASSWORD)
     server.send_message(msg)
+
+
+def send_report(subject_line: str, text: str, html: str, recipients: list[str],
+                xlsx_bytes: bytes | None, filename: str, base_url: str = "",
+                label: str = "") -> dict:
+    """Wie send(), legt aber zusaetzlich die Excel-Datei als tokenisierten
+    Download ab und haengt den Link (statt Anhang) in die Mail."""
+    url = ""
+    if xlsx_bytes:
+        token = downloads.register(xlsx_bytes, filename, _XLSX_MIME)
+        url = downloads.link(base_url, token)
+    return send(subject_line, text, html, recipients, label=label,
+                download_url=url)
 
 
 def deliver(rep: Report) -> dict:

@@ -107,3 +107,11 @@ SETTINGS_FILE = Path(os.getenv("SETTINGS_FILE", "/data/settings.json"))
 MANUAL_FILE = Path(os.getenv("MANUAL_FILE", "/data/manual.json"))
 # Aenderungsprotokoll (Audit-Log): wer hat wann was geaendert.
 AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "/data/audit.json"))
+
+# Download-Links fuer Mails (Anhaenge ersetzen). Tokenisiert -> liefern nur
+# genau die eine Datei, keine anderen Seiten.
+DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/data/downloads"))
+DOWNLOADS_FILE = Path(os.getenv("DOWNLOADS_FILE", "/data/downloads.json"))
+DOWNLOAD_TTL_DAYS = int(os.getenv("DOWNLOAD_TTL_DAYS", "60"))
+# Oeffentliche Basis-URL fuer Links in Mails (kein Request-Kontext im Scheduler).
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://intern.rss-fb.com").rstrip("/")

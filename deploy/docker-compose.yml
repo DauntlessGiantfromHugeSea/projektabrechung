@@ -32,6 +32,8 @@ services:
       # PROJECT_FIELD: "projectName"
       REPORT_DIR: "/data/reports"
       REPORT_TIMEZONE: "Europe/Berlin"
+      # Basis-URL für Download-Links in Mails (öffentlich erreichbar):
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-https://intern.rss-fb.com}"
 
       # --- Web-Interface / Login ---
       # Werte kommen aus der Datei deploy/.env (siehe DEPLOY.md). Ohne
