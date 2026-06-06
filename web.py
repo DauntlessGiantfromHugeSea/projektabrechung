@@ -9,7 +9,7 @@ Templates inline (Jinja2), damit das Image schlank bleibt.
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 
 from fastapi import APIRouter, Form, Request
@@ -1131,9 +1131,13 @@ async def log_page(request: Request, employee: str = "", project: str = "",
             e = None
     intervals = filter_intervals(s, e, project=project, employee=employee)
     total_hours = sum(iv.duration_hours for iv in intervals)
-    # Offene Sessions (optional gefiltert)
+    # Offene Sessions: nur aktuelle (alte = unvollstaendige Daten, kein echtes
+    # "noch eingestempelt").
     opens = []
+    cutoff = datetime.now(config.TIMEZONE) - timedelta(hours=config.OPEN_SESSION_MAX_HOURS)
     for o in collect_open():
+        if o.start.astimezone(config.TIMEZONE) < cutoff:
+            continue
         if employee and employee.lower() not in o.employee.lower():
             continue
         if project and (not o.project or project.lower() not in o.project.lower()):

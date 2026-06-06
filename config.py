@@ -143,6 +143,11 @@ ACTIVITIES_FILE = Path(os.getenv("ACTIVITIES_FILE", "/data/activities.json"))
 REMINDER_AFTER_HOURS = int(os.getenv("REMINDER_AFTER_HOURS", "24"))
 REMINDER_MAX_AGE_DAYS = int(os.getenv("REMINDER_MAX_AGE_DAYS", "7"))
 
+# "Laeuft gerade" nur fuer Einstempelungen der letzten X Stunden anzeigen
+# (aeltere offene Stempelungen sind fast immer unvollstaendige Daten, kein
+# echtes "noch eingestempelt").
+OPEN_SESSION_MAX_HOURS = int(os.getenv("OPEN_SESSION_MAX_HOURS", "18"))
+
 # Download-Links fuer Mails (Anhaenge ersetzen). Tokenisiert -> liefern nur
 # genau die eine Datei, keine anderen Seiten.
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/data/downloads"))
