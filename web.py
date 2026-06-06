@@ -131,6 +131,7 @@ _BASE = """
     transition:.15s;display:inline-block;white-space:nowrap;font-size:.9rem}
   button:hover,.btn:hover{transform:translateY(-1px);text-decoration:none;
     box-shadow:0 10px 22px rgba(111,168,79,.45)}
+  button:disabled{opacity:.55;cursor:default;transform:none;box-shadow:none}
   button.ghost,.btn.ghost{background:rgba(255,255,255,.6);color:var(--brand-d);
     border:1px solid rgba(111,168,79,.5);box-shadow:none;font-weight:700}
   button.danger{background:rgba(255,255,255,.6);color:var(--danger);
@@ -1007,6 +1008,10 @@ _TICKETS = """
     <h1 style="margin:0;">Tickets</h1>
     <a class="btn" href="/tickets/new">+ Neues Ticket</a>
   </div>
+  <div style="margin-top:.6rem;">
+    <a class="chip" href="/tickets">Alle</a>
+    {% for k,v in statuses.items() %}<a class="chip" href="/tickets?status={{k}}">{{ v }}: <b>{{ counts[k] }}</b></a>{% endfor %}
+  </div>
   <form method="get" action="/tickets" style="margin-top:.7rem;">
     <div class="row">
       <div style="flex:0 0 190px;"><label>Status</label>
@@ -1076,7 +1081,19 @@ _TICKET = """
     <span class="pill role">{{ categories[t.category] }}</span></p>
   <p class="muted">Erstellt von {{ t.created_by }} · {{ t.created_disp }}
     {% if t.assigned_to %} · Bearbeiter: <b>{{ t.assigned_to }}</b>{% endif %}</p>
-  <div style="white-space:pre-wrap;margin-top:.6rem;">{{ t.description }}</div>
+  {% if can_edit %}
+  <div class="toolbar" style="margin-top:.6rem;">
+    {% for k,v in statuses.items() %}
+      <form method="post" action="/tickets/{{ t.id }}/status">
+        <input type="hidden" name="status" value="{{ k }}">
+        <button type="submit" class="{{ '' if t.status==k else 'ghost' }}" {{ 'disabled' if t.status==k }}>{{ v }}</button>
+      </form>
+    {% endfor %}
+    <form method="post" action="/tickets/{{ t.id }}/assign-me">
+      <button type="submit" class="ghost">Mir zuweisen</button></form>
+  </div>
+  {% endif %}
+  <div style="white-space:pre-wrap;margin-top:.8rem;">{{ t.description }}</div>
 </div>
 
 {% if can_edit %}
@@ -1889,7 +1906,7 @@ async def tickets_list(request: Request, status: str = "", q: str = ""):
     return HTMLResponse(_tpls["tickets"].render(
         **_common(request, "tickets", "Tickets"), rows=rows, status=status, q=q,
         statuses=tickets.STATUSES, priorities=tickets.PRIORITIES,
-        categories=tickets.CATEGORIES))
+        categories=tickets.CATEGORIES, counts=tickets.counts_by_status()))
 
 
 @router.get("/tickets/new", response_class=HTMLResponse)
@@ -1946,6 +1963,28 @@ async def ticket_edit(request: Request, tid: int, status: str = Form(""),
     tickets.update_fields(tid, status=status, priority=priority,
                           category=category, assigned_to=assigned_to)
     audit.log(_user(request), "Ticket geändert", f"#{tid} -> {status}")
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.post("/tickets/{tid:int}/status")
+async def ticket_status(request: Request, tid: int, status: str = Form("")):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    tickets.update_fields(tid, status=status)
+    audit.log(_user(request), "Ticket-Status", f"#{tid} -> {status}")
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.post("/tickets/{tid:int}/assign-me")
+async def ticket_assign_me(request: Request, tid: int):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    tickets.update_fields(tid, assigned_to=_user(request))
+    audit.log(_user(request), "Ticket zugewiesen", f"#{tid} -> {_user(request)}")
     return RedirectResponse(f"/tickets/{tid}", status_code=303)
 
 
