@@ -104,6 +104,14 @@ _BASE = """
   .menu .panel a:hover{background:#eef4e9;text-decoration:none}
   .menu .panel a.danger{color:var(--danger)}
   .menu .panel a.danger:hover{background:#fdecec}
+  .menu .panel button.panelitem{display:flex;align-items:center;gap:.55rem;
+    width:100%;background:none;color:var(--fg);border:0;box-shadow:none;
+    padding:.6rem .7rem;border-radius:11px;font-weight:600;font-size:.92rem;
+    cursor:pointer;justify-content:flex-start;text-align:left}
+  .menu .panel button.panelitem:hover{background:#eef4e9;transform:none}
+  .menu .panel button.panelitem.danger{color:var(--danger)}
+  .menu .panel button.panelitem.danger:hover{background:#fdecec}
+  .menu .panel form{margin:0}
   .menu .panel svg{width:17px;height:17px;color:var(--muted);flex:0 0 auto}
   .phead{padding:.55rem .7rem .25rem}
   .phead .muted{font-size:.82rem}
@@ -113,7 +121,7 @@ _BASE = """
   .avatar{width:30px;height:30px;border-radius:50%;color:#fff;font-size:.78rem;
     background:var(--brand-d);display:inline-flex;align-items:center;
     justify-content:center;font-weight:800}
-  main{max-width:960px;margin:1.6rem auto;padding:0 1.2rem}
+  main{max-width:1180px;margin:1.6rem auto;padding:0 1.2rem}
   .card{padding:1.3rem 1.4rem;margin-bottom:1.3rem}
   h1{font-size:1.4rem;margin:.1rem 0 1rem}
   h2{font-size:1.1rem;margin:0 0 .9rem}
@@ -698,7 +706,7 @@ _USERS = """
     {% if ms_enabled %}<form method="post" action="/users/import-microsoft">
       <button type="submit" class="ghost">Aus Microsoft importieren</button></form>{% endif %}
   </div>
-  <div class="tablewrap" style="margin-top:.8rem;"><table>
+  <div style="margin-top:.8rem;"><table>
     <thead><tr><th>Name</th><th>Benutzer</th><th>E-Mail</th><th>TimeMoto-Name</th>
       <th>Rolle</th><th>Status</th><th>Aktionen</th></tr></thead>
     <tbody>
@@ -711,18 +719,23 @@ _USERS = """
         <td><span class="pill role">{{ u.role }}</span></td>
         <td>{% if u.status=='active' %}<span class="pill ok">aktiv</span>
             {% else %}<span class="pill inv">eingeladen</span>{% endif %}</td>
-        <td class="toolbar">
-          <a class="btn ghost" href="/users/{{ u.username|urlencode }}/edit">Bearbeiten</a>
-          {% if u.status=='invited' %}
-            <form method="post" action="/users/resend" style="display:inline;">
-              <input type="hidden" name="username" value="{{ u.username }}">
-              <button class="ghost" type="submit">Einladung senden</button></form>
-          {% endif %}
-          {% if u.username != user %}
-          <form method="post" action="/users/delete" style="display:inline;">
-            <input type="hidden" name="username" value="{{ u.username }}">
-            <button class="danger" onclick="return confirm('Benutzer {{ u.username }} löschen?')">löschen</button>
-          </form>{% endif %}
+        <td style="text-align:right;">
+          <details class="menu">
+            <summary class="btn ghost">Aktionen ▾</summary>
+            <div class="panel">
+              <a href="/users/{{ u.username|urlencode }}/edit">{{ icons.gear|safe }} Bearbeiten</a>
+              {% if u.status=='invited' and local_users_enabled %}
+              <form method="post" action="/users/resend">
+                <input type="hidden" name="username" value="{{ u.username }}">
+                <button type="submit" class="panelitem">Einladung erneut senden</button></form>
+              {% endif %}
+              {% if u.username != user %}
+              <form method="post" action="/users/delete">
+                <input type="hidden" name="username" value="{{ u.username }}">
+                <button type="submit" class="panelitem danger" onclick="return confirm('Benutzer {{ u.username }} löschen?')">Löschen</button></form>
+              {% endif %}
+            </div>
+          </details>
         </td>
       </tr>
     {% endfor %}
@@ -915,9 +928,14 @@ _USER_EDIT = """
     <input name="name" value="{{ u.name or '' }}">
     <label>E-Mail (für Einladung, Reset &amp; Erinnerungen)</label>
     <input name="email" type="email" value="{{ u.email or '' }}">
-    <label>TimeMoto-Name (exakt wie in TimeMoto – für die Stundenzuordnung)</label>
-    <input name="timemoto_name" value="{{ u.timemoto_name or '' }}" list="emps">
-    <datalist id="emps">{% for e in all_employees %}<option value="{{ e }}">{% endfor %}</datalist>
+    <label>TimeMoto-Name (Vorname Nachname – für die Stundenzuordnung)</label>
+    <select name="timemoto_name">
+      <option value="">– nicht zugeordnet –</option>
+      {% for e in all_employees %}<option value="{{ e }}" {{ 'selected' if u.timemoto_name==e }}>{{ e }}</option>{% endfor %}
+      {% if u.timemoto_name and u.timemoto_name not in all_employees %}<option value="{{ u.timemoto_name }}" selected>{{ u.timemoto_name }} (frei eingetragen)</option>{% endif %}
+    </select>
+    <p class="muted" style="margin:.3rem 0 0;">Auswahl = aus TimeMoto erkannte
+      Vor-/Nachnamen. Wer fehlt, hatte noch keine Buchung.</p>
     <label>Rolle</label>
     <select name="role">
       <option value="user" {{ 'selected' if u.role=='user' }}>user</option>
@@ -1372,6 +1390,12 @@ async def login_submit(request: Request, username: str = Form(""),
     user = users.verify_login(username.strip(), password)
     if not user:
         request.session["flash"] = "Benutzer oder Passwort falsch."
+        request.session["flash_class"] = "err"
+        return RedirectResponse("/login", status_code=303)
+    # Wenn Microsoft aktiv ist: Passwort-Login nur fuer Admin; alle anderen
+    # melden sich ueber Microsoft an.
+    if config.ms_enabled() and user.get("role") != "admin":
+        request.session["flash"] = "Bitte über „Mit Microsoft anmelden“ einloggen."
         request.session["flash_class"] = "err"
         return RedirectResponse("/login", status_code=303)
     # Passwort ok -> zweiter Faktor
