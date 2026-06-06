@@ -191,7 +191,7 @@ _BASE = """
 </style></head><body>
 {% if user %}
 <header>
-  <a class="brand" href="/"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></a>
+  <a class="brand" href="/"><img src="{{ logo_url }}" alt="FBE"></a>
   <nav>
     {% set pa_pages = ['dash','log','meine','abrechnung','send','reports'] %}
     <details class="menu tab">
