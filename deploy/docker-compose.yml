@@ -47,7 +47,7 @@ services:
 
   caddy:
     image: caddy:2
-    container_name: timemoto-caddy
+    container_name: projektabrechnung-caddy
     restart: unless-stopped
     ports:
       - "80:80"                    # noetig fuer Let's-Encrypt (HTTP-Challenge + Redirect)
