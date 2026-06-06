@@ -181,6 +181,24 @@ _BASE = """
   code{background:rgba(255,255,255,.65);padding:.12rem .4rem;border-radius:7px;
     font-size:.86em}
   .toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+    gap:1.1rem;margin-top:1.3rem}
+  .tile{display:block;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);padding:1.4rem;box-shadow:var(--shadow);
+    color:var(--fg);transition:.18s}
+  .tile:hover{transform:translateY(-3px);box-shadow:0 16px 36px rgba(40,80,40,.16);
+    text-decoration:none;border-color:var(--brand)}
+  .tile .ti{width:48px;height:48px;border-radius:14px;display:flex;
+    align-items:center;justify-content:center;color:var(--brand-d);
+    background:rgba(146,197,122,.22);margin-bottom:.9rem}
+  .tile .ti svg{width:25px;height:25px}
+  .tile h3{margin:.1rem 0 .35rem;font-size:1.12rem}
+  .tile p{margin:0;color:var(--muted);font-size:.92rem}
+  .hero{background:linear-gradient(135deg,rgba(146,197,122,.22),rgba(146,197,122,.06));}
+  .loginbg{position:fixed;inset:0;z-index:0;background-size:cover;
+    background-position:center}
+  .loginbg.tint{background:linear-gradient(135deg,rgba(111,168,79,.78),
+    rgba(20,54,31,.70))}
   .rowactions{display:flex;gap:.4rem;align-items:center;white-space:nowrap}
   .rowactions form{display:inline;margin:0}
   .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;
@@ -201,7 +219,7 @@ _BASE = """
 </style></head><body>
 {% if user %}
 <header>
-  <a class="brand" href="/"><img src="{{ logo_url }}" alt="FBE"></a>
+  <a class="brand" href="/start"><img src="{{ logo_url }}" alt="FBE"></a>
   <nav>
     {% set pa_pages = ['dash','log','meine','abrechnung','send','reports'] %}
     <details class="menu tab">
@@ -256,8 +274,10 @@ _BASE = """
 _LOGIN = """
 {% extends base %}
 {% block body %}
-<div class="card glass" style="max-width:390px;margin:8vh auto 0;text-align:center;">
-  <img src="{{ logo_url }}" alt="FBE" style="height:52px;margin:.4rem 0 1.1rem;">
+<div class="loginbg" style="background-image:url('{{ bg_image }}')"></div>
+<div class="loginbg tint"></div>
+<div class="card" style="position:relative;z-index:1;max-width:400px;margin:8vh auto 0;text-align:center;background:rgba(255,255,255,.96);backdrop-filter:blur(6px);box-shadow:0 20px 50px rgba(20,40,20,.35);">
+  <img src="{{ logo_url }}" alt="FBE" style="height:54px;margin:.4rem 0 1.1rem;">
   <h1 style="text-align:left;">Anmelden</h1>
   {% if show_local and not login_possible %}
     <div class="flash err">Noch kein Benutzer. <code>ADMIN_PASSWORD</code> in
@@ -278,6 +298,48 @@ _LOGIN = """
   {% elif ms_enabled %}
     <p style="margin-top:1.3rem;"><a href="/login?local=1" class="muted" style="font-size:.8rem;">Admin-Anmeldung</a></p>
   {% endif %}
+</div>
+{% endblock %}
+"""
+
+_HOME = """
+{% extends base %}
+{% block body %}
+<div class="card glass hero">
+  <h1 style="margin:.2rem 0 .3rem;">Hallo {{ first_name }},</h1>
+  <p class="muted" style="margin:0;">willkommen im FBE-Intranet – wähle einen Bereich.</p>
+</div>
+<div class="tiles">
+  <a class="tile" href="/">
+    <div class="ti">{{ icons.chart|safe }}</div>
+    <h3>Projektabrechnung</h3>
+    <p>Stunden, Wochenberichte, Abrechnung &amp; Export.</p></a>
+  <a class="tile" href="/meine-zeiten">
+    <div class="ti">{{ icons.history|safe }}</div>
+    <h3>Meine Zeiten</h3>
+    <p>Eigene Buchungen &amp; Tätigkeitsbeschreibungen.</p></a>
+  {% if tk_view %}
+  <a class="tile" href="/tickets">
+    <div class="ti">{{ icons.list|safe }}</div>
+    <h3>Tickets</h3>
+    <p>Anfragen erfassen, bearbeiten, verfolgen.</p></a>
+  {% endif %}
+  {% if is_billing %}
+  <a class="tile" href="/abrechnung">
+    <div class="ti">{{ icons.calendar|safe }}</div>
+    <h3>Abrechnung</h3>
+    <p>Alle Stunden filtern &amp; als Excel/CSV exportieren.</p></a>
+  {% endif %}
+  {% if role=='admin' %}
+  <a class="tile" href="/users">
+    <div class="ti">{{ icons.users|safe }}</div>
+    <h3>Benutzer</h3>
+    <p>Konten, Rollen, Rechte &amp; TimeMoto-Zuordnung.</p></a>
+  {% endif %}
+  <a class="tile" href="{{ teilnahme_url }}" target="_blank" rel="noopener">
+    <div class="ti">{{ icons.book|safe }}</div>
+    <h3>Teilnahmemanagement ↗</h3>
+    <p>Flüssigboden Akademie UG – externe Plattform.</p></a>
 </div>
 {% endblock %}
 """
@@ -1342,7 +1404,7 @@ _SETTINGS = """
 """
 
 _tpls = {n: Template(s) for n, s in {
-    "login": _LOGIN, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
+    "login": _LOGIN, "home": _HOME, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
@@ -1493,7 +1555,7 @@ async def login_form(request: Request):
         title="Login", user=None,
         flash=request.session.pop("flash", None),
         flash_class=request.session.pop("flash_class", ""),
-        ms_enabled=config.ms_enabled(),
+        ms_enabled=config.ms_enabled(), bg_image=config.LOGIN_BG_IMAGE,
         show_local=(not config.ms_enabled()
                     or bool(request.query_params.get("local"))),
         login_possible=bool(users.list_users()) or config.login_possible()))
@@ -1536,7 +1598,7 @@ async def login_submit(request: Request, username: str = Form(""),
         request.session["pending_user"] = user["username"]
         return RedirectResponse("/2fa/setup", status_code=303)
     _finalize_login(request, user)
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/start", status_code=303)
 
 
 @router.get("/auth/microsoft/login")
@@ -1567,7 +1629,18 @@ async def ms_callback(request: Request, code: str = "", state: str = "",
     user = users.upsert_oauth(info["email"], info["name"])
     _finalize_login(request, user)  # Microsoft-MFA genügt -> keine eigene 2FA
     audit.log(user["username"], "Login via Microsoft", info["email"])
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/start", status_code=303)
+
+
+@router.get("/start", response_class=HTMLResponse)
+async def home(request: Request):
+    if (r := _need_login(request)):
+        return r
+    nm = request.session.get("name") or _user(request) or ""
+    first = nm.split()[0] if nm.split() else nm
+    return HTMLResponse(_tpls["home"].render(
+        **_common(request, "home", "Start"), teilnahme_url=config.TEILNAHME_URL,
+        first_name=first))
 
 
 @router.get("/login/2fa", response_class=HTMLResponse)
@@ -1588,7 +1661,7 @@ async def twofa_verify(request: Request, code: str = Form("")):
         return RedirectResponse("/login", status_code=303)
     if pyotp.TOTP(u["totp_secret"]).verify(code.strip().replace(" ", ""), valid_window=1):
         _finalize_login(request, u)
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/start", status_code=303)
     request.session["flash"], request.session["flash_class"] = \
         "Code ungültig. Bitte erneut versuchen.", "err"
     return RedirectResponse("/login/2fa", status_code=303)
@@ -1632,7 +1705,7 @@ async def twofa_setup_save(request: Request, code: str = Form("")):
     if request.session.get("pending_user"):
         _finalize_login(request, u)
         request.session["flash"] = "2FA aktiviert. Willkommen!"
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/start", status_code=303)
     request.session.pop("enroll_secret", None)
     request.session["flash"] = "2FA neu eingerichtet."
     return RedirectResponse("/account", status_code=303)
@@ -2790,4 +2863,4 @@ async def invite_submit(request: Request, token: str, new1: str = Form(""),
     users.set_password(u["username"], new1)
     _finalize_login(request, users.get(u["username"]) or u)
     request.session["flash"] = "Konto aktiviert. Willkommen!"
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/start", status_code=303)

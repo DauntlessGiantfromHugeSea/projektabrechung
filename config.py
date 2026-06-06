@@ -24,6 +24,15 @@ EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", LOGO_URL_DARK)
 BRAND_COLOR = os.getenv("BRAND_COLOR", "#92c57a")
 BRAND_COLOR_DARK = os.getenv("BRAND_COLOR_DARK", "#6fa84f")
 
+# Externer Link zum Teilnahmemanagement der Flüssigboden Akademie.
+TEILNAHME_URL = os.getenv(
+    "TEILNAHME_URL", "https://teilnahme.fb-akademie.de/dashboard")
+# Hintergrundbild der Login-Maske.
+LOGIN_BG_IMAGE = os.getenv(
+    "LOGIN_BG_IMAGE",
+    "https://fb-eng.de/wp-content/uploads/2026/02/"
+    "21_EVorbereitung-zum-Einheben-Leitung-in-Fluessigboden-Geoponton-scaled.jpg")
+
 # Fester Kontakt-Hinweis am Ende jeder Mail.
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "info@fb-eng.de")
 CONTACT_FOOTER = os.getenv(
