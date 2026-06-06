@@ -54,36 +54,51 @@ _BASE = """
     background-attachment:fixed;}
   a{color:var(--link);text-decoration:none}
   a:hover{text-decoration:underline}
+  svg{width:18px;height:18px;flex:0 0 auto;vertical-align:-3px}
   .glass,.card{background:var(--card);border:1px solid var(--line);
     border-radius:var(--radius);box-shadow:var(--shadow);}
-  header{position:sticky;top:0;z-index:30;padding:.5rem 1.3rem;
-    display:flex;align-items:center;justify-content:space-between;
-    flex-wrap:wrap;gap:.6rem;background:rgba(255,255,255,.88);
+  header{position:sticky;top:0;z-index:30;padding:.5rem 1.4rem;
+    display:flex;align-items:center;justify-content:flex-start;
+    flex-wrap:wrap;gap:.5rem;background:rgba(255,255,255,.9);
     backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
     border-bottom:1px solid var(--line);}
   header .brand{display:flex;align-items:center;gap:.6rem;font-weight:800;
     letter-spacing:.2px;color:var(--fg)}
-  header .brand img{height:28px;display:block}
-  nav{display:flex;align-items:center;gap:.15rem;flex-wrap:wrap}
-  nav a,.menu>summary{display:inline-flex;align-items:center;gap:.4rem;
-    color:var(--muted);font-size:.9rem;font-weight:600;padding:.45rem .7rem;
-    border-radius:11px;cursor:pointer;white-space:nowrap}
-  nav a:hover,.menu>summary:hover{background:#eef4e9;color:var(--brand-d);text-decoration:none}
-  nav a.active{background:rgba(146,197,122,.2);color:var(--brand-d)}
-  nav svg,.menu svg{width:17px;height:17px;flex:0 0 auto}
+  header .brand img{height:30px;display:block}
+  nav{display:flex;align-items:center;gap:.2rem;flex-wrap:wrap;margin-left:.7rem}
+  .navpill{color:var(--muted);font-size:.93rem;font-weight:600;padding:.5rem .95rem;
+    border-radius:999px;white-space:nowrap}
+  .navpill:hover{background:#eef4e9;color:var(--brand-d);text-decoration:none}
+  .navpill.active{background:rgba(146,197,122,.25);color:#2f6b1f}
+  .topright{display:flex;align-items:center;gap:.3rem;margin-left:auto}
+  .iconbtn{width:38px;height:38px;border-radius:50%;display:inline-flex;
+    align-items:center;justify-content:center;color:var(--muted)}
+  .iconbtn:hover{background:#eef4e9;color:var(--brand-d);text-decoration:none}
+  .iconbtn svg{width:20px;height:20px}
   .menu{position:relative}
-  .menu>summary{list-style:none}
+  .menu>summary{list-style:none;display:inline-flex;align-items:center;gap:.55rem;
+    cursor:pointer;padding:.3rem .45rem;border-radius:999px;color:var(--fg);
+    font-weight:700;font-size:.92rem}
+  .menu>summary:hover{background:#eef4e9}
   .menu>summary::-webkit-details-marker{display:none}
-  .menu .panel{position:absolute;right:0;top:118%;min-width:190px;background:#fff;
-    border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
-    padding:.35rem;display:none;z-index:40}
+  .menu .panel{position:absolute;right:0;top:122%;min-width:240px;background:#fff;
+    border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
+    padding:.4rem;display:none;z-index:40}
   .menu[open] .panel{display:block}
-  .menu .panel a{display:flex;align-items:center;gap:.55rem;padding:.55rem .6rem;
-    border-radius:10px;color:var(--fg);font-weight:600;margin:0}
+  .menu .panel a{display:flex;align-items:center;gap:.65rem;padding:.6rem .7rem;
+    border-radius:11px;color:var(--fg);font-weight:600;margin:0;font-size:.92rem}
   .menu .panel a:hover{background:#eef4e9;text-decoration:none}
-  .avatar{width:26px;height:26px;border-radius:50%;color:#123018;font-size:.8rem;
-    background:linear-gradient(135deg,var(--brand),var(--brand-d));
-    display:inline-flex;align-items:center;justify-content:center;font-weight:800}
+  .menu .panel a.danger{color:var(--danger)}
+  .menu .panel a.danger:hover{background:#fdecec}
+  .menu .panel svg{width:17px;height:17px;color:var(--muted);flex:0 0 auto}
+  .phead{padding:.55rem .7rem .25rem}
+  .phead .muted{font-size:.82rem}
+  .plabel{font-size:.72rem;letter-spacing:.7px;text-transform:uppercase;
+    color:#94a3b8;padding:.65rem .7rem .25rem;font-weight:800}
+  .pdiv{border-top:1px solid var(--line);margin:.35rem 0}
+  .avatar{width:30px;height:30px;border-radius:50%;color:#fff;font-size:.78rem;
+    background:var(--brand-d);display:inline-flex;align-items:center;
+    justify-content:center;font-weight:800}
   main{max-width:960px;margin:1.6rem auto;padding:0 1.2rem}
   .card{padding:1.3rem 1.4rem;margin-bottom:1.3rem}
   h1{font-size:1.4rem;margin:.1rem 0 1rem}
@@ -140,19 +155,31 @@ _BASE = """
 <header>
   <a class="brand" href="/"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></a>
   <nav>
-    <a href="/" class="{{ 'active' if page=='dash' }}">{{ icons.chart|safe }}<span>Bericht</span></a>
-    <a href="/log" class="{{ 'active' if page=='log' }}">{{ icons.list|safe }}<span>Log</span></a>
+    <a href="/" class="navpill {{ 'active' if page=='dash' }}">Bericht</a>
+    <a href="/log" class="navpill {{ 'active' if page=='log' }}">Log</a>
     {% if role=='admin' %}
-    <a href="/reports" class="{{ 'active' if page=='reports' }}">{{ icons.calendar|safe }}<span>Berichte</span></a>
-    <a href="/versand" class="{{ 'active' if page=='send' }}">{{ icons.mail|safe }}<span>Senden</span></a>
-    <a href="/users" class="{{ 'active' if page=='users' }}">{{ icons.users|safe }}<span>Benutzer</span></a>
-    <a href="/audit" class="{{ 'active' if page=='audit' }}">{{ icons.history|safe }}<span>Änderungen</span></a>
+    <a href="/versand" class="navpill {{ 'active' if page=='send' }}">Senden</a>
+    <a href="/reports" class="navpill {{ 'active' if page=='reports' }}">Berichte</a>
     {% endif %}
-    <details class="menu"><summary>{{ icons.help|safe }}<span>Doku</span></summary>
-      <div class="panel"><a href="/anleitung">{{ icons.book|safe }}Anleitung</a></div></details>
-    <details class="menu"><summary><span class="avatar">{{ (display_name or user)[:1]|upper }}</span><span>{{ display_name or user }}</span></summary>
-      <div class="panel"><a href="/account">{{ icons.gear|safe }}Konto</a><a href="/logout">{{ icons.logout|safe }}Abmelden</a></div></details>
   </nav>
+  <div class="topright">
+    <a class="iconbtn" href="/anleitung" title="Hilfe &amp; Anleitung">{{ icons.help|safe }}</a>
+    <details class="menu">
+      <summary><span>{{ display_name or user }}</span><span class="avatar">{{ initials }}</span></summary>
+      <div class="panel">
+        <div class="phead"><b>{{ display_name or user }}</b><div class="muted">{{ role_label }}</div></div>
+        <a href="/account">{{ icons.gear|safe }} Mein Konto</a>
+        <a href="/anleitung">{{ icons.book|safe }} Hilfe &amp; Anleitung</a>
+        {% if role=='admin' %}
+        <div class="plabel">Administration</div>
+        <a href="/users">{{ icons.users|safe }} Benutzer</a>
+        <a href="/audit">{{ icons.history|safe }} Änderungen</a>
+        {% endif %}
+        <div class="pdiv"></div>
+        <a href="/logout" class="danger">{{ icons.logout|safe }} Abmelden</a>
+      </div>
+    </details>
+  </div>
 </header>
 {% endif %}
 <main>
@@ -706,8 +733,12 @@ def _role(request: Request) -> str:
 
 
 def _common(request: Request, page: str, title: str):
-    return dict(user=_user(request), role=_role(request), page=page,
-                title=title, display_name=request.session.get("name"),
+    nm = request.session.get("name") or _user(request) or "?"
+    initials = "".join(w[0] for w in nm.split()[:2]).upper() or nm[:1].upper()
+    role = _role(request)
+    return dict(user=_user(request), role=role, page=page, title=title,
+                display_name=request.session.get("name"), initials=initials,
+                role_label=("Administrator" if role == "admin" else "Benutzer"),
                 flash=request.session.pop("flash", None),
                 flash_class=request.session.pop("flash_class", ""))
 
@@ -1076,7 +1107,8 @@ async def versand_form(request: Request):
     if (r := _need_admin(request)):
         return r
     s, e = previous_week_range()
-    f = {"name": "", "projects": "", "recipients": "",
+    f = {"name": "", "projects": "",
+         "recipients": ", ".join(config.REPORT_RECIPIENTS),
          "start": s.date().isoformat(), "end": (e.date()).isoformat()}
     return HTMLResponse(_tpls["send"].render(
         **_common(request, "send", "Senden"), f=f,
