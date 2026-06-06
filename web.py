@@ -174,6 +174,7 @@ _BASE = """
 <header>
   <a class="brand" href="/"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></a>
   <nav>
+    <a href="/meine-zeiten" class="navpill {{ 'active' if page=='meine' }}">Meine Zeiten</a>
     <a href="/" class="navpill {{ 'active' if page=='dash' }}">Bericht</a>
     <a href="/log" class="navpill {{ 'active' if page=='log' }}">Log</a>
     {% if is_billing %}<a href="/abrechnung" class="navpill {{ 'active' if page=='abrechnung' }}">Abrechnung</a>{% endif %}
@@ -768,6 +769,39 @@ ICONS = {
 }
 
 _base_tpl = Template(_BASE)
+_MEINE = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <h1>Meine Zeiten</h1>
+  {% if not tm %}
+    <p class="muted">Deinem Konto ist noch kein <b>TimeMoto-Name</b> zugeordnet.
+      Bitte wende dich an einen Administrator, damit deine Buchungen hier
+      erscheinen.</p>
+  {% else %}
+    <p class="muted">Buchungen der letzten {{ days }} Tage für <b>{{ tm }}</b>.
+      Bitte trage je Eintrag eine Tätigkeitsbeschreibung ein (1–2 Sätze).</p>
+    {% if sessions %}
+    <table>
+      <thead><tr><th>Datum</th><th>Projekt</th><th>Kommt</th><th>Geht</th>
+        <th class="num">Dauer</th><th>Tätigkeitsbeschreibung</th></tr></thead>
+      <tbody>
+      {% for s in sessions %}
+        <tr><td>{{ s.date }}</td><td>{{ s.project }}</td><td>{{ s.start }}</td>
+          <td>{{ s.end }}</td><td class="num">{{ s.dur }}</td>
+          <td><form method="post" action="/meine-zeiten/describe" style="display:flex;gap:.3rem;align-items:center">
+            <input type="hidden" name="iid" value="{{ s.id }}">
+            <input name="description" value="{{ s.description }}" placeholder="Was wurde gemacht?" style="min-width:240px">
+            <button type="submit" title="Speichern">✓</button></form></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p>Keine Buchungen in den letzten {{ days }} Tagen.</p>{% endif %}
+  {% endif %}
+</div>
+{% endblock %}
+"""
+
 _ABRECHNUNG = """
 {% extends base %}
 {% block body %}
@@ -828,7 +862,7 @@ _tpls = {n: Template(s) for n, s in {
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
-    "abrechnung": _ABRECHNUNG,
+    "abrechnung": _ABRECHNUNG, "meine": _MEINE,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
@@ -1391,6 +1425,39 @@ async def settings_save(request: Request, timezone: str = Form("")):
         request.session["flash"], request.session["flash_class"] = \
             "Ungültige Zeitzone.", "err"
     return RedirectResponse("/einstellungen", status_code=303)
+
+
+@router.get("/meine-zeiten", response_class=HTMLResponse)
+async def meine_zeiten(request: Request):
+    if (r := _need_login(request)):
+        return r
+    u = users.get(_user(request)) or {}
+    tm = (u.get("timemoto_name") or "").strip()
+    days = 30
+    sessions = []
+    if tm:
+        from datetime import timedelta
+        start = datetime.now(config.TIMEZONE) - timedelta(days=days)
+        ivs = filter_intervals(start, None, employee=tm)
+        sessions = [_session_view(iv) for iv in ivs]
+    return HTMLResponse(_tpls["meine"].render(
+        **_common(request, "meine", "Meine Zeiten"), tm=tm, sessions=sessions,
+        days=days))
+
+
+@router.post("/meine-zeiten/describe")
+async def meine_describe(request: Request, iid: str = Form(""),
+                         description: str = Form("")):
+    if (r := _need_login(request)):
+        return r
+    u = users.get(_user(request)) or {}
+    tm = (u.get("timemoto_name") or "").strip().lower()
+    iv = _find_interval(iid)
+    if not tm or not iv or (iv.employee or "").lower() != tm:
+        return HTMLResponse("Kein Zugriff auf diese Buchung.", status_code=403)
+    activities.set_description(iid, description, _user(request))
+    audit.log(_user(request), "Tätigkeit (eigene)", f"{iid}: {description[:80]}")
+    return RedirectResponse("/meine-zeiten", status_code=303)
 
 
 @router.get("/abrechnung", response_class=HTMLResponse)

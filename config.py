@@ -133,6 +133,11 @@ AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "/data/audit.json"))
 # Taetigkeitsbeschreibungen je Buchung.
 ACTIVITIES_FILE = Path(os.getenv("ACTIVITIES_FILE", "/data/activities.json"))
 
+# Erinnerung an fehlende Taetigkeitsbeschreibung: ab X Stunden nach Buchung,
+# aber nur bis Y Tage zurueck (verhindert Massen-Mails fuer Altbestand).
+REMINDER_AFTER_HOURS = int(os.getenv("REMINDER_AFTER_HOURS", "24"))
+REMINDER_MAX_AGE_DAYS = int(os.getenv("REMINDER_MAX_AGE_DAYS", "7"))
+
 # Download-Links fuer Mails (Anhaenge ersetzen). Tokenisiert -> liefern nur
 # genau die eine Datei, keine anderen Seiten.
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/data/downloads"))
