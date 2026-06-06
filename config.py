@@ -24,6 +24,13 @@ EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", LOGO_URL_WHITE)
 BRAND_COLOR = os.getenv("BRAND_COLOR", "#92c57a")
 BRAND_COLOR_DARK = os.getenv("BRAND_COLOR_DARK", "#6fa84f")
 
+# Fester Kontakt-Hinweis am Ende jeder Mail.
+CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "info@fb-eng.de")
+CONTACT_FOOTER = os.getenv(
+    "CONTACT_FOOTER",
+    "Bei Fragen wenden Sie sich bitte an den Projektverantwortlichen oder an "
+    f"{CONTACT_EMAIL}.")
+
 
 def _bool(name: str, default: bool) -> bool:
     val = os.getenv(name)

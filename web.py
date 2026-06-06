@@ -414,6 +414,8 @@ _SEND = """
       {% for p in all_projects %}<span class="chip click" onclick="addP(this.innerText)">{{ p }}</span>{% endfor %}</div>{% endif %}
     <label>Empfänger (Mailadressen, Komma/Zeile)</label>
     <textarea name="recipients">{{ f.recipients }}</textarea>
+    <label>Nachricht in der Mail (optional, erscheint über der Tabelle)</label>
+    <textarea name="message" placeholder="z. B. Anbei die Projektzeiten der letzten Woche.">{{ f.message }}</textarea>
     <div class="row">
       <div style="flex:0 0 180px;"><label>Von</label><input type="date" name="start" value="{{ f.start }}"></div>
       <div style="flex:0 0 180px;"><label>Bis</label><input type="date" name="end" value="{{ f.end }}"></div>
@@ -660,6 +662,9 @@ _REPORT_FORM = """
 
     <label>Empfänger (Mailadressen, Komma- oder zeilengetrennt)</label>
     <textarea name="recipients" placeholder="chef@rss-fb.com, buchhaltung@rss-fb.com">{{ recipients_text }}</textarea>
+
+    <label>Nachricht in der Mail (optional, erscheint über der Tabelle)</label>
+    <textarea name="message" placeholder="z. B. Anbei die Projektzeiten der letzten Woche.">{{ r.message }}</textarea>
 
     <div class="row">
       <div><label>Wochentag</label>
@@ -1151,7 +1156,7 @@ async def versand_form(request: Request):
     if (r := _need_admin(request)):
         return r
     s, e = previous_week_range()
-    f = {"name": "", "projects": "",
+    f = {"name": "", "projects": "", "message": "",
          "recipients": ", ".join(config.REPORT_RECIPIENTS),
          "start": s.date().isoformat(), "end": (e.date()).isoformat()}
     return HTMLResponse(_tpls["send"].render(
@@ -1162,7 +1167,8 @@ async def versand_form(request: Request):
 @router.post("/versand")
 async def versand_send(request: Request, name: str = Form(""),
                        projects: str = Form(""), recipients: str = Form(""),
-                       start: str = Form(""), end: str = Form("")):
+                       message: str = Form(""), start: str = Form(""),
+                       end: str = Form("")):
     if (r := _need_admin(request)):
         return r
     plist = [x.strip() for x in projects.replace("\n", ",").split(",") if x.strip()]
@@ -1193,7 +1199,8 @@ async def versand_send(request: Request, name: str = Form(""),
     fname = f"{(name or 'bericht')}_{s:%Y%m%d}.xlsx".replace(" ", "_")
     result = mailer.send_report(subj, text, html, rlist, xlsx, fname,
                                 base_url=str(request.base_url),
-                                label=name or "Versand", actor=_user(request))
+                                label=name or "Versand", actor=_user(request),
+                                message=message)
     request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
     return RedirectResponse("/versand", status_code=303)
 
@@ -1336,8 +1343,9 @@ async def reports_page(request: Request):
 async def reports_new(request: Request):
     if (r := _need_admin(request)):
         return r
-    blank = {"id": "", "name": "", "projects": [], "recipients": [],
-             "day_of_week": "mon", "hour": 7, "minute": 0, "enabled": True}
+    blank = {"id": "", "name": "", "message": "", "projects": [],
+             "recipients": [], "day_of_week": "mon", "hour": 7, "minute": 0,
+             "enabled": True}
     return HTMLResponse(_tpls["report_form"].render(
         **_common(request, "reports", "Neuer Bericht"),
         r=blank, action="/reports/new", days=_DAYS, all_projects=_all_projects(),
@@ -1347,14 +1355,15 @@ async def reports_new(request: Request):
 @router.post("/reports/new")
 async def reports_create(request: Request, name: str = Form(""),
                          projects: str = Form(""), recipients: str = Form(""),
-                         day_of_week: str = Form("mon"), hour: str = Form("7"),
-                         minute: str = Form("0"), enabled: str = Form("")):
+                         message: str = Form(""), day_of_week: str = Form("mon"),
+                         hour: str = Form("7"), minute: str = Form("0"),
+                         enabled: str = Form("")):
     if (r := _need_admin(request)):
         return r
     settings.add_report({"name": name, "projects": projects,
-                         "recipients": recipients, "day_of_week": day_of_week,
-                         "hour": hour, "minute": minute,
-                         "enabled": bool(enabled)})
+                         "recipients": recipients, "message": message,
+                         "day_of_week": day_of_week, "hour": hour,
+                         "minute": minute, "enabled": bool(enabled)})
     scheduler.reschedule()
     request.session["flash"] = "Bericht angelegt."
     return RedirectResponse("/reports", status_code=303)
@@ -1378,12 +1387,13 @@ async def reports_edit(request: Request, rid: str):
 @router.post("/reports/{rid}/edit")
 async def reports_update(request: Request, rid: str, name: str = Form(""),
                          projects: str = Form(""), recipients: str = Form(""),
-                         day_of_week: str = Form("mon"), hour: str = Form("7"),
-                         minute: str = Form("0"), enabled: str = Form("")):
+                         message: str = Form(""), day_of_week: str = Form("mon"),
+                         hour: str = Form("7"), minute: str = Form("0"),
+                         enabled: str = Form("")):
     if (r := _need_admin(request)):
         return r
     settings.update_report(rid, {"name": name, "projects": projects,
-                                "recipients": recipients,
+                                "recipients": recipients, "message": message,
                                 "day_of_week": day_of_week, "hour": hour,
                                 "minute": minute, "enabled": bool(enabled)})
     scheduler.reschedule()
@@ -1416,7 +1426,8 @@ async def reports_send(request: Request, rid: str):
     result = mailer.send_report(subject_grouped(rep), render_grouped_text(rep),
                                 render_grouped_html(rep), cfg["recipients"],
                                 xlsx, fname, base_url=str(request.base_url),
-                                label=cfg["name"], actor=_user(request))
+                                label=cfg["name"], actor=_user(request),
+                                message=cfg.get("message", ""))
     request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
     return RedirectResponse("/reports", status_code=303)
 

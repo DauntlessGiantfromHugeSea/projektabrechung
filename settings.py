@@ -71,6 +71,7 @@ def _normalize(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": cfg.get("id") or secrets.token_hex(8),
         "name": (cfg.get("name") or "Bericht").strip(),
+        "message": (cfg.get("message") or "").strip(),
         "projects": _clean_list(cfg.get("projects")),
         "recipients": _clean_list(cfg.get("recipients")),
         "day_of_week": dow,

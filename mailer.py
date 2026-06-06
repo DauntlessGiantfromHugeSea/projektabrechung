@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from email.message import EmailMessage
+from html import escape
 
 import audit
 import config
@@ -42,10 +43,31 @@ def _download_block_html(url: str) -> str:
         'Der Link führt direkt zum Download dieser Datei.</div>')
 
 
-def _brand_html(inner: str, download_url: str = "") -> str:
+def _intro_html(message: str) -> str:
+    if not message.strip():
+        return ""
+    safe = escape(message.strip()).replace("\n", "<br>")
+    return (f'<div style="font-size:15px;line-height:1.55;margin:0 0 18px;'
+            f'color:#1e293b">{safe}</div>')
+
+
+def _contact_html() -> str:
+    mail = config.CONTACT_EMAIL
+    text = escape(config.CONTACT_FOOTER)
+    if mail and mail in config.CONTACT_FOOTER:
+        text = text.replace(escape(mail),
+                            f'<a href="mailto:{mail}" '
+                            f'style="color:{config.BRAND_COLOR_DARK}">{mail}</a>')
+    return (f'<div style="margin-top:24px;padding-top:16px;'
+            'border-top:1px solid #e6eaef;color:#64748b;font-size:13px;'
+            f'line-height:1.55">{text}</div>')
+
+
+def _brand_html(inner: str, download_url: str = "", message: str = "") -> str:
     """Report-HTML in ein gebrandetes Mail-Layout huellen (weisses Logo auf
     gruenem Header, runde Karte). Inline-Styles fuer Mail-Client-Kompatibilitaet."""
-    inner = inner + _download_block_html(download_url)
+    inner = (_intro_html(message) + inner + _download_block_html(download_url)
+             + _contact_html())
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -98,17 +120,21 @@ def _log_send(actor: str, subject_line: str, result: dict) -> None:
 
 
 def send(subject_line: str, text: str, html: str, recipients: list[str],
-         label: str = "", download_url: str = "", actor: str = "System") -> dict:
+         label: str = "", download_url: str = "", actor: str = "System",
+         message: str = "") -> dict:
     """Bericht an konkrete Empfaenger zustellen (Datei + ggf. Mail).
 
     Wird IMMER als Datei gespeichert. Gemailt wird nur, wenn ein SMTP-Server
     konfiguriert UND mindestens ein Empfaenger angegeben ist. Ein optionaler
     download_url wird als Button/Link in die Mail eingebettet (statt Anhang).
     """
+    if message.strip():
+        text = f"{message.strip()}\n\n{text}"
     if download_url:
         text = f"{text}\nDownload (Excel): {download_url}\n"
+    text = f"{text}\n{config.CONTACT_FOOTER}\n"
     saved_path = _save_to_disk(label or subject_line, text, html)
-    branded = _brand_html(html, download_url)
+    branded = _brand_html(html, download_url, message)
     print("=" * 70, flush=True)
     print(f"[report] {subject_line}", flush=True)
     print(f"[report] gespeichert unter: {saved_path}", flush=True)
@@ -193,7 +219,7 @@ def _login_and_send(server: smtplib.SMTP, msg: EmailMessage) -> None:
 
 def send_report(subject_line: str, text: str, html: str, recipients: list[str],
                 xlsx_bytes: bytes | None, filename: str, base_url: str = "",
-                label: str = "", actor: str = "System") -> dict:
+                label: str = "", actor: str = "System", message: str = "") -> dict:
     """Wie send(), legt aber zusaetzlich die Excel-Datei als tokenisierten
     Download ab und haengt den Link (statt Anhang) in die Mail."""
     url = ""
@@ -201,7 +227,7 @@ def send_report(subject_line: str, text: str, html: str, recipients: list[str],
         token = downloads.register(xlsx_bytes, filename, _XLSX_MIME)
         url = downloads.link(base_url, token)
     return send(subject_line, text, html, recipients, label=label,
-                download_url=url, actor=actor)
+                download_url=url, actor=actor, message=message)
 
 
 def deliver(rep: Report) -> dict:
