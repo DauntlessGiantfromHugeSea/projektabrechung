@@ -1,0 +1,44 @@
+services:
+  timemoto-abrechnung:
+    build: .
+    container_name: timemoto-projektabrechnung
+    restart: unless-stopped
+    ports:
+      # Host:Container -- hinter deinem Reverse-Proxy ggf. nur intern binden:
+      # "127.0.0.1:8080:8080"
+      - "8080:8080"
+    environment:
+      # --- Webhook-Empfang ---
+      WEBHOOK_PATH: "/timemoto"
+      SHARED_SECRET: ""
+      LOG_FILE: "/data/events.jsonl"
+
+      # --- Bericht ---
+      # Auf welches Projekt gefiltert wird (Teilstring genuegt).
+      # Leer lassen = alle Projekte zusammen.
+      PROJECT_CODE: ""
+      # Nur setzen, wenn die Auto-Erkennung das falsche Feld waehlt:
+      # PROJECT_FIELD: "projectCode"
+      REPORT_DIR: "/data/reports"
+      REPORT_TIMEZONE: "Europe/Berlin"
+
+      # --- Wochenplan (APScheduler, Cron-Syntax) ---
+      SCHEDULER_ENABLED: "true"
+      REPORT_CRON_DAY_OF_WEEK: "mon"
+      REPORT_CRON_HOUR: "7"
+      REPORT_CRON_MINUTE: "0"
+
+      # --- E-Mail (optional; spaeter ausfuellen) ---
+      # Solange SMTP_HOST oder REPORT_RECIPIENTS leer sind, wird der Bericht
+      # NICHT gemailt, sondern nur als Datei in REPORT_DIR abgelegt + geloggt.
+      SMTP_HOST: ""
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: ""
+      SMTP_STARTTLS: "true"
+      SMTP_SSL: "false"
+      REPORT_RECIPIENTS: ""          # z. B. "chef@firma.de,buchhaltung@firma.de"
+      REPORT_SUBJECT_PREFIX: "Projektzeiten"
+    volumes:
+      - ./data:/data
