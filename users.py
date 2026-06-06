@@ -96,6 +96,8 @@ def bootstrap_admin() -> None:
             "invite_token": None,
             "totp_secret": None,
             "twofa_enabled": False,
+            "can_view_tickets": True,
+            "can_edit_tickets": True,
             "created_at": _now(),
         }
         _save(users)
@@ -137,7 +139,9 @@ def set_password(username: str, new_password: str) -> bool:
 
 
 def create_invite(username: str, role: str = "user", name: str = "",
-                  email: str = "", timemoto_name: str = "") -> str | None:
+                  email: str = "", timemoto_name: str = "",
+                  can_view_tickets: bool = False,
+                  can_edit_tickets: bool = False) -> str | None:
     """Neuen Nutzer als 'invited' anlegen, Einladungs-Token zurueckgeben.
     None, wenn der Name schon existiert."""
     username = username.strip()
@@ -156,6 +160,8 @@ def create_invite(username: str, role: str = "user", name: str = "",
             "password": None,
             "status": "invited",
             "invite_token": token,
+            "can_view_tickets": bool(can_view_tickets),
+            "can_edit_tickets": bool(can_edit_tickets),
             "created_at": _now(),
         }
         _save(users)
@@ -173,8 +179,9 @@ def set_name(username: str, name: str) -> bool:
 
 
 def set_profile(username: str, name: str, email: str, timemoto_name: str,
-                role: str | None = None) -> bool:
-    """Vom Admin pflegbare Stammdaten setzen (inkl. Rolle)."""
+                role: str | None = None, can_view_tickets: bool | None = None,
+                can_edit_tickets: bool | None = None) -> bool:
+    """Vom Admin pflegbare Stammdaten setzen (inkl. Rolle + Ticket-Rechte)."""
     with _LOCK:
         users = _load()
         if username not in users:
@@ -183,6 +190,10 @@ def set_profile(username: str, name: str, email: str, timemoto_name: str,
         u["name"] = (name or username).strip()
         u["email"] = email.strip()
         u["timemoto_name"] = timemoto_name.strip()
+        if can_view_tickets is not None:
+            u["can_view_tickets"] = bool(can_view_tickets)
+        if can_edit_tickets is not None:
+            u["can_edit_tickets"] = bool(can_edit_tickets)
         if role in ("admin", "user", "buchhaltung"):
             # Letzten AKTIVEN Admin nicht herabstufen
             is_last_active_admin = (u.get("role") == "admin"

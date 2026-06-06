@@ -132,6 +132,10 @@ SETTINGS_FILE = Path(os.getenv("SETTINGS_FILE", "/data/settings.json"))
 
 # Manuelle Eintraege/Korrekturen (zusaetzliche Buchungen + ausgeblendete).
 MANUAL_FILE = Path(os.getenv("MANUAL_FILE", "/data/manual.json"))
+
+# Ticketsystem
+TICKETS_FILE = Path(os.getenv("TICKETS_FILE", "/data/tickets.json"))
+TICKET_FILES_DIR = Path(os.getenv("TICKET_FILES_DIR", "/data/ticket_files"))
 # Aenderungsprotokoll (Audit-Log): wer hat wann was geaendert.
 AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "/data/audit.json"))
 

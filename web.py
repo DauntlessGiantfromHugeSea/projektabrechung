@@ -27,6 +27,7 @@ import mailer
 import manual
 import scheduler
 import settings
+import tickets
 import users
 import xlsxout
 from events import delete_interval, load_records, normalize, pair_intervals
@@ -89,6 +90,9 @@ _BASE = """
     font-weight:700;font-size:.92rem}
   .menu>summary:hover{background:#eef4e9}
   .menu>summary::-webkit-details-marker{display:none}
+  .menu.tab>summary{font-weight:700;color:var(--muted)}
+  .menu.tab>summary.active{color:var(--brand-d);background:rgba(146,197,122,.22)}
+  .menu.tab .panel{left:0;right:auto;min-width:210px}
   .menu .panel{position:absolute;right:0;top:122%;min-width:240px;background:#fff;
     border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
     padding:.4rem;display:none;z-index:40}
@@ -145,6 +149,14 @@ _BASE = """
   .no{background:rgba(192,57,43,.18);color:#922}
   .role{background:rgba(99,102,241,.18);color:#3730a3}
   .inv{background:rgba(234,179,8,.22);color:#854d0e}
+  .pill.s-open{background:#fef9c3;color:#854d0e}
+  .pill.s-in_progress{background:#dbeafe;color:#1e40af}
+  .pill.s-resolved{background:#dcfce7;color:#166534}
+  .pill.s-closed{background:#e5e7eb;color:#374151}
+  .pill.p-low{background:#e5e7eb;color:#374151}
+  .pill.p-medium{background:#dbeafe;color:#1e40af}
+  .pill.p-high{background:#ffedd5;color:#9a3412}
+  .pill.p-critical{background:#fee2e2;color:#991b1b}
   .muted{color:var(--muted);font-size:.9rem}
   .chip{display:inline-block;background:rgba(146,197,122,.25);
     border:1px solid rgba(111,168,79,.35);border-radius:999px;
@@ -180,13 +192,26 @@ _BASE = """
 <header>
   <a class="brand" href="/"><img src="{{ logo_url }}" alt="FBE"><span>Projektabrechnung</span></a>
   <nav>
-    <a href="/meine-zeiten" class="navpill {{ 'active' if page=='meine' }}">Meine Zeiten</a>
-    <a href="/" class="navpill {{ 'active' if page=='dash' }}">Bericht</a>
-    <a href="/log" class="navpill {{ 'active' if page=='log' }}">Log</a>
-    {% if is_billing %}<a href="/abrechnung" class="navpill {{ 'active' if page=='abrechnung' }}">Abrechnung</a>{% endif %}
-    {% if role=='admin' %}
-    <a href="/versand" class="navpill {{ 'active' if page=='send' }}">Senden</a>
-    <a href="/reports" class="navpill {{ 'active' if page=='reports' }}">Berichte</a>
+    {% set pa_pages = ['dash','log','meine','abrechnung','send','reports'] %}
+    <details class="menu tab">
+      <summary class="navpill {{ 'active' if page in pa_pages }}">Projektabrechnung ▾</summary>
+      <div class="panel">
+        <a href="/meine-zeiten">{{ icons.chart|safe }} Meine Zeiten</a>
+        <a href="/">{{ icons.chart|safe }} Bericht</a>
+        <a href="/log">{{ icons.list|safe }} Log</a>
+        {% if is_billing %}<a href="/abrechnung">{{ icons.list|safe }} Abrechnung</a>{% endif %}
+        {% if role=='admin' %}<a href="/versand">{{ icons.mail|safe }} Senden</a>
+        <a href="/reports">{{ icons.calendar|safe }} Berichte</a>{% endif %}
+      </div>
+    </details>
+    {% if tk_view %}
+    <details class="menu tab">
+      <summary class="navpill {{ 'active' if page=='tickets' }}">Tickets ▾</summary>
+      <div class="panel">
+        <a href="/tickets">{{ icons.list|safe }} Alle Tickets</a>
+        <a href="/tickets/new">{{ icons.gear|safe }} Neues Ticket</a>
+      </div>
+    </details>
     {% endif %}
   </nav>
   <div class="topright">
@@ -880,6 +905,11 @@ _USER_EDIT = """
       <option value="buchhaltung" {{ 'selected' if u.role=='buchhaltung' }}>buchhaltung</option>
       <option value="admin" {{ 'selected' if u.role=='admin' }}>admin</option>
     </select>
+    <label>Ticket-Rechte</label>
+    <div style="display:flex;gap:1.4rem;margin-top:.3rem;">
+      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_view_tickets" value="1" {{ 'checked' if u.can_view_tickets }} style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets sehen</label>
+      <label style="font-weight:600;color:var(--fg)"><input type="checkbox" name="can_edit_tickets" value="1" {{ 'checked' if u.can_edit_tickets }} style="width:auto;transform:scale(1.3);margin-right:.4rem"> Tickets bearbeiten</label>
+    </div>
     <div class="toolbar" style="margin-top:1.2rem;">
       <button type="submit">Speichern</button>
       <a class="btn ghost" href="/users">Abbrechen</a>
@@ -960,6 +990,142 @@ _ABRECHNUNG = """
 {% endblock %}
 """
 
+_TICKETS = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Tickets</h1>
+    <a class="btn" href="/tickets/new">+ Neues Ticket</a>
+  </div>
+  <form method="get" action="/tickets" style="margin-top:.7rem;">
+    <div class="row">
+      <div style="flex:0 0 190px;"><label>Status</label>
+        <select name="status" onchange="this.form.submit()">
+          <option value="">alle</option>
+          {% for k,v in statuses.items() %}<option value="{{k}}" {{ 'selected' if status==k }}>{{v}}</option>{% endfor %}
+        </select></div>
+      <div><label>Suche</label><input name="q" value="{{ q }}" placeholder="Titel / Beschreibung"></div>
+      <div style="flex:0 0 auto;"><label>&nbsp;</label><button type="submit">Filtern</button></div>
+    </div>
+  </form>
+</div>
+<div class="card glass">
+  {% if rows %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>#</th><th>Titel</th><th>Priorität</th><th>Kategorie</th>
+      <th>Status</th><th>Bearbeiter</th><th>Erstellt</th></tr></thead>
+    <tbody>{% for t in rows %}
+      <tr style="cursor:pointer" onclick="location.href='/tickets/{{ t.id }}'">
+        <td>#{{ t.id }}</td><td><b>{{ t.title }}</b></td>
+        <td><span class="pill p-{{ t.priority }}">{{ priorities[t.priority] }}</span></td>
+        <td>{{ categories[t.category] }}</td>
+        <td><span class="pill s-{{ t.status }}">{{ statuses[t.status] }}</span></td>
+        <td class="muted">{{ t.assigned_to or '–' }}</td>
+        <td class="muted">{{ t.created_disp }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% else %}<p class="muted">Keine Tickets gefunden.</p>{% endif %}
+</div>
+{% endblock %}
+"""
+
+_TICKET_NEW = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:640px;">
+  <h1>Neues Ticket</h1>
+  <form method="post" action="/tickets/new">
+    <label>Titel</label>
+    <input name="title" required autofocus>
+    <label>Beschreibung</label>
+    <textarea name="description" style="min-height:120px"></textarea>
+    <div class="row">
+      <div><label>Priorität</label>
+        <select name="priority">{% for k,v in priorities.items() %}<option value="{{k}}" {{ 'selected' if k=='medium' }}>{{v}}</option>{% endfor %}</select></div>
+      <div><label>Kategorie</label>
+        <select name="category">{% for k,v in categories.items() %}<option value="{{k}}">{{v}}</option>{% endfor %}</select></div>
+    </div>
+    <div class="toolbar" style="margin-top:1.1rem;">
+      <button type="submit">Ticket anlegen</button>
+      <a class="btn ghost" href="/tickets">Abbrechen</a></div>
+  </form>
+</div>
+{% endblock %}
+"""
+
+_TICKET = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">#{{ t.id }} · {{ t.title }}</h1>
+    <a class="btn ghost" href="/tickets">Zurück</a>
+  </div>
+  <p style="margin:.5rem 0;">
+    <span class="pill s-{{ t.status }}">{{ statuses[t.status] }}</span>
+    <span class="pill p-{{ t.priority }}">{{ priorities[t.priority] }}</span>
+    <span class="pill role">{{ categories[t.category] }}</span></p>
+  <p class="muted">Erstellt von {{ t.created_by }} · {{ t.created_disp }}
+    {% if t.assigned_to %} · Bearbeiter: <b>{{ t.assigned_to }}</b>{% endif %}</p>
+  <div style="white-space:pre-wrap;margin-top:.6rem;">{{ t.description }}</div>
+</div>
+
+{% if can_edit %}
+<div class="card glass">
+  <h2>Bearbeiten</h2>
+  <form method="post" action="/tickets/{{ t.id }}/edit">
+    <div class="row">
+      <div><label>Status</label><select name="status">{% for k,v in statuses.items() %}<option value="{{k}}" {{ 'selected' if t.status==k }}>{{v}}</option>{% endfor %}</select></div>
+      <div><label>Priorität</label><select name="priority">{% for k,v in priorities.items() %}<option value="{{k}}" {{ 'selected' if t.priority==k }}>{{v}}</option>{% endfor %}</select></div>
+      <div><label>Kategorie</label><select name="category">{% for k,v in categories.items() %}<option value="{{k}}" {{ 'selected' if t.category==k }}>{{v}}</option>{% endfor %}</select></div>
+      <div><label>Bearbeiter</label><select name="assigned_to"><option value="">–</option>{% for a in assignees %}<option value="{{a}}" {{ 'selected' if t.assigned_to==a }}>{{a}}</option>{% endfor %}</select></div>
+    </div>
+    <div style="margin-top:1rem;"><button type="submit">Speichern</button></div>
+  </form>
+</div>
+{% endif %}
+
+<div class="card glass">
+  <h2>Kommentare</h2>
+  {% for c in t.comments %}
+    <div style="border-bottom:1px solid var(--line);padding:.55rem 0;">
+      <div class="muted" style="font-size:.85rem;">{{ c.author }} · {{ c.at_disp }}</div>
+      <div style="white-space:pre-wrap;">{{ c.body }}</div></div>
+  {% else %}<p class="muted">Noch keine Kommentare.</p>{% endfor %}
+  <form method="post" action="/tickets/{{ t.id }}/comment" style="margin-top:.8rem;">
+    <textarea name="body" placeholder="Kommentar schreiben…"></textarea>
+    <div style="margin-top:.6rem;"><button type="submit">Kommentar hinzufügen</button></div>
+  </form>
+</div>
+
+{% if can_edit %}
+<div class="card glass">
+  <h2>Aufwand · Summe {{ wl_hours }} Std, {{ wl_km }} km</h2>
+  {% if t.worklogs %}<div class="tablewrap"><table>
+    <thead><tr><th>Datum</th><th>Bearbeiter</th><th class="num">Anfahrt km</th>
+      <th class="num">Stunden</th><th>Material</th><th>Tätigkeit</th><th></th></tr></thead>
+    <tbody>{% for w in t.worklogs %}<tr>
+      <td>{{ w.date }}</td><td class="muted">{{ w.performed_by }}</td>
+      <td class="num">{{ w.travel_km }}</td><td class="num">{{ w.hours }}</td>
+      <td>{{ w.material }}</td><td>{{ w.description }}</td>
+      <td><form method="post" action="/tickets/{{ t.id }}/worklog/{{ w.id }}/delete">
+        <button class="danger" onclick="return confirm('Eintrag löschen?')">löschen</button></form></td>
+    </tr>{% endfor %}</tbody></table></div>{% endif %}
+  <form method="post" action="/tickets/{{ t.id }}/worklog" style="margin-top:.8rem;">
+    <div class="row">
+      <div style="flex:0 0 160px;"><label>Datum</label><input type="date" name="date" value="{{ today }}"></div>
+      <div style="flex:0 0 130px;"><label>Anfahrt (km)</label><input name="travel_km" value="0"></div>
+      <div style="flex:0 0 130px;"><label>Stunden</label><input name="hours" value="0"></div>
+      <div><label>Material</label><input name="material" placeholder="optional"></div>
+    </div>
+    <label>Tätigkeit</label><textarea name="description"></textarea>
+    <div style="margin-top:.6rem;"><button type="submit">Aufwand erfassen</button></div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}
+"""
+
 _SETTINGS = """
 {% extends base %}
 {% block body %}
@@ -985,6 +1151,7 @@ _tpls = {n: Template(s) for n, s in {
     "abrechnung": _ABRECHNUNG, "meine": _MEINE, "user_edit": _USER_EDIT,
     "twofa_verify": _TWOFA_VERIFY, "twofa_setup": _TWOFA_SETUP,
     "reset_req": _RESET_REQ, "reset_form": _RESET_FORM,
+    "tickets": _TICKETS, "ticket_new": _TICKET_NEW, "ticket": _TICKET,
 }.items()}
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
@@ -1011,6 +1178,8 @@ def _common(request: Request, page: str, title: str):
     return dict(user=_user(request), role=role, page=page, title=title,
                 display_name=request.session.get("name"), initials=initials,
                 role_label=role_label, is_billing=(role in ("admin", "buchhaltung")),
+                tk_view=bool(request.session.get("tk_view") or role == "admin"),
+                tk_edit=bool(request.session.get("tk_edit") or role == "admin"),
                 flash=request.session.pop("flash", None),
                 flash_class=request.session.pop("flash_class", ""))
 
@@ -1047,6 +1216,21 @@ def _session_view(iv) -> dict:
 def _fmt_dur(hours: float) -> str:
     m = round(hours * 60)
     return f"{m // 60}:{m % 60:02d} h"
+
+
+def _disp(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).astimezone(
+            config.TIMEZONE).strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return iso or ""
+
+
+def _to_float(x) -> float:
+    try:
+        return float(str(x).replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _delivery_flash(result: dict) -> tuple[str, str]:
@@ -1088,6 +1272,19 @@ def _need_billing(request: Request):
     return None
 
 
+def _need_tickets(request: Request):
+    """Tickets ansehen (admin oder Recht 'Tickets sehen/bearbeiten')."""
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    if not (request.session.get("tk_view") or _role(request) == "admin"):
+        return HTMLResponse("Kein Zugriff auf Tickets.", status_code=403)
+    return None
+
+
+def _tk_edit(request: Request) -> bool:
+    return _role(request) == "admin" or bool(request.session.get("tk_edit"))
+
+
 # --- Login / Logout --------------------------------------------------------
 
 @router.get("/login", response_class=HTMLResponse)
@@ -1104,9 +1301,15 @@ async def login_form(request: Request):
 def _finalize_login(request: Request, user: dict) -> None:
     request.session.pop("pending_user", None)
     request.session.pop("enroll_secret", None)
+    role = user.get("role", "user")
     request.session["user"] = user["username"]
-    request.session["role"] = user.get("role", "user")
+    request.session["role"] = role
     request.session["name"] = user.get("name") or user["username"]
+    request.session["tk_view"] = bool(
+        role == "admin" or user.get("can_view_tickets")
+        or user.get("can_edit_tickets"))
+    request.session["tk_edit"] = bool(
+        role == "admin" or user.get("can_edit_tickets"))
 
 
 @router.post("/login")
@@ -1670,6 +1873,108 @@ _TZ_ZONES = ["Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Europe/Paris",
              "America/New_York", "Asia/Dubai"]
 
 
+# --- Tickets ---------------------------------------------------------------
+
+@router.get("/tickets", response_class=HTMLResponse)
+async def tickets_list(request: Request, status: str = "", q: str = ""):
+    if (r := _need_tickets(request)):
+        return r
+    rows = tickets.list_tickets(status=status, q=q)
+    for t in rows:
+        t["created_disp"] = _disp(t.get("created_at", ""))
+    return HTMLResponse(_tpls["tickets"].render(
+        **_common(request, "tickets", "Tickets"), rows=rows, status=status, q=q,
+        statuses=tickets.STATUSES, priorities=tickets.PRIORITIES,
+        categories=tickets.CATEGORIES))
+
+
+@router.get("/tickets/new", response_class=HTMLResponse)
+async def ticket_new_form(request: Request):
+    if (r := _need_tickets(request)):
+        return r
+    return HTMLResponse(_tpls["ticket_new"].render(
+        **_common(request, "tickets", "Neues Ticket"),
+        priorities=tickets.PRIORITIES, categories=tickets.CATEGORIES))
+
+
+@router.post("/tickets/new")
+async def ticket_new(request: Request, title: str = Form(""),
+                     description: str = Form(""), priority: str = Form("medium"),
+                     category: str = Form("other")):
+    if (r := _need_tickets(request)):
+        return r
+    t = tickets.create(title, description, priority, category, _user(request))
+    audit.log(_user(request), "Ticket erstellt", f"#{t['id']} {t['title']}")
+    return RedirectResponse(f"/tickets/{t['id']}", status_code=303)
+
+
+@router.get("/tickets/{tid:int}", response_class=HTMLResponse)
+async def ticket_detail(request: Request, tid: int):
+    if (r := _need_tickets(request)):
+        return r
+    t = tickets.get(tid)
+    if not t:
+        return RedirectResponse("/tickets", status_code=303)
+    t = dict(t)
+    t["created_disp"] = _disp(t.get("created_at", ""))
+    t["comments"] = [dict(c, at_disp=_disp(c.get("at", ""))) for c in t["comments"]]
+    wl_hours = round(sum(_to_float(w.get("hours")) for w in t["worklogs"]), 2)
+    wl_km = round(sum(_to_float(w.get("travel_km")) for w in t["worklogs"]), 1)
+    assignees = [u["username"] for u in users.list_users()
+                 if u.get("role") == "admin" or u.get("can_edit_tickets")]
+    return HTMLResponse(_tpls["ticket"].render(
+        **_common(request, "tickets", f"Ticket #{tid}"), t=t,
+        can_edit=_tk_edit(request), assignees=assignees,
+        statuses=tickets.STATUSES, priorities=tickets.PRIORITIES,
+        categories=tickets.CATEGORIES, wl_hours=wl_hours, wl_km=wl_km,
+        today=datetime.now(config.TIMEZONE).date().isoformat()))
+
+
+@router.post("/tickets/{tid:int}/edit")
+async def ticket_edit(request: Request, tid: int, status: str = Form(""),
+                      priority: str = Form(""), category: str = Form(""),
+                      assigned_to: str = Form("")):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    tickets.update_fields(tid, status=status, priority=priority,
+                          category=category, assigned_to=assigned_to)
+    audit.log(_user(request), "Ticket geändert", f"#{tid} -> {status}")
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.post("/tickets/{tid:int}/comment")
+async def ticket_comment(request: Request, tid: int, body: str = Form("")):
+    if (r := _need_tickets(request)):
+        return r
+    tickets.add_comment(tid, _user(request), body)
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.post("/tickets/{tid:int}/worklog")
+async def ticket_worklog(request: Request, tid: int, date: str = Form(""),
+                         travel_km: str = Form("0"), hours: str = Form("0"),
+                         material: str = Form(""), description: str = Form("")):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    tickets.add_worklog(tid, _user(request), date, _to_float(travel_km),
+                        _to_float(hours), material, description)
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
+@router.post("/tickets/{tid:int}/worklog/{wid}/delete")
+async def ticket_worklog_delete(request: Request, tid: int, wid: str):
+    if (r := _need_tickets(request)):
+        return r
+    if not _tk_edit(request):
+        return HTMLResponse("Keine Bearbeitungsrechte.", status_code=403)
+    tickets.delete_worklog(tid, wid)
+    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+
+
 @router.get("/einstellungen", response_class=HTMLResponse)
 async def settings_page(request: Request):
     if (r := _need_admin(request)):
@@ -1878,10 +2183,14 @@ async def users_edit_form(request: Request, username: str):
 @router.post("/users/{username}/edit")
 async def users_edit_save(request: Request, username: str, name: str = Form(""),
                           email: str = Form(""), timemoto_name: str = Form(""),
-                          role: str = Form("user")):
+                          role: str = Form("user"),
+                          can_view_tickets: str = Form(""),
+                          can_edit_tickets: str = Form("")):
     if (r := _need_admin(request)):
         return r
-    if users.set_profile(username, name, email, timemoto_name, role):
+    if users.set_profile(username, name, email, timemoto_name, role,
+                         can_view_tickets=bool(can_view_tickets),
+                         can_edit_tickets=bool(can_edit_tickets)):
         audit.log(_user(request), "Benutzer bearbeitet",
                   f"{username} (Rolle {role}, TimeMoto '{timemoto_name}')")
         request.session["flash"] = f"Benutzer {username} gespeichert."
