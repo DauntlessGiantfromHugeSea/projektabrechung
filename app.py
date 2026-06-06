@@ -42,6 +42,12 @@ from report import build_report, previous_week_range, render_text
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    for d in (config.LOG_FILE.parent, config.REPORT_DIR, config.DOWNLOAD_DIR,
+              config.TICKET_FILES_DIR):
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
     settings.apply_timezone()  # gespeicherte Zeitzone aktiv setzen
     users.bootstrap_admin()    # ersten Admin aus ADMIN_USER/PASSWORD anlegen
     scheduler.start()

@@ -57,6 +57,7 @@ def run_reminders() -> dict:
     maxage = timedelta(days=config.REMINDER_MAX_AGE_DAYS)
     sent = 0
     for iv in collect_intervals():
+      try:
         if iv.description.strip():
             continue
         age = now - iv.end.astimezone(config.TIMEZONE)
@@ -88,6 +89,8 @@ def run_reminders() -> dict:
         if res.get("mailed"):
             activities.mark_reminded(iv.id)
             sent += 1
+      except Exception as exc:  # ein fehlerhafter Eintrag darf den Job nicht stoppen
+        print(f"[reminder] Eintrag übersprungen: {exc}", flush=True)
     if sent:
         print(f"[reminder] {sent} Erinnerung(en) versendet.", flush=True)
     return {"sent": sent}

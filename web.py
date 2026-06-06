@@ -1739,7 +1739,6 @@ async def export_xlsx(request: Request, employee: str = "", project: str = "",
                       start: str = "", end: str = ""):
     if (r := _need_login(request)):
         return r
-    import openpyxl
     s = e = None
     try:
         if start:
@@ -1748,32 +1747,12 @@ async def export_xlsx(request: Request, employee: str = "", project: str = "",
             e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
     except ValueError:
         pass
-    intervals = filter_intervals(s, e, project=project, employee=employee)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Buchungen"
-    ws.append(["Datum", "Mitarbeiter", "Projekt", "Kommt", "Geht",
-               "Dauer (Std:Min)", "Stunden (dez.)", "Quelle"])
-    total = 0.0
-    for iv in intervals:
-        st = iv.start.astimezone(config.TIMEZONE)
-        en = iv.end.astimezone(config.TIMEZONE)
-        total += iv.duration_hours
-        ws.append([st.strftime("%d.%m.%Y"), iv.employee, iv.project or "",
-                   st.strftime("%H:%M"), en.strftime("%H:%M"),
-                   _fmt_dur(iv.duration_hours).replace(" h", ""),
-                   round(iv.duration_hours, 2),
-                   "manuell" if iv.source == "manual" else "TimeMoto"])
-    ws.append([])
-    ws.append(["", "", "", "", "Summe", _fmt_dur(total).replace(" h", ""),
-               round(total, 2), ""])
-    for col, width in zip("ABCDEFGH", (12, 22, 34, 8, 8, 16, 14, 10)):
-        ws.column_dimensions[col].width = width
-    buf = io.BytesIO()
-    wb.save(buf)
+    data = xlsxout.intervals_xlsx(
+        filter_intervals(s, e, project=project, employee=employee),
+        title="Buchungen")
     fname = f"buchungen_{datetime.now(config.TIMEZONE):%Y%m%d}.xlsx"
     return Response(
-        content=buf.getvalue(),
+        content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
