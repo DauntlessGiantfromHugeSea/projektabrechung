@@ -73,3 +73,66 @@ def intervals_xlsx(intervals: list[Interval], title: str = "Bericht") -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def _split_name(full: str) -> str:
+    parts = (full or "").split()
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[-1]}, {' '.join(parts[:-1])}"
+
+
+def amprion_task(project: str) -> tuple[str, str] | None:
+    """Projekt -> (Task-Nr., Label) anhand des Amprion-Mappings, sonst None."""
+    p = (project or "").lower()
+    for label, nr in config.AMPRION_MAP:
+        if label.lower() in p or nr in p:
+            return nr, label
+    return None
+
+
+def amprion_xlsx(intervals: list[Interval]) -> bytes:
+    """Amprion-'Abgabe'-Format: Datum | (leer) | Task Nr. | (leer) |
+    Name (Nachname, Vorname) | Stunden | Tätigkeitsbeschreibung.
+    Nur Buchungen auf Amprion-Projektnummern."""
+    head = Font(bold=True)
+    fill = PatternFill("solid", fgColor="EEF5E9")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Abgabe"
+    cols = ["Datum", "nicht relevant", "Task Nr.", "nicht relevant",
+            "Personen Name", "Stunden", "Taetigkeitbeschreibung"]
+    ws.append(cols)
+    for c in ws[1]:
+        c.font = head
+        c.fill = fill
+
+    rows = []
+    for iv in intervals:
+        m = amprion_task(iv.project)
+        if not m:
+            continue
+        nr, _label = m
+        st = iv.start.astimezone(config.TIMEZONE)
+        rows.append((st, nr, _split_name(iv.employee),
+                     round(max(iv.duration_hours, 0.0), 2), iv.description or ""))
+    rows.sort(key=lambda r: (r[0], r[2].lower()))
+    for st, nr, name, hours, desc in rows:
+        ws.append([st.date(), "", int(nr) if nr.isdigit() else nr, "",
+                   name, hours, desc])
+
+    # Legende (Projekt -> Nummer) rechts wie in der Grundlagendatei
+    ws.cell(1, 10, "Projekt").font = head
+    ws.cell(1, 11, "Task Nr.").font = head
+    for i, (label, nr) in enumerate(config.AMPRION_MAP, start=2):
+        ws.cell(i, 10, label)
+        ws.cell(i, 11, int(nr) if nr.isdigit() else nr)
+
+    for col, w in zip("ABCDEFG", (12, 12, 10, 12, 26, 9, 60)):
+        ws.column_dimensions[col].width = w
+    ws.column_dimensions["J"].width = 16
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

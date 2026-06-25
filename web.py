@@ -524,6 +524,7 @@ _LOG = """
       {% if role=='admin' %}<a class="btn" href="/log/edit">+ Eintrag hinzufügen</a>{% endif %}
       <a class="btn ghost" href="/export.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Excel</a>
       <a class="btn ghost" href="/export/arcadis.csv?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Arcadis-CSV</a>
+      <a class="btn ghost" href="/export/amprion.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Amprion-Excel</a>
     </div>
   </div>
   <form method="get" action="/log">
@@ -1209,6 +1210,7 @@ _ABRECHNUNG = """
     <div style="margin-top:1.2rem;" class="toolbar">
       <button type="submit" formaction="/export.xlsx">Excel herunterladen</button>
       <button type="submit" formaction="/export/arcadis.csv" class="ghost">Arcadis-CSV herunterladen</button>
+      <button type="submit" formaction="/export/amprion.xlsx" class="ghost">Amprion-Excel herunterladen</button>
     </div>
   </form>
 </div>
@@ -2137,6 +2139,28 @@ async def export_arcadis(request: Request, employee: str = "", project: str = ""
     fname = f"arcadis_stunden_{datetime.now(config.TIMEZONE):%Y%m%d}.csv"
     return Response(content=data, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@router.get("/export/amprion.xlsx")
+async def export_amprion(request: Request, employee: str = "", project: str = "",
+                         start: str = "", end: str = ""):
+    if (r := _need_login(request)):
+        return r
+    s = e = None
+    try:
+        if start:
+            s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
+        if end:
+            e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
+    except ValueError:
+        pass
+    data = xlsxout.amprion_xlsx(
+        filter_intervals(s, e, project=project, employee=employee))
+    fname = f"amprion_abgabe_{datetime.now(config.TIMEZONE):%Y%m%d}.xlsx"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.get("/download/{token}")

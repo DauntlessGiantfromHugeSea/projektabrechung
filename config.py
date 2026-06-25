@@ -77,6 +77,22 @@ PROJECT_FIELD = os.getenv("PROJECT_FIELD", "").strip()
 # Buchungen ohne Projekt nicht erfassen (werden ueberall ausgeblendet).
 REQUIRE_PROJECT = _bool("REQUIRE_PROJECT", True)
 
+# Amprion-Projektnummern (Task-Nr.) -> Zuordnung ueber Label/Nummer im
+# TimeMoto-Projektnamen. Format der Env: "Label=Nr,Label=Nr,...".
+def _amprion_map() -> list[tuple[str, str]]:
+    raw = os.getenv("AMPRION_MAP",
+                    "Übergreifend=35031,HE1=32005,HE2=32006,HE3=32007,HE4=32008")
+    out = []
+    for part in raw.split(","):
+        if "=" in part:
+            label, nr = part.split("=", 1)
+            if label.strip() and nr.strip():
+                out.append((label.strip(), nr.strip()))
+    return out
+
+
+AMPRION_MAP = _amprion_map()
+
 # Zeitzone fuer Wochengrenzen und Anzeige.
 TIMEZONE = ZoneInfo(os.getenv("REPORT_TIMEZONE", "Europe/Berlin"))
 
