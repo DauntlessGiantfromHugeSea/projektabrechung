@@ -236,6 +236,25 @@ _BASE = """
     table{font-size:.86rem;min-width:520px}
     .row>div{min-width:120px}
   }
+  /* --- Politur --- */
+  h1{letter-spacing:-.015em;font-weight:800}
+  h2{letter-spacing:-.01em}
+  .card{padding:1.5rem 1.6rem;margin-bottom:1.35rem}
+  th{font-size:.74rem;letter-spacing:.5px;padding-bottom:.6rem;
+    border-bottom:1px solid rgba(90,107,95,.16)}
+  td{vertical-align:middle;padding:.6rem .65rem}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:rgba(146,197,122,.10)}
+  tbody tr:not(:last-child) td{border-bottom:1px solid rgba(90,107,95,.12)}
+  input:focus,select:focus,textarea:focus{border-color:var(--brand);
+    box-shadow:0 0 0 4px rgba(146,197,122,.28);background:#fff}
+  .chip{transition:.12s}
+  .chip:hover{background:rgba(146,197,122,.4);text-decoration:none}
+  .hero{padding:1.7rem 1.8rem}
+  .hero h1{font-size:1.7rem}
+  ::selection{background:rgba(146,197,122,.45)}
+  button:active,.btn:active{transform:translateY(0)}
+  details.menu>summary{transition:.12s}
 </style></head><body>
 {% if user %}
 <header>
