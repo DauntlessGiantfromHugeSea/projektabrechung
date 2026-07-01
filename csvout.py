@@ -45,9 +45,10 @@ def _amprion_task(project: str) -> str | None:
 
 
 def _leading_number(project: str) -> str:
-    """Erste Ziffernfolge im Projektnamen (z. B. '26344 - Arcadis …' -> '26344')."""
-    m = re.search(r"\d+", project or "")
-    return m.group(0) if m else ""
+    """Längste Ziffernfolge im Projektnamen als Ersatz-Task-Nr.
+    (z. B. 'Amprion – HE4 32008' -> '32008', '26344 - Arcadis …' -> '26344')."""
+    nums = re.findall(r"\d+", project or "")
+    return max(nums, key=len) if nums else ""
 
 
 def _hours1(h: float) -> str:
