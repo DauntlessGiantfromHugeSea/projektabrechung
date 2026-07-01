@@ -346,6 +346,26 @@ _BASE = """
   .tablewrap thead th:last-child{border-right:0;border-radius:0}
   .tablewrap tbody td:first-child{padding-left:1rem}
   .tablewrap tbody tr:first-child td{padding-top:.85rem}
+  /* --- Tätigkeitsbeschreibung: inline bearbeiten --- */
+  .descedit{min-width:200px;max-width:360px}
+  .descedit>summary{list-style:none;display:flex;align-items:flex-start;gap:.4rem;
+    cursor:pointer;padding:.3rem .5rem;margin:-.3rem -.5rem;border-radius:10px;
+    transition:.12s}
+  .descedit>summary::-webkit-details-marker{display:none}
+  .descedit>summary:hover{background:rgba(146,197,122,.12)}
+  .descedit .desctext{color:var(--fg);font-size:.9rem}
+  .descedit .desctext::before{content:"✓";color:#2f8a2f;font-weight:900;
+    margin-right:.35rem}
+  .descedit .descadd{color:var(--brand-d);font-weight:700;font-size:.9rem}
+  .descedit>summary svg{width:15px;height:15px;color:var(--muted);opacity:.6;
+    flex:0 0 auto;margin-top:.12rem}
+  .descedit>summary:hover svg{opacity:1;color:var(--brand-d)}
+  .descedit[open]>summary{background:rgba(146,197,122,.14)}
+  .descedit .descform{margin-top:.55rem}
+  .descedit .descform textarea{min-height:58px;font-size:.9rem}
+  .descedit .descbtns{margin-top:.45rem}
+  .descedit .descbtns button{padding:.4rem .9rem;font-size:.85rem}
+  .descedit .descbtns svg{width:15px;height:15px;vertical-align:-3px}
 </style></head><body>
 {% if user %}
 <header>
@@ -357,9 +377,9 @@ _BASE = """
       <summary class="navpill {{ 'active' if page in pa_pages }}">Projektabrechnung ▾</summary>
       <div class="panel">
         <a href="/meine-zeiten">{{ icons.chart|safe }} Meine Zeiten</a>
-        <a href="/">{{ icons.chart|safe }} Bericht</a>
+        {% if is_billing %}<a href="/">{{ icons.chart|safe }} Bericht</a>
         <a href="/log">{{ icons.list|safe }} Log</a>
-        {% if is_billing %}<a href="/abrechnung">{{ icons.list|safe }} Abrechnung</a>{% endif %}
+        <a href="/abrechnung">{{ icons.list|safe }} Abrechnung</a>{% endif %}
         {% if role=='admin' %}<a href="/versand">{{ icons.mail|safe }} Senden</a>
         <a href="/reports">{{ icons.calendar|safe }} Berichte</a>{% endif %}
         <a href="{{ timemoto_url }}" target="_blank" rel="noopener">{{ icons.clock|safe }} Zeiterfassung &amp; Urlaub ↗</a>
@@ -496,7 +516,7 @@ _HOME = """
 <div class="sectlabel">Schnellzugriff</div>
 <div class="quick">
   <a class="qpill" href="/meine-zeiten">{{ icons.history|safe }} Meine Zeiten</a>
-  <a class="qpill" href="/">{{ icons.chart|safe }} Bericht</a>
+  {% if is_billing %}<a class="qpill" href="/">{{ icons.chart|safe }} Bericht</a>{% endif %}
   {% if tk_view %}<a class="qpill" href="/tickets/new">{{ icons.list|safe }} Neues Ticket</a>{% endif %}
   {% if is_billing %}<a class="qpill" href="/abrechnung">{{ icons.calendar|safe }} Abrechnung</a>{% endif %}
   <a class="qpill" href="{{ timemoto_url }}" target="_blank" rel="noopener">{{ icons.clock|safe }} Stempeln &amp; Urlaub ↗</a>
@@ -518,10 +538,12 @@ _HOME = """
 
 <div class="sectlabel">Bereiche</div>
 <div class="tiles">
+  {% if is_billing %}
   <a class="tile" href="/">
     <div class="ti">{{ icons.chart|safe }}</div>
     <h3>Projektabrechnung</h3>
     <p>Stunden, Wochenberichte, Abrechnung &amp; Export.</p></a>
+  {% endif %}
   <a class="tile" href="/meine-zeiten">
     <div class="ti">{{ icons.history|safe }}</div>
     <h3>Meine Zeiten</h3>
@@ -743,20 +765,23 @@ _LOG = """
   <div class="tablewrap"><table>
     <thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
       <th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th>Tätigkeit</th><th>Quelle</th>
-      {% if role=='admin' %}<th>Aktionen</th>{% endif %}</tr></thead>
+      {% if is_billing %}<th>Aktionen</th>{% endif %}</tr></thead>
     <tbody>
     {% for s in sessions %}
       <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
         <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td>
-        <td>{% if role=='admin' %}
-          <form method="post" action="/log/describe" style="display:flex;gap:.3rem;align-items:center">
-            <input type="hidden" name="iid" value="{{ s.id }}">
-            <input name="description" value="{{ s.description }}" placeholder="Tätigkeit…" style="min-width:180px">
-            <button class="ghost" type="submit" title="Speichern">✓</button>
-          </form>
+        <td>{% if is_billing %}
+          <details class="descedit">
+            <summary>{% if s.description %}<span class="desctext">{{ s.description }}</span>{% else %}<span class="descadd">+ Tätigkeit</span>{% endif %}{{ icons.edit|safe }}</summary>
+            <form method="post" action="/log/describe" class="descform">
+              <input type="hidden" name="iid" value="{{ s.id }}">
+              <textarea name="description" rows="2" placeholder="Was wurde gemacht? (1–2 Sätze)">{{ s.description }}</textarea>
+              <div class="descbtns"><button type="submit">{{ icons.check|safe }} Speichern</button></div>
+            </form>
+          </details>
           {% else %}{{ s.description }}{% endif %}</td>
         <td>{% if s.source=='manual' %}<span class="pill role">manuell</span>{% else %}<span class="muted">TimeMoto</span>{% endif %}</td>
-        {% if role=='admin' %}<td><div class="rowactions">
+        {% if is_billing %}<td><div class="rowactions">
           <a class="btn ghost" href="/log/edit?iid={{ s.id|urlencode }}">{{ 'Bearbeiten' if s.source=='manual' else 'Korrigieren' }}</a>
           {% if s.source=='manual' %}
           <form method="post" action="/log/delete">
@@ -778,7 +803,7 @@ _LOG = """
   {% else %}<p>Keine Buchungen für diese Filter.</p>{% endif %}
 </div>
 
-{% if role=='admin' and hidden %}
+{% if is_billing and hidden %}
 <div class="card glass">
   <h2>Ausgeblendete TimeMoto-Buchungen</h2>
   <table><tbody>
@@ -1101,7 +1126,7 @@ _USERS = """
               <a href="/users/{{ u.username|urlencode }}/edit">{{ icons.gear|safe }} Bearbeiten</a>
               {% if u.username != user and u.status=='active' %}
               <form method="post" action="/users/{{ u.username|urlencode }}/impersonate">
-                <button type="submit" class="panelitem">{{ icons.users|safe }} Als diese:n Benutzer:in anmelden</button></form>
+                <button type="submit" class="panelitem">{{ icons.users|safe }} Als Benutzer anmelden</button></form>
               {% endif %}
               {% if u.status=='invited' and local_users_enabled %}
               <form method="post" action="/users/resend">
@@ -1294,6 +1319,9 @@ ICONS = {
     "logout": _svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'
                    '<path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>'),
     "clock": _svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    "edit": _svg('<path d="M12 20h9"/>'
+                 '<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
+    "check": _svg('<path d="M20 6 9 17l-5-5"/>'),
 }
 
 _base_tpl = Template(_BASE)
@@ -1361,11 +1389,15 @@ _MEINE = """
       {% for s in sessions %}
         <tr><td>{{ s.date }}</td><td>{{ s.project }}</td><td>{{ s.start }}</td>
           <td>{{ s.end }}</td><td class="num">{{ s.dur }}</td>
-          <td><form method="post" action="/meine-zeiten/describe" style="display:flex;gap:.3rem;align-items:center">
-            <input type="hidden" name="iid" value="{{ s.id }}">
-            <input name="description" value="{{ s.description }}" placeholder="Was wurde gemacht?" style="min-width:240px">
-            <button type="submit" title="Speichern">✓</button></form>
-            {% if s.description %}<div class="muted" style="margin-top:.3rem;color:#2f6b1f;">✓ gespeichert: {{ s.description }}</div>{% endif %}
+          <td>
+            <details class="descedit">
+              <summary>{% if s.description %}<span class="desctext">{{ s.description }}</span>{% else %}<span class="descadd">+ Tätigkeit eintragen</span>{% endif %}{{ icons.edit|safe }}</summary>
+              <form method="post" action="/meine-zeiten/describe" class="descform">
+                <input type="hidden" name="iid" value="{{ s.id }}">
+                <textarea name="description" rows="2" placeholder="Was wurde gemacht? (1–2 Sätze)">{{ s.description }}</textarea>
+                <div class="descbtns"><button type="submit">{{ icons.check|safe }} Speichern</button></div>
+              </form>
+            </details>
           </td></tr>
       {% endfor %}
       </tbody>
@@ -1810,7 +1842,7 @@ def _tk_edit(request: Request) -> bool:
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
     if _user(request):
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/start", status_code=303)
     return HTMLResponse(_tpls["login"].render(
         title="Login", user=None,
         flash=request.session.pop("flash", None),
@@ -2079,7 +2111,7 @@ def _inspect_stats():
 async def dashboard(request: Request, week: str = "last",
                     project: str | None = None, start: str | None = None,
                     end: str | None = None):
-    if (r := _need_login(request)):
+    if (r := _need_billing(request)):
         return r
     proj = project if project is not None else config.PROJECT_CODE
     start_in, end_in = start or "", end or ""
@@ -2118,7 +2150,7 @@ async def dashboard(request: Request, week: str = "last",
 @router.post("/send")
 async def send_now(request: Request, project: str = Form(""),
                    start: str = Form(""), end: str = Form("")):
-    if (r := _need_login(request)):
+    if (r := _need_billing(request)):
         return r
     try:
         s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
@@ -2146,7 +2178,7 @@ async def send_now(request: Request, project: str = Form(""),
 @router.get("/log", response_class=HTMLResponse)
 async def log_page(request: Request, employee: str = "", project: str = "",
                    start: str = "", end: str = ""):
-    if (r := _need_login(request)):
+    if (r := _need_billing(request)):
         return r
     s = e = None
     if start:
@@ -2174,7 +2206,8 @@ async def log_page(request: Request, employee: str = "", project: str = "",
             continue
         opens.append({"employee": o.employee, "project": o.project or "–",
                       "start": o.start.astimezone(config.TIMEZONE).strftime("%a %d.%m. %H:%M")})
-    hidden = sorted(manual.hidden_ids()) if _role(request) == "admin" else []
+    hidden = (sorted(manual.hidden_ids())
+              if _role(request) in ("admin", "buchhaltung") else [])
     return HTMLResponse(_tpls["log"].render(
         **_common(request, "log", "Log"),
         all_employees=_all_employees(), all_projects=_all_projects(),
@@ -2197,7 +2230,7 @@ def _find_interval(iid: str):
 
 @router.get("/log/edit", response_class=HTMLResponse)
 async def log_edit(request: Request, iid: str = ""):
-    if (r := _need_admin(request)):
+    if (r := _need_billing(request)):
         return r
     now = datetime.now(config.TIMEZONE)
     f = {"employee": "", "project": "", "date": now.strftime("%Y-%m-%d"),
@@ -2234,7 +2267,7 @@ async def log_save(request: Request, iid: str = Form(""),
                    employee: str = Form(""), project: str = Form(""),
                    date: str = Form(""), start_time: str = Form(""),
                    end_time: str = Form(""), note: str = Form("")):
-    if (r := _need_admin(request)):
+    if (r := _need_billing(request)):
         return r
     user = _user(request)
     try:
@@ -2269,7 +2302,7 @@ async def log_save(request: Request, iid: str = Form(""),
 
 @router.post("/log/delete")
 async def log_delete(request: Request, iid: str = Form("")):
-    if (r := _need_admin(request)):
+    if (r := _need_billing(request)):
         return r
     user = _user(request)
     if iid.startswith("man:"):
@@ -2285,7 +2318,7 @@ async def log_delete(request: Request, iid: str = Form("")):
 
 @router.post("/log/restore")
 async def log_restore(request: Request, iid: str = Form("")):
-    if (r := _need_admin(request)):
+    if (r := _need_billing(request)):
         return r
     manual.unhide(iid)
     audit.log(_user(request), "wieder eingeblendet", iid)
@@ -2295,7 +2328,7 @@ async def log_restore(request: Request, iid: str = Form("")):
 
 @router.post("/log/purge")
 async def log_purge(request: Request, iid: str = Form("")):
-    if (r := _need_admin(request)):
+    if (r := _need_billing(request)):
         return r
     user = _user(request)
     if iid.startswith("wh:"):
@@ -2313,7 +2346,7 @@ async def log_purge(request: Request, iid: str = Form("")):
 @router.get("/export.xlsx")
 async def export_xlsx(request: Request, employee: str = "", project: str = "",
                       start: str = "", end: str = ""):
-    if (r := _need_login(request)):
+    if (r := _need_billing(request)):
         return r
     s = e = None
     try:
@@ -2336,7 +2369,7 @@ async def export_xlsx(request: Request, employee: str = "", project: str = "",
 @router.post("/log/describe")
 async def log_describe(request: Request, iid: str = Form(""),
                        description: str = Form("")):
-    if (r := _need_admin(request)):
+    if (r := _need_billing(request)):
         return r
     activities.set_description(iid, description, _user(request))
     audit.log(_user(request), "Tätigkeit gesetzt", f"{iid}: {description[:80]}")
@@ -2348,7 +2381,7 @@ async def log_describe(request: Request, iid: str = Form(""),
 async def export_amprion(request: Request, employee: str = "", project: str = "",
                          start: str = "", end: str = ""):
     """Amprion-Abgabe als CSV im vorgegebenen Format (nur Amprion-Projekte)."""
-    if (r := _need_login(request)):
+    if (r := _need_billing(request)):
         return r
     s = e = None
     try:
