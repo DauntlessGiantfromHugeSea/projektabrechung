@@ -98,6 +98,15 @@ _BASE = """
     align-items:center;justify-content:center;color:rgba(255,255,255,.85)}
   .iconbtn:hover{background:rgba(255,255,255,.15);color:#fff;text-decoration:none}
   .iconbtn svg{width:20px;height:20px}
+  .impbar{position:sticky;top:0;z-index:29;display:flex;align-items:center;
+    justify-content:space-between;gap:1rem;flex-wrap:wrap;
+    padding:.55rem 1.5rem;background:#8a4b12;color:#fff;font-size:.9rem;
+    box-shadow:0 3px 12px rgba(120,60,10,.25)}
+  .impbar b{font-weight:800}
+  .impbar svg{width:16px;height:16px;color:#fff;vertical-align:-3px}
+  .impbar button{background:#fff;color:#8a4b12;box-shadow:none;font-weight:800;
+    padding:.4rem .9rem;font-size:.85rem}
+  .impbar button:hover{background:#fdf3e8;transform:none;box-shadow:none}
   .menu{position:relative}
   .menu>summary{list-style:none;display:inline-flex;align-items:center;gap:.55rem;
     cursor:pointer;padding:.32rem .5rem;border-radius:999px;
@@ -398,6 +407,12 @@ _BASE = """
     </details>
   </div>
 </header>
+{% if impersonating %}
+<div class="impbar">
+  <span>{{ icons.users|safe }} <b>Support-Modus:</b> Du bist als <b>{{ display_name or user }}</b> angemeldet{% if imp_by %} (im Namen von {{ imp_by }}){% endif %}.</span>
+  <form method="post" action="/impersonate/stop"><button type="submit">↩ Zurück zu meinem Account</button></form>
+</div>
+{% endif %}
 {% endif %}
 <main>
 {% if flash %}<div class="flash {{ flash_class }}">{{ flash }}</div>{% endif %}
@@ -1097,6 +1112,10 @@ _USERS = """
             <summary class="btn ghost">Aktionen ▾</summary>
             <div class="panel">
               <a href="/users/{{ u.username|urlencode }}/edit">{{ icons.gear|safe }} Bearbeiten</a>
+              {% if u.username != user and u.status=='active' %}
+              <form method="post" action="/users/{{ u.username|urlencode }}/impersonate">
+                <button type="submit" class="panelitem">{{ icons.users|safe }} Als diese:n Benutzer:in anmelden</button></form>
+              {% endif %}
               {% if u.status=='invited' and local_users_enabled %}
               <form method="post" action="/users/resend">
                 <input type="hidden" name="username" value="{{ u.username }}">
@@ -1686,11 +1705,14 @@ def _common(request: Request, page: str, title: str):
     role = _role(request)
     role_label = {"admin": "Administrator", "buchhaltung": "Buchhaltung"}.get(
         role, "Benutzer")
+    imp = request.session.get("impersonator")
     return dict(user=_user(request), role=role, page=page, title=title,
                 display_name=request.session.get("name"), initials=initials,
                 role_label=role_label, is_billing=(role in ("admin", "buchhaltung")),
                 tk_view=bool(request.session.get("tk_view") or role == "admin"),
                 tk_edit=bool(request.session.get("tk_edit") or role == "admin"),
+                impersonating=bool(imp),
+                imp_by=(imp or {}).get("name") if imp else None,
                 flash=request.session.pop("flash", None),
                 flash_class=request.session.pop("flash_class", ""))
 
@@ -3108,6 +3130,57 @@ async def users_delete(request: Request, username: str = Form("")):
     else:
         request.session["flash"], request.session["flash_class"] = \
             "Löschen nicht möglich (letzter Admin?).", "err"
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.post("/users/{username}/impersonate")
+async def users_impersonate(request: Request, username: str):
+    """Support: Als anderer Benutzer anmelden. Nur Admin. Die eigene
+    Identität wird gesichert, ein Banner erlaubt den Rücksprung."""
+    if (r := _need_admin(request)):
+        return r
+    target = users.get(username)
+    if not target or target.get("status") != "active":
+        request.session["flash"], request.session["flash_class"] = \
+            "Benutzer nicht gefunden oder nicht aktiv.", "err"
+        return RedirectResponse("/users", status_code=303)
+    if username == _user(request):
+        return RedirectResponse("/users", status_code=303)
+    # Original-Identität nur beim ersten Wechsel sichern -> Rücksprung zum echten Admin
+    if not request.session.get("impersonator"):
+        request.session["impersonator"] = {
+            "user": request.session.get("user"),
+            "role": request.session.get("role"),
+            "name": request.session.get("name"),
+            "tk_view": request.session.get("tk_view"),
+            "tk_edit": request.session.get("tk_edit"),
+        }
+    orig = request.session["impersonator"]["user"] or "?"
+    _finalize_login(request, target)
+    audit.log(orig, "Support: Identität übernommen",
+              f"{orig} → {target['username']}")
+    request.session["flash"] = (
+        f"Support-Modus: Du bist jetzt als "
+        f"{target.get('name') or target['username']} angemeldet.")
+    return RedirectResponse("/start", status_code=303)
+
+
+@router.post("/impersonate/stop")
+async def impersonate_stop(request: Request):
+    """Zurück zur eigenen (Admin-)Identität."""
+    imp = request.session.get("impersonator")
+    if not imp:
+        return RedirectResponse("/start", status_code=303)
+    was = _user(request)
+    request.session["user"] = imp.get("user")
+    request.session["role"] = imp.get("role", "user")
+    request.session["name"] = imp.get("name")
+    request.session["tk_view"] = imp.get("tk_view")
+    request.session["tk_edit"] = imp.get("tk_edit")
+    request.session.pop("impersonator", None)
+    audit.log(imp.get("user") or "?", "Support: Identität verlassen",
+              f"war als {was}")
+    request.session["flash"] = "Zurück in deinem Account."
     return RedirectResponse("/users", status_code=303)
 
 
