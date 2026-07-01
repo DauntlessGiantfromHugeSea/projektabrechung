@@ -1807,11 +1807,18 @@ def _need_login(request: Request):
     return None if _user(request) else RedirectResponse("/login", status_code=303)
 
 
+def _deny(request: Request, msg: str):
+    """Angemeldet, aber ohne Recht -> zurueck aufs Dashboard mit Hinweis
+    (keine tote 'Kein Zugriff'-Seite, es gibt immer einen Weg zurueck)."""
+    request.session["flash"], request.session["flash_class"] = msg, "err"
+    return RedirectResponse("/start", status_code=303)
+
+
 def _need_admin(request: Request):
     if not _user(request):
         return RedirectResponse("/login", status_code=303)
     if _role(request) != "admin":
-        return HTMLResponse("Kein Zugriff (nur Admin).", status_code=403)
+        return _deny(request, "Dieser Bereich ist nur für Administratoren.")
     return None
 
 
@@ -1820,7 +1827,9 @@ def _need_billing(request: Request):
     if not _user(request):
         return RedirectResponse("/login", status_code=303)
     if _role(request) not in ("admin", "buchhaltung"):
-        return HTMLResponse("Kein Zugriff.", status_code=403)
+        return _deny(request, "Dieser Bereich ist nur für Buchhaltung und "
+                     "Administratoren. Deine eigenen Zeiten findest du unter "
+                     "„Meine Zeiten“.")
     return None
 
 
