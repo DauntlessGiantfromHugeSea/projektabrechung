@@ -66,7 +66,11 @@ _BASE = """
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;color:var(--fg);
     font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
-    background:var(--bg);}
+    background:
+      radial-gradient(900px 500px at 100% -5%,rgba(146,197,122,.14),transparent 60%),
+      radial-gradient(700px 500px at -10% 8%,rgba(146,197,122,.10),transparent 55%),
+      var(--bg);
+    background-attachment:fixed;-webkit-font-smoothing:antialiased;}
   a{color:var(--link);text-decoration:none}
   a:hover{text-decoration:underline}
   svg{width:18px;height:18px;flex:0 0 auto;vertical-align:-3px}
@@ -155,11 +159,20 @@ _BASE = """
   button.danger{background:rgba(255,255,255,.6);color:var(--danger);
     border:1px solid rgba(192,57,43,.5);box-shadow:none;padding:.4rem .8rem;
     font-size:.85rem}
-  table{border-collapse:collapse;width:100%;margin-top:.5rem;font-size:.95rem}
-  th,td{padding:.55rem .6rem;border-bottom:1px solid rgba(90,107,95,.18);
-    text-align:left}
-  th{font-size:.8rem;color:var(--muted);text-transform:uppercase;
-    letter-spacing:.4px}
+  table{border-collapse:separate;border-spacing:0;width:100%;margin-top:.6rem;
+    font-size:.93rem}
+  thead th{background:#f3f8ec;color:var(--muted);text-transform:uppercase;
+    font-size:.72rem;letter-spacing:.6px;font-weight:800;padding:.7rem .9rem;
+    text-align:left;white-space:nowrap;border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line)}
+  thead th:first-child{border-top-left-radius:12px;border-bottom-left-radius:12px;
+    border-left:1px solid var(--line)}
+  thead th:last-child{border-top-right-radius:12px;border-bottom-right-radius:12px;
+    border-right:1px solid var(--line)}
+  th{text-align:left}
+  tbody td{padding:.78rem .9rem;text-align:left;
+    border-bottom:1px solid rgba(90,107,95,.10)}
+  tbody tr:last-child td{border-bottom:0}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .row{display:flex;gap:1rem;flex-wrap:wrap;align-items:end}
   .row>div{flex:1;min-width:150px}
@@ -302,14 +315,12 @@ _BASE = """
   h1{letter-spacing:-.015em;font-weight:800}
   h2{letter-spacing:-.01em}
   .card{padding:1.5rem 1.6rem;margin-bottom:1.35rem}
-  th{font-size:.74rem;letter-spacing:.5px;padding-bottom:.6rem;
-    border-bottom:1px solid rgba(90,107,95,.16)}
-  td{vertical-align:middle;padding:.6rem .65rem}
+  tbody td{vertical-align:middle}
   tbody tr{transition:background .12s}
-  tbody tr:hover{background:rgba(146,197,122,.10)}
-  tbody tr:not(:last-child) td{border-bottom:1px solid rgba(90,107,95,.12)}
+  tbody tr:hover{background:rgba(146,197,122,.09)}
+  input,select,textarea{background:#fff;border:1px solid #dfe6d8}
   input:focus,select:focus,textarea:focus{border-color:var(--brand);
-    box-shadow:0 0 0 4px rgba(146,197,122,.28);background:#fff}
+    box-shadow:0 0 0 4px rgba(146,197,122,.24);background:#fff}
   .chip{transition:.12s}
   .chip:hover{background:rgba(146,197,122,.4);text-decoration:none}
   .hero{padding:1.7rem 1.8rem}
@@ -317,6 +328,27 @@ _BASE = """
   ::selection{background:rgba(146,197,122,.45)}
   button:active,.btn:active{transform:translateY(0)}
   details.menu>summary{transition:.12s}
+  /* --- Modern polish --- */
+  .card{box-shadow:0 1px 2px rgba(16,40,24,.04),0 12px 34px rgba(16,40,24,.08)}
+  .stat{padding:1.5rem 1.55rem}
+  .stat .ico{position:absolute;top:1.2rem;right:1.25rem;width:38px;height:38px;
+    border-radius:12px;display:flex;align-items:center;justify-content:center;
+    color:var(--brand-d);background:rgba(146,197,122,.18);z-index:1}
+  .stat .ico svg{width:19px;height:19px}
+  .stat .lbl{padding-right:3rem;position:relative;z-index:1}
+  .stat::after{width:150px;height:150px;right:-55px;bottom:-55px;
+    background:radial-gradient(circle at 30% 30%,rgba(146,197,122,.34),rgba(146,197,122,.04))}
+  .stat .val{font-size:2.15rem}
+  .quick{gap:.65rem}
+  .qpill{box-shadow:0 1px 2px rgba(16,40,24,.04),0 6px 16px rgba(16,40,24,.06)}
+  .tablewrap{border:1px solid var(--line);border-radius:16px;background:#fff;
+    box-shadow:0 1px 2px rgba(16,40,24,.04)}
+  .tablewrap table{margin-top:0}
+  .tablewrap thead th{border-top:0}
+  .tablewrap thead th:first-child{border-left:0;border-radius:0}
+  .tablewrap thead th:last-child{border-right:0;border-radius:0}
+  .tablewrap tbody td:first-child{padding-left:1rem}
+  .tablewrap tbody tr:first-child td{padding-top:.85rem}
 </style></head><body>
 {% if user %}
 <header>
@@ -437,18 +469,21 @@ _HOME = """
 
 <div class="stats">
   <div class="stat">
+    <div class="ico">{{ icons.clock|safe }}</div>
     <div class="lbl">Meine Stunden · Woche</div>
     <div class="val">{{ week_hours }}</div>
     <div class="sub">{{ week_sessions }} Buchung{{ '' if week_sessions==1 else 'en' }} diese Woche</div>
   </div>
   {% if tk_view %}
   <div class="stat">
+    <div class="ico">{{ icons.list|safe }}</div>
     <div class="lbl">Offene Tickets</div>
     <div class="val">{{ open_tickets }}</div>
     <div class="sub">in Bearbeitung &amp; offen</div>
   </div>
   {% endif %}
   <div class="stat">
+    <div class="ico">{{ icons.calendar|safe }}</div>
     <div class="lbl">Kalenderwoche</div>
     <div class="val">KW {{ kw }}</div>
     <div class="sub">{{ year }}</div>
