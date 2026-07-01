@@ -51,26 +51,22 @@ _BASE = """
 <!doctype html><html lang="de"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} – FBE Intranet</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2392c57a'/><text x='16' y='23' font-size='20' text-anchor='middle' fill='%23123018' font-family='Arial,sans-serif' font-weight='bold'>F</text></svg>">
+<link rel="icon" href="https://fb-eng.de/wp-content/uploads/2024/10/cropped-FBE_midnight.png">
 <meta name="theme-color" content="#92c57a">
 <style>
   :root{
     --fg:#15321f; --muted:#64748b; --brand:#92c57a; --brand-d:#6fa84f;
     --brand-bright:#a4d65e; --accent-text:#123018;
-    --bar:#123726; --bar-2:#184a31;
+    --bar:#92c57a; --bar-2:#7fb565;
     --link:#4d8838; --danger:#c0392b;
-    --line:#e7ece2; --card:#ffffff; --bg:#f2f6ee;
+    --line:#ebeee8; --card:#ffffff; --bg:#fbfcfa;
     --shadow:0 1px 2px rgba(16,40,24,.05),0 10px 34px rgba(16,40,24,.07);
     --radius:20px;
   }
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;color:var(--fg);
     font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
-    background:
-      radial-gradient(900px 500px at 100% -5%,rgba(146,197,122,.14),transparent 60%),
-      radial-gradient(700px 500px at -10% 8%,rgba(146,197,122,.10),transparent 55%),
-      var(--bg);
-    background-attachment:fixed;-webkit-font-smoothing:antialiased;}
+    background:var(--bg);-webkit-font-smoothing:antialiased;}
   a{color:var(--link);text-decoration:none}
   a:hover{text-decoration:underline}
   svg{width:18px;height:18px;flex:0 0 auto;vertical-align:-3px}
@@ -83,16 +79,13 @@ _BASE = """
     background:linear-gradient(180deg,var(--bar-2),var(--bar));
     box-shadow:0 4px 18px rgba(16,40,24,.18);}
   header .brand{display:flex;align-items:center;gap:.6rem}
-  header .brand img{height:26px;display:block}
-  header .brand .logochip{background:#fff;border-radius:11px;
-    padding:.32rem .6rem;display:flex;align-items:center;
-    box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  header .brand img{height:34px;display:block}
   nav{display:flex;align-items:center;gap:.15rem;flex-wrap:wrap;margin-left:1rem}
-  .navpill{color:rgba(255,255,255,.82);font-size:.92rem;font-weight:600;
+  .navpill{color:#fff;font-size:.92rem;font-weight:600;
     padding:.5rem 1rem;border-radius:999px;white-space:nowrap;transition:.14s}
-  .navpill:hover{background:rgba(255,255,255,.13);color:#fff;text-decoration:none}
-  .navpill.active{background:var(--brand-bright);color:#123018;
-    box-shadow:0 4px 12px rgba(164,214,94,.4)}
+  .navpill:hover{background:rgba(255,255,255,.20);color:#fff;text-decoration:none}
+  .navpill.active{background:#fff;color:#2f6b1f;
+    box-shadow:0 4px 12px rgba(16,40,24,.18)}
   .topright{display:flex;align-items:center;gap:.35rem;margin-left:auto}
   .iconbtn{width:38px;height:38px;border-radius:50%;display:inline-flex;
     align-items:center;justify-content:center;color:rgba(255,255,255,.85)}
@@ -110,12 +103,12 @@ _BASE = """
   .menu{position:relative}
   .menu>summary{list-style:none;display:inline-flex;align-items:center;gap:.55rem;
     cursor:pointer;padding:.32rem .5rem;border-radius:999px;
-    color:rgba(255,255,255,.9);font-weight:700;font-size:.92rem}
-  .menu>summary:hover{background:rgba(255,255,255,.13)}
+    color:#fff;font-weight:700;font-size:.92rem}
+  .menu>summary:hover{background:rgba(255,255,255,.20)}
   .menu>summary::-webkit-details-marker{display:none}
-  .menu.tab>summary{font-weight:600;color:rgba(255,255,255,.82)}
-  .menu.tab>summary.active{color:#123018;background:var(--brand-bright);
-    box-shadow:0 4px 12px rgba(164,214,94,.4)}
+  .menu.tab>summary{font-weight:600;color:#fff}
+  .menu.tab>summary.active{color:#2f6b1f;background:#fff;
+    box-shadow:0 4px 12px rgba(16,40,24,.18)}
   .menu.tab .panel{left:0;right:auto;min-width:210px}
   .menu .panel{position:absolute;right:0;top:122%;min-width:240px;background:#fff;
     border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
@@ -140,8 +133,8 @@ _BASE = """
   .plabel{font-size:.72rem;letter-spacing:.7px;text-transform:uppercase;
     color:#94a3b8;padding:.65rem .7rem .25rem;font-weight:800}
   .pdiv{border-top:1px solid var(--line);margin:.35rem 0}
-  .avatar{width:30px;height:30px;border-radius:50%;color:#fff;font-size:.78rem;
-    background:var(--brand-d);display:inline-flex;align-items:center;
+  .avatar{width:30px;height:30px;border-radius:50%;color:#2f6b1f;font-size:.78rem;
+    background:#fff;display:inline-flex;align-items:center;
     justify-content:center;font-weight:800}
   main{max-width:1180px;margin:1.6rem auto;padding:0 1.2rem}
   .card{padding:1.3rem 1.4rem;margin-bottom:1.3rem}
@@ -246,9 +239,6 @@ _BASE = """
   .stat{position:relative;overflow:hidden;background:var(--card);
     border:1px solid var(--line);border-radius:var(--radius);
     padding:1.3rem 1.4rem;box-shadow:var(--shadow)}
-  .stat::after{content:"";position:absolute;right:-40px;bottom:-40px;
-    width:120px;height:120px;border-radius:50%;
-    background:radial-gradient(circle at 30% 30%,rgba(146,197,122,.30),rgba(146,197,122,.06));}
   .stat .lbl{color:var(--muted);font-size:.82rem;font-weight:600;
     text-transform:uppercase;letter-spacing:.5px}
   .stat .val{font-size:2rem;font-weight:800;letter-spacing:-.02em;
@@ -345,8 +335,6 @@ _BASE = """
     color:var(--brand-d);background:rgba(146,197,122,.18);z-index:1}
   .stat .ico svg{width:19px;height:19px}
   .stat .lbl{padding-right:3rem;position:relative;z-index:1}
-  .stat::after{width:150px;height:150px;right:-55px;bottom:-55px;
-    background:radial-gradient(circle at 30% 30%,rgba(146,197,122,.34),rgba(146,197,122,.04))}
   .stat .val{font-size:2.15rem}
   .quick{gap:.65rem}
   .qpill{box-shadow:0 1px 2px rgba(16,40,24,.04),0 6px 16px rgba(16,40,24,.06)}
@@ -361,7 +349,7 @@ _BASE = """
 </style></head><body>
 {% if user %}
 <header>
-  <a class="brand" href="/start"><span class="logochip"><img src="{{ logo_url }}" alt="FBE"></span></a>
+  <a class="brand" href="/start"><img src="{{ logo_url_white }}" alt="FBE"></a>
   <nav>
     {% set pa_pages = ['dash','log','meine','abrechnung','send','reports'] %}
     <a class="navpill {{ 'active' if page=='home' }}" href="/start">Dashboard</a>
