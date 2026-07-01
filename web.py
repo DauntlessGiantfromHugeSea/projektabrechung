@@ -17,6 +17,8 @@ import pyotp
 import secrets
 import segno
 from fastapi import APIRouter, File, Form, Request, UploadFile
+import json
+
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Template
 
@@ -46,13 +48,54 @@ router = APIRouter()
 
 LOGO_URL = "https://fb-eng.de/wp-content/uploads/2024/10/FBE_green.png"
 LOGO_URL_WHITE = "https://fb-eng.de/wp-content/uploads/2024/10/FBE_white.png"
+_ICON_URL = "https://fb-eng.de/wp-content/uploads/2024/10/cropped-FBE_midnight.png"
+
+# Web-App (PWA): Manifest + minimaler Service-Worker (installierbar auf
+# Handy/Desktop, Startseite /start).
+_MANIFEST = {
+    "name": "FBE Intranet",
+    "short_name": "FBE Intranet",
+    "description": "Internes Tool der Flüssigboden Engineering GmbH – "
+                   "Zeiten, Projektabrechnung, Tickets & Exporte.",
+    "lang": "de",
+    "start_url": "/start",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#ffffff",
+    "theme_color": "#92c57a",
+    "icons": [
+        {"src": _ICON_URL, "sizes": "192x192", "type": "image/png",
+         "purpose": "any"},
+        {"src": _ICON_URL, "sizes": "512x512", "type": "image/png",
+         "purpose": "any"},
+        {"src": _ICON_URL, "sizes": "512x512", "type": "image/png",
+         "purpose": "maskable"},
+    ],
+}
+
+# Netzwerk-first, ohne Caching -> keine veralteten Inhalte, aber installierbar.
+_SW_JS = (
+    "self.addEventListener('install',function(e){self.skipWaiting();});"
+    "self.addEventListener('activate',function(e){"
+    "e.waitUntil(self.clients.claim());});"
+    "self.addEventListener('fetch',function(e){"
+    "e.respondWith(fetch(e.request).catch(function(){"
+    "return new Response('',{status:504});}));});"
+)
 
 _BASE = """
 <!doctype html><html lang="de"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} – FBE Intranet</title>
 <link rel="icon" href="https://fb-eng.de/wp-content/uploads/2024/10/cropped-FBE_midnight.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="https://fb-eng.de/wp-content/uploads/2024/10/cropped-FBE_midnight.png">
 <meta name="theme-color" content="#92c57a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FBE Intranet">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
     --fg:#15321f; --muted:#64748b; --brand:#92c57a; --brand-d:#6fa84f;
@@ -426,6 +469,7 @@ _BASE = """
 {% if flash %}<div class="flash {{ flash_class }}">{{ flash }}</div>{% endif %}
 {% block body %}{% endblock %}
 </main>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(function(){});}</script>
 </body></html>
 """
 
@@ -684,13 +728,17 @@ _DASH = """
   <h2>Zusammenfassung: {{ report_title }}</h2>
   <p class="muted">{{ period }}</p>
   {{ report_html|safe }}
-  <form method="post" action="/send" style="margin-top:1rem;" class="toolbar">
-    <input type="hidden" name="project" value="{{ project }}">
-    <input type="hidden" name="start" value="{{ start_iso }}">
-    <input type="hidden" name="end" value="{{ end_iso }}">
-    <button type="submit">Diese Ansicht jetzt senden{{ '' if mail_configured else ' (als Datei)' }}</button>
-    {% if not mail_configured %}<span class="muted">SMTP nicht konfiguriert – nur Datei.</span>{% endif %}
-  </form>
+  <div class="toolbar" style="margin-top:1rem;">
+    <a class="btn ghost" href="/export/amprion.csv?project={{ project|urlencode }}&start={{ start_iso }}&end={{ end_iso }}">Amprion-CSV</a>
+    <a class="btn ghost" href="/export.xlsx?project={{ project|urlencode }}&start={{ start_iso }}&end={{ end_iso }}">Excel</a>
+    <form method="post" action="/send" class="toolbar" style="margin:0;">
+      <input type="hidden" name="project" value="{{ project }}">
+      <input type="hidden" name="start" value="{{ start_iso }}">
+      <input type="hidden" name="end" value="{{ end_iso }}">
+      <button type="submit">Diese Ansicht jetzt senden{{ '' if mail_configured else ' (als Datei)' }}</button>
+      {% if not mail_configured %}<span class="muted">SMTP nicht konfiguriert – nur Datei.</span>{% endif %}
+    </form>
+  </div>
 </div>
 
 <div class="card glass">
@@ -1844,6 +1892,21 @@ def _need_tickets(request: Request):
 
 def _tk_edit(request: Request) -> bool:
     return _role(request) == "admin" or bool(request.session.get("tk_edit"))
+
+
+# --- Web-App (PWA) ----------------------------------------------------------
+
+@router.get("/manifest.webmanifest")
+async def manifest():
+    return Response(json.dumps(_MANIFEST, ensure_ascii=False),
+                    media_type="application/manifest+json",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@router.get("/sw.js")
+async def service_worker():
+    return Response(_SW_JS, media_type="application/javascript",
+                    headers={"Cache-Control": "no-cache"})
 
 
 # --- Login / Logout --------------------------------------------------------
