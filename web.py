@@ -720,8 +720,7 @@ _LOG = """
     <div class="toolbar">
       {% if role=='admin' %}<a class="btn" href="/log/edit">+ Eintrag hinzufügen</a>{% endif %}
       <a class="btn ghost" href="/export.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Excel</a>
-      <a class="btn ghost" href="/export/arcadis.csv?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Arcadis-CSV</a>
-      <a class="btn ghost" href="/export/amprion.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Amprion-Excel</a>
+      <a class="btn ghost" href="/export/amprion.csv?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Amprion-CSV</a>
     </div>
   </div>
   <form method="get" action="/log">
@@ -1395,7 +1394,8 @@ _ABRECHNUNG = """
 <div class="card glass">
   <h1>Abrechnung</h1>
   <p class="muted">Alle Stunden über alle Projekte – nach Bedarf filtern und
-    direkt als Excel oder Arcadis-CSV herunterladen (kein Mailversand).</p>
+    direkt als Excel oder als Amprion-CSV (Abgabeformat) herunterladen
+    (kein Mailversand).</p>
   <form method="get">
     <div class="row">
       <div><label>Mitarbeiter</label>
@@ -1410,8 +1410,7 @@ _ABRECHNUNG = """
     </div>
     <div style="margin-top:1.2rem;" class="toolbar">
       <button type="submit" formaction="/export.xlsx">Excel herunterladen</button>
-      <button type="submit" formaction="/export/arcadis.csv" class="ghost">Arcadis-CSV herunterladen</button>
-      <button type="submit" formaction="/export/amprion.xlsx" class="ghost">Amprion-Excel herunterladen</button>
+      <button type="submit" formaction="/export/amprion.csv" class="ghost">Amprion-CSV herunterladen</button>
     </div>
   </form>
 </div>
@@ -2357,29 +2356,10 @@ async def log_describe(request: Request, iid: str = Form(""),
                             status_code=303)
 
 
-@router.get("/export/arcadis.csv")
-async def export_arcadis(request: Request, employee: str = "", project: str = "",
-                         start: str = "", end: str = ""):
-    if (r := _need_login(request)):
-        return r
-    s = e = None
-    try:
-        if start:
-            s = datetime.fromisoformat(start).replace(tzinfo=config.TIMEZONE)
-        if end:
-            e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
-    except ValueError:
-        pass
-    data = csvout.arcadis_csv(filter_intervals(s, e, project=project,
-                                               employee=employee))
-    fname = f"arcadis_stunden_{datetime.now(config.TIMEZONE):%Y%m%d}.csv"
-    return Response(content=data, media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
-
-
-@router.get("/export/amprion.xlsx")
+@router.get("/export/amprion.csv")
 async def export_amprion(request: Request, employee: str = "", project: str = "",
                          start: str = "", end: str = ""):
+    """Amprion-Abgabe als CSV im vorgegebenen Format (nur Amprion-Projekte)."""
     if (r := _need_login(request)):
         return r
     s = e = None
@@ -2390,13 +2370,11 @@ async def export_amprion(request: Request, employee: str = "", project: str = ""
             e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
     except ValueError:
         pass
-    data = xlsxout.amprion_xlsx(
+    data = csvout.amprion_csv(
         filter_intervals(s, e, project=project, employee=employee))
-    fname = f"amprion_abgabe_{datetime.now(config.TIMEZONE):%Y%m%d}.xlsx"
-    return Response(
-        content=data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+    fname = f"amprion_abgabe_{datetime.now(config.TIMEZONE):%Y%m%d}.csv"
+    return Response(content=data, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.get("/download/{token}")
