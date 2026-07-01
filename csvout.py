@@ -51,21 +51,32 @@ def _leading_number(project: str) -> str:
     return max(nums, key=len) if nums else ""
 
 
+def resolve_task(project: str, task_map: dict[str, str] | None = None) -> str:
+    """Task-Nr. für ein Projekt: manuelle Zuordnung hat Vorrang, sonst
+    Amprion-Mapping, sonst längste Ziffernfolge im Namen."""
+    if task_map:
+        override = task_map.get(project) or task_map.get((project or "").strip())
+        if override:
+            return str(override).strip()
+    return _amprion_task(project) or _leading_number(project)
+
+
 def _hours1(h: float) -> str:
     """Stunden mit genau einer Nachkommastelle und Dezimalkomma (z. B. '10,0')."""
     return f"{round(max(h, 0.0), 1):.1f}".replace(".", ",")
 
 
-def amprion_csv(intervals: list[Interval]) -> bytes:
+def amprion_csv(intervals: list[Interval],
+                task_map: dict[str, str] | None = None) -> bytes:
     """Amprion-Abgabeformat als CSV – exakt wie die Vorlage:
     Datum;nicht relevant;Task Nr.;nicht relevant;Personen Name;Stunden;Tätigkeitbeschreibung
     Semikolon-getrennt, UTF-8 mit BOM, CRLF, Stunden mit Dezimalkomma.
     Es werden ALLE übergebenen Buchungen exportiert (die Auswahl steuert der
-    Filter in der Oberfläche). Die Task-Nr. kommt aus dem Amprion-Mapping;
-    passt kein Mapping, wird die Projektnummer verwendet."""
+    Filter in der Oberfläche). Die Task-Nr. kommt aus der manuellen Zuordnung
+    (task_map), sonst aus dem Projektnamen (Amprion-Mapping / Projektnummer)."""
     rows = []
     for iv in intervals:
-        nr = _amprion_task(iv.project) or _leading_number(iv.project)
+        nr = resolve_task(iv.project, task_map)
         st = iv.start.astimezone(config.TIMEZONE)
         rows.append((st, nr, _amprion_name(iv.employee),
                      _hours1(iv.duration_hours), iv.description or ""))

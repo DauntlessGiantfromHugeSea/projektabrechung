@@ -214,6 +214,25 @@ def reset_texts() -> None:
         _save(data)
 
 
+# --- Projekt -> Task-Nr. (Amprion) -----------------------------------------
+
+def get_project_tasks() -> dict[str, str]:
+    """Manuelle Zuordnung Projekt -> Task-Nr. (überschreibt die Auto-Erkennung)."""
+    raw = _load().get("project_tasks") or {}
+    return {str(k): str(v).strip() for k, v in raw.items() if str(v).strip()}
+
+
+def set_project_tasks(pairs: dict[str, str]) -> None:
+    """Zuordnungen setzen. Leerer Wert entfernt den Eintrag (dann greift wieder
+    die automatische Erkennung aus dem Projektnamen)."""
+    clean = {str(k).strip(): str(v).strip()
+             for k, v in pairs.items() if str(k).strip() and str(v).strip()}
+    with _LOCK:
+        data = _load()
+        data["project_tasks"] = clean
+        _save(data)
+
+
 def day_label(dow: str) -> str:
     return {"mon": "Montag", "tue": "Dienstag", "wed": "Mittwoch",
             "thu": "Donnerstag", "fri": "Freitag", "sat": "Samstag",

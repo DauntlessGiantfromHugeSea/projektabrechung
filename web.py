@@ -449,6 +449,7 @@ _BASE = """
         {% if role=='admin' %}
         <div class="plabel">Administration</div>
         <a href="/users">{{ icons.users|safe }} Benutzer</a>
+        <a href="/einstellungen/projekte">{{ icons.list|safe }} Projekte</a>
         <a href="/einstellungen">{{ icons.gear|safe }} Einstellungen</a>
         <a href="/einstellungen/texte">{{ icons.edit|safe }} Texte</a>
         <a href="/audit">{{ icons.history|safe }} Verlauf</a>
@@ -1737,6 +1738,11 @@ _SETTINGS = """
   <p class="muted">Login-Texte (inkl. der Pille oben), Begrüßung &amp; App-Name
     anpassen.</p>
   <a class="btn ghost" href="/einstellungen/texte">Texte bearbeiten</a>
+  <hr style="border:none;border-top:1px solid var(--line);margin:1.3rem 0;">
+  <h2>Projekte &amp; Task-Nummern</h2>
+  <p class="muted">Task-Nr. je Projekt zuordnen/korrigieren (für den
+    Amprion-Export).</p>
+  <a class="btn ghost" href="/einstellungen/projekte">Projekte verwalten</a>
 </div>
 {% endblock %}
 """
@@ -1774,12 +1780,44 @@ _TEXTS = """
 {% endblock %}
 """
 
+_PROJECTS = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Projekte</h1>
+    <a class="btn ghost" href="/einstellungen">Zurück</a>
+  </div>
+  <p class="muted">Ordne jedem Projekt eine <b>Task-Nr.</b> zu (für den
+    Amprion-Export). Leer = automatische Erkennung aus dem Projektnamen
+    (grau als Vorschlag angezeigt). Eine hier gesetzte Nummer hat immer Vorrang.</p>
+  {% if not rows %}<p>Noch keine Projekte erkannt.</p>{% else %}
+  <form method="post" action="/einstellungen/projekte">
+    <div class="tablewrap"><table>
+      <thead><tr><th>Projekt</th><th>Task-Nr. (erkannt)</th><th>Task-Nr. (manuell)</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td><b>{{ r.project }}</b><input type="hidden" name="proj" value="{{ r.project }}"></td>
+          <td class="muted">{{ r.detected or '–' }}</td>
+          <td><input name="nr" value="{{ r.value }}" placeholder="{{ r.detected }}" style="max-width:180px"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <div style="margin-top:1.2rem;"><button type="submit">Speichern</button></div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}
+"""
+
 _tpls = {n: Template(s) for n, s in {
     "login": _LOGIN, "home": _HOME, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
-    "texts": _TEXTS,
+    "texts": _TEXTS, "projects": _PROJECTS,
     "abrechnung": _ABRECHNUNG, "meine": _MEINE, "user_edit": _USER_EDIT,
     "twofa_verify": _TWOFA_VERIFY, "twofa_setup": _TWOFA_SETUP,
     "reset_req": _RESET_REQ, "reset_form": _RESET_FORM,
@@ -2517,7 +2555,8 @@ async def export_amprion(request: Request, employee: str = "", project: str = ""
     except ValueError:
         pass
     data = csvout.amprion_csv(
-        filter_intervals(s, e, project=project, employee=employee))
+        filter_intervals(s, e, project=project, employee=employee),
+        task_map=settings.get_project_tasks())
     fname = f"amprion_abgabe_{datetime.now(config.TIMEZONE):%Y%m%d}.csv"
     return Response(content=data, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
@@ -2968,6 +3007,36 @@ async def texts_reset(request: Request):
     audit.log(_user(request), "Texte zurückgesetzt", "Standard")
     request.session["flash"] = "Texte auf Standard zurückgesetzt."
     return RedirectResponse("/einstellungen/texte", status_code=303)
+
+
+@router.get("/einstellungen/projekte", response_class=HTMLResponse)
+async def projects_page(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    overrides = settings.get_project_tasks()
+    projects = sorted(set(_all_projects()) | set(overrides.keys()),
+                      key=lambda p: p.lower())
+    rows = [{"project": p,
+             "detected": csvout.resolve_task(p),  # ohne Override -> Auto-Erkennung
+             "value": overrides.get(p, "")}
+            for p in projects]
+    return HTMLResponse(_tpls["projects"].render(
+        **_common(request, "settings", "Projekte"), rows=rows))
+
+
+@router.post("/einstellungen/projekte")
+async def projects_save(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    form = await request.form()
+    projs = form.getlist("proj")
+    nrs = form.getlist("nr")
+    pairs = {p: n for p, n in zip(projs, nrs)}
+    settings.set_project_tasks(pairs)
+    audit.log(_user(request), "Projekt-Task-Nrn. gespeichert",
+              ", ".join(f"{p}={n}" for p, n in pairs.items() if n.strip())[:200])
+    request.session["flash"] = "Projekt-Zuordnungen gespeichert."
+    return RedirectResponse("/einstellungen/projekte", status_code=303)
 
 
 @router.get("/meine-zeiten", response_class=HTMLResponse)
