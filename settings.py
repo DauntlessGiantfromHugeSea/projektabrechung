@@ -158,6 +158,62 @@ def delete_report(report_id: str) -> bool:
     return False
 
 
+# --- Anpassbare Anzeigetexte (Admin -> „Texte") ----------------------------
+
+# key -> (Standardtext, Beschriftung im Admin, mehrzeilig?)
+TEXT_FIELDS: list[tuple[str, str, str, bool]] = [
+    ("app_title", "FBE Intranet", "App-Name (Titel/Tab)", False),
+    ("login_pill", "Intranet · Projektabrechnung",
+     "Login: Pille oben (grüner Bereich)", False),
+    ("login_heading", "Flüssigboden.\nPlanung.\nInnovation.",
+     "Login: große Überschrift (je Zeile ein Umbruch)", True),
+    ("login_desc",
+     "Das interne Portal der Flüssigboden Engineering GmbH – Zeiten, "
+     "Projektabrechnung, Tickets und Exporte an einem Ort.",
+     "Login: Beschreibungstext (grüner Bereich)", True),
+    ("login_welcome", "Willkommen zurück",
+     "Login: Überschrift (rechts, weißer Bereich)", False),
+    ("login_welcome_sub", "Bitte melde dich an, um fortzufahren.",
+     "Login: Unterzeile (rechts)", False),
+    ("login_footer", "Bei Problemen wende dich an deinen Administrator.",
+     "Login: Fußnote (rechts, nur bei reinem Microsoft-Login)", False),
+    ("dash_greeting", "Willkommen",
+     "Dashboard: Begrüßung (davor, vor „, Vorname“)", False),
+    ("dash_sub", "Schön, dass du da bist. Hier ist dein Überblick.",
+     "Dashboard: Unterzeile", False),
+]
+
+DEFAULT_TEXTS = {k: d for k, d, _lbl, _ml in TEXT_FIELDS}
+
+
+def get_texts() -> dict[str, str]:
+    """Alle Anzeigetexte: gespeicherte Overrides über den Standardwerten."""
+    saved = _load().get("texts") or {}
+    return {k: (saved.get(k) or d) for k, d in DEFAULT_TEXTS.items()}
+
+
+def set_texts(values: dict[str, str]) -> None:
+    with _LOCK:
+        data = _load()
+        cur = dict(data.get("texts") or {})
+        for k in DEFAULT_TEXTS:
+            if k in values:
+                v = (values.get(k) or "").replace("\r\n", "\n").strip()
+                if v:
+                    cur[k] = v
+                else:
+                    cur.pop(k, None)  # leer -> Standard
+        data["texts"] = cur
+        _save(data)
+
+
+def reset_texts() -> None:
+    with _LOCK:
+        data = _load()
+        data.pop("texts", None)
+        _save(data)
+
+
 def day_label(dow: str) -> str:
     return {"mon": "Montag", "tue": "Dienstag", "wed": "Mittwoch",
             "thu": "Donnerstag", "fri": "Freitag", "sat": "Samstag",

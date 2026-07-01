@@ -87,7 +87,7 @@ _SW_JS = (
 _BASE = """
 <!doctype html><html lang="de"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }} – FBE Intranet</title>
+<title>{{ title }} – {{ texts.app_title }}</title>
 <link rel="icon" href="https://fb-eng.de/wp-content/uploads/2024/10/cropped-FBE_midnight.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="https://fb-eng.de/wp-content/uploads/2024/10/cropped-FBE_midnight.png">
@@ -450,6 +450,7 @@ _BASE = """
         <div class="plabel">Administration</div>
         <a href="/users">{{ icons.users|safe }} Benutzer</a>
         <a href="/einstellungen">{{ icons.gear|safe }} Einstellungen</a>
+        <a href="/einstellungen/texte">{{ icons.edit|safe }} Texte</a>
         <a href="/audit">{{ icons.history|safe }} Verlauf</a>
         {% endif %}
         <div class="pdiv"></div>
@@ -486,15 +487,14 @@ _LOGIN = """
 <div class="loginsplit">
   <div class="loginhero" style="--login-bg:url('{{ bg_image }}')">
     <span class="lg"><img src="{{ logo_url_white }}" alt="FBE"></span>
-    <span class="tagpill">Intranet · Projektabrechnung</span>
-    <h1>Flüssigboden.<br>Planung.<br>Innovation.</h1>
-    <p>Das interne Portal der Flüssigboden Engineering GmbH – Zeiten,
-       Projektabrechnung, Tickets und Exporte an einem Ort.</p>
+    <span class="tagpill">{{ texts.login_pill }}</span>
+    <h1>{{ texts.login_heading|e|replace('\n','<br>')|safe }}</h1>
+    <p>{{ texts.login_desc }}</p>
   </div>
   <div class="loginpanel">
     <div class="loginform">
-      <h1>Willkommen zurück</h1>
-      <p class="muted" style="margin:0 0 1.5rem;">Bitte melde dich an, um fortzufahren.</p>
+      <h1>{{ texts.login_welcome }}</h1>
+      <p class="muted" style="margin:0 0 1.5rem;">{{ texts.login_welcome_sub }}</p>
       {% if show_local and not login_possible %}
         <div class="flash err">Noch kein Benutzer. <code>ADMIN_PASSWORD</code> in
           der .env setzen und neu starten.</div>{% endif %}
@@ -514,7 +514,7 @@ _LOGIN = """
       {% endif %}
       {% if not show_local and ms_enabled %}
       <p class="muted" style="margin-top:1.6rem;font-size:.85rem;">
-        Bei Problemen wende dich an deinen Administrator.
+        {{ texts.login_footer }}
         <a href="/login?local=1" style="display:block;margin-top:.5rem;">Mit Passwort anmelden (Admin / extern)</a></p>
       {% endif %}
     </div>
@@ -528,8 +528,8 @@ _HOME = """
 {% block body %}
 <div class="dashhead">
   <div>
-    <h1>Willkommen, {{ first_name }}</h1>
-    <p class="muted" style="margin:.2rem 0 0;">Schön, dass du da bist. Hier ist dein Überblick.</p>
+    <h1>{{ texts.dash_greeting }}, {{ first_name }}</h1>
+    <p class="muted" style="margin:.2rem 0 0;">{{ texts.dash_sub }}</p>
   </div>
   <div class="date">{{ today }}</div>
 </div>
@@ -1732,6 +1732,44 @@ _SETTINGS = """
   <form method="post" action="/einstellungen/reminders-now">
     <button type="submit" class="ghost">Erinnerungen jetzt prüfen</button>
   </form>
+  <hr style="border:none;border-top:1px solid var(--line);margin:1.3rem 0;">
+  <h2>Texte bearbeiten</h2>
+  <p class="muted">Login-Texte (inkl. der Pille oben), Begrüßung &amp; App-Name
+    anpassen.</p>
+  <a class="btn ghost" href="/einstellungen/texte">Texte bearbeiten</a>
+</div>
+{% endblock %}
+"""
+
+_TEXTS = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:720px;">
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Texte</h1>
+    <a class="btn ghost" href="/einstellungen">Zurück</a>
+  </div>
+  <p class="muted">Passe die sichtbaren Texte an. Leeres Feld = Standardtext.
+    Änderungen greifen sofort.</p>
+  <form method="post" action="/einstellungen/texte">
+    {% for f in fields %}
+      <label>{{ f.label }}</label>
+      {% if f.multiline %}
+        <textarea name="{{ f.key }}" rows="3">{{ f.value }}</textarea>
+      {% else %}
+        <input name="{{ f.key }}" value="{{ f.value }}">
+      {% endif %}
+    {% endfor %}
+    <div class="toolbar" style="margin-top:1.3rem;">
+      <button type="submit">Speichern</button>
+      <a class="btn ghost" href="/start">Vorschau (Dashboard)</a>
+    </div>
+  </form>
+  <hr style="border:none;border-top:1px solid var(--line);margin:1.3rem 0;">
+  <form method="post" action="/einstellungen/texte/reset"
+        onsubmit="return confirm('Alle Texte auf Standard zurücksetzen?')">
+    <button type="submit" class="danger">Auf Standard zurücksetzen</button>
+  </form>
 </div>
 {% endblock %}
 """
@@ -1741,11 +1779,25 @@ _tpls = {n: Template(s) for n, s in {
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
+    "texts": _TEXTS,
     "abrechnung": _ABRECHNUNG, "meine": _MEINE, "user_edit": _USER_EDIT,
     "twofa_verify": _TWOFA_VERIFY, "twofa_setup": _TWOFA_SETUP,
     "reset_req": _RESET_REQ, "reset_form": _RESET_FORM,
     "tickets": _TICKETS, "ticket_new": _TICKET_NEW, "ticket": _TICKET,
 }.items()}
+
+
+class _Texts:
+    """Liest die anpassbaren Anzeigetexte bei jedem Zugriff frisch aus den
+    Einstellungen (damit Änderungen sofort greifen). In Templates: texts.key."""
+    def __getattr__(self, key):
+        return settings.get_texts().get(key, "")
+    def __getitem__(self, key):
+        return settings.get_texts().get(key, "")
+
+
+_texts_proxy = _Texts()
+
 for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["base"] = _base_tpl       # type: ignore
     _tpl.environment.globals["logo_url"] = LOGO_URL    # type: ignore
@@ -1754,6 +1806,7 @@ for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["teilnahme_url"] = config.TEILNAHME_URL  # type: ignore
     _tpl.environment.globals["ms_logo"] = _MS_LOGO    # type: ignore
     _tpl.environment.globals["logo_url_white"] = LOGO_URL_WHITE  # type: ignore
+    _tpl.environment.globals["texts"] = _texts_proxy   # type: ignore
 
 
 # --- Helfer ----------------------------------------------------------------
@@ -2881,6 +2934,40 @@ async def settings_save(request: Request, timezone: str = Form("")):
         request.session["flash"], request.session["flash_class"] = \
             "Ungültige Zeitzone.", "err"
     return RedirectResponse("/einstellungen", status_code=303)
+
+
+@router.get("/einstellungen/texte", response_class=HTMLResponse)
+async def texts_page(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    vals = settings.get_texts()
+    fields = [{"key": k, "label": lbl, "multiline": ml, "value": vals.get(k, "")}
+              for k, _d, lbl, ml in settings.TEXT_FIELDS]
+    return HTMLResponse(_tpls["texts"].render(
+        **_common(request, "settings", "Texte"), fields=fields))
+
+
+@router.post("/einstellungen/texte")
+async def texts_save(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    form = await request.form()
+    values = {k: str(form.get(k, "")) for k, _d, _lbl, _ml in settings.TEXT_FIELDS}
+    settings.set_texts(values)
+    audit.log(_user(request), "Texte geändert", ", ".join(
+        k for k in values if values[k].strip()))
+    request.session["flash"] = "Texte gespeichert."
+    return RedirectResponse("/einstellungen/texte", status_code=303)
+
+
+@router.post("/einstellungen/texte/reset")
+async def texts_reset(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    settings.reset_texts()
+    audit.log(_user(request), "Texte zurückgesetzt", "Standard")
+    request.session["flash"] = "Texte auf Standard zurückgesetzt."
+    return RedirectResponse("/einstellungen/texte", status_code=303)
 
 
 @router.get("/meine-zeiten", response_class=HTMLResponse)
