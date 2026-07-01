@@ -45,6 +45,7 @@ from report import subject as report_subject
 router = APIRouter()
 
 LOGO_URL = "https://fb-eng.de/wp-content/uploads/2024/10/FBE_green.png"
+LOGO_URL_WHITE = "https://fb-eng.de/wp-content/uploads/2024/10/FBE_white.png"
 
 _BASE = """
 <!doctype html><html lang="de"><head>
@@ -253,20 +254,19 @@ _BASE = """
   /* --- Login (Split) --- */
   .loginsplit{position:fixed;inset:0;z-index:1;display:flex}
   .loginhero{flex:1;position:relative;display:flex;flex-direction:column;
-    justify-content:center;padding:3.5rem;color:#fff;overflow:hidden;
+    justify-content:center;padding:5rem 4.5rem;color:#fff;overflow:hidden;
     background:linear-gradient(150deg,rgba(18,55,38,.92),rgba(24,74,49,.86)),
       var(--login-bg) center/cover no-repeat}
-  .loginhero .lg{background:#fff;border-radius:14px;padding:.5rem .8rem;
-    align-self:flex-start;box-shadow:0 6px 20px rgba(0,0,0,.25)}
-  .loginhero .lg img{height:34px;display:block}
+  .loginhero .lg{align-self:flex-start}
+  .loginhero .lg img{height:52px;display:block}
   .loginhero .tagpill{display:inline-block;align-self:flex-start;
-    margin:2rem 0 1.2rem;background:var(--brand-bright);color:#123018;
-    font-weight:800;letter-spacing:1px;font-size:.72rem;text-transform:uppercase;
-    padding:.45rem 1rem;border-radius:999px}
-  .loginhero h1{font-size:2.9rem;line-height:1.08;margin:0;font-weight:800;
-    letter-spacing:-.02em;max-width:12ch}
-  .loginhero p{margin:1.3rem 0 0;max-width:44ch;color:rgba(255,255,255,.9);
-    font-size:1.02rem;line-height:1.6}
+    margin:3.2rem 0 2.2rem;background:var(--brand-bright);color:#123018;
+    font-weight:800;letter-spacing:1.5px;font-size:.74rem;text-transform:uppercase;
+    padding:.55rem 1.2rem;border-radius:999px}
+  .loginhero h1{font-size:3.1rem;line-height:1.22;margin:0;font-weight:800;
+    letter-spacing:-.02em;max-width:14ch}
+  .loginhero p{margin:2.4rem 0 0;max-width:42ch;color:rgba(255,255,255,.9);
+    font-size:1.05rem;line-height:1.7}
   .loginpanel{flex:1;background:#fff;display:flex;align-items:center;
     justify-content:center;padding:1.5rem}
   .loginform{width:100%;max-width:370px}
@@ -386,9 +386,9 @@ _LOGIN = """
 {% block body %}
 <div class="loginsplit">
   <div class="loginhero" style="--login-bg:url('{{ bg_image }}')">
-    <span class="lg"><img src="{{ logo_url }}" alt="FBE"></span>
+    <span class="lg"><img src="{{ logo_url_white }}" alt="FBE"></span>
     <span class="tagpill">Intranet · Projektabrechnung</span>
-    <h1>Zeit. Projekte.<br>Flüssigboden.</h1>
+    <h1>Flüssigboden.<br>Planung.<br>Innovation.</h1>
     <p>Das interne Portal der Flüssigboden Engineering GmbH – Zeiten,
        Projektabrechnung, Tickets und Exporte an einem Ort.</p>
   </div>
@@ -1632,6 +1632,7 @@ for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["timemoto_url"] = config.TIMEMOTO_URL  # type: ignore
     _tpl.environment.globals["teilnahme_url"] = config.TEILNAHME_URL  # type: ignore
     _tpl.environment.globals["ms_logo"] = _MS_LOGO    # type: ignore
+    _tpl.environment.globals["logo_url_white"] = LOGO_URL_WHITE  # type: ignore
 
 
 # --- Helfer ----------------------------------------------------------------
