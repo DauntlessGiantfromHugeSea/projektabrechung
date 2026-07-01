@@ -1,7 +1,8 @@
 """
 Web-Interface: Login, Dashboard (Bericht + Einzelbuchungen), Konto,
 Benutzerverwaltung und online konfigurierbare Berichte (Projekte/Empfaenger/
-Zeitplan). Design: helles Glassmorphism im FBE-Look (#92c57a).
+Zeitplan). Design: dunkelgrüne Topbar + helle Cards im FBE-Look (#92c57a),
+Split-Screen-Login und Dashboard – angelehnt an das Teilnahmemanagement.
 
 Templates inline (Jinja2), damit das Image schlank bleibt.
 """
@@ -53,55 +54,54 @@ _BASE = """
 <meta name="theme-color" content="#92c57a">
 <style>
   :root{
-    --fg:#15321f; --muted:#5b6b72; --brand:#92c57a; --brand-d:#6fa84f;
-    --accent-text:#123018; --link:#4d8838; --danger:#c0392b;
-    --line:rgba(255,255,255,.55); --card:rgba(255,255,255,.62);
-    --shadow:0 2px 8px rgba(20,50,25,.06),0 18px 50px rgba(20,50,25,.12);
-    --radius:24px;
+    --fg:#15321f; --muted:#64748b; --brand:#92c57a; --brand-d:#6fa84f;
+    --brand-bright:#a4d65e; --accent-text:#123018;
+    --bar:#123726; --bar-2:#184a31;
+    --link:#4d8838; --danger:#c0392b;
+    --line:#e7ece2; --card:#ffffff; --bg:#f2f6ee;
+    --shadow:0 1px 2px rgba(16,40,24,.05),0 10px 34px rgba(16,40,24,.07);
+    --radius:20px;
   }
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;color:var(--fg);
     font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
-    background:
-      radial-gradient(1100px 700px at 8% -8%, rgba(146,197,122,.40) 0%, transparent 55%),
-      radial-gradient(1000px 800px at 108% 6%, rgba(122,180,210,.34) 0%, transparent 52%),
-      radial-gradient(900px 700px at 50% 120%, rgba(146,197,122,.28) 0%, transparent 55%),
-      linear-gradient(135deg,#eef5e9 0%,#e6eff0 50%,#e8f0e6 100%);
-    background-attachment:fixed;}
+    background:var(--bg);}
   a{color:var(--link);text-decoration:none}
   a:hover{text-decoration:underline}
   svg{width:18px;height:18px;flex:0 0 auto;vertical-align:-3px}
   .glass,.card{background:var(--card);
-    backdrop-filter:blur(22px) saturate(180%);
-    -webkit-backdrop-filter:blur(22px) saturate(180%);
     border:1px solid var(--line);border-radius:var(--radius);
-    box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.6);}
-  header{position:sticky;top:0;z-index:30;padding:.5rem 1.4rem;
+    box-shadow:var(--shadow);}
+  header{position:sticky;top:0;z-index:30;padding:.55rem 1.5rem;
     display:flex;align-items:center;justify-content:flex-start;
-    flex-wrap:wrap;gap:.5rem;background:rgba(255,255,255,.9);
-    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-    border-bottom:1px solid var(--line);}
-  header .brand{display:flex;align-items:center;gap:.6rem;font-weight:800;
-    letter-spacing:.2px;color:var(--fg)}
-  header .brand img{height:30px;display:block}
-  nav{display:flex;align-items:center;gap:.2rem;flex-wrap:wrap;margin-left:.7rem}
-  .navpill{color:var(--muted);font-size:.93rem;font-weight:600;padding:.5rem .95rem;
-    border-radius:999px;white-space:nowrap}
-  .navpill:hover{background:#eef4e9;color:var(--brand-d);text-decoration:none}
-  .navpill.active{background:rgba(146,197,122,.25);color:#2f6b1f}
-  .topright{display:flex;align-items:center;gap:.3rem;margin-left:auto}
+    flex-wrap:wrap;gap:.4rem;
+    background:linear-gradient(180deg,var(--bar-2),var(--bar));
+    box-shadow:0 4px 18px rgba(16,40,24,.18);}
+  header .brand{display:flex;align-items:center;gap:.6rem}
+  header .brand img{height:26px;display:block}
+  header .brand .logochip{background:#fff;border-radius:11px;
+    padding:.32rem .6rem;display:flex;align-items:center;
+    box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  nav{display:flex;align-items:center;gap:.15rem;flex-wrap:wrap;margin-left:1rem}
+  .navpill{color:rgba(255,255,255,.82);font-size:.92rem;font-weight:600;
+    padding:.5rem 1rem;border-radius:999px;white-space:nowrap;transition:.14s}
+  .navpill:hover{background:rgba(255,255,255,.13);color:#fff;text-decoration:none}
+  .navpill.active{background:var(--brand-bright);color:#123018;
+    box-shadow:0 4px 12px rgba(164,214,94,.4)}
+  .topright{display:flex;align-items:center;gap:.35rem;margin-left:auto}
   .iconbtn{width:38px;height:38px;border-radius:50%;display:inline-flex;
-    align-items:center;justify-content:center;color:var(--muted)}
-  .iconbtn:hover{background:#eef4e9;color:var(--brand-d);text-decoration:none}
+    align-items:center;justify-content:center;color:rgba(255,255,255,.85)}
+  .iconbtn:hover{background:rgba(255,255,255,.15);color:#fff;text-decoration:none}
   .iconbtn svg{width:20px;height:20px}
   .menu{position:relative}
   .menu>summary{list-style:none;display:inline-flex;align-items:center;gap:.55rem;
-    cursor:pointer;padding:.3rem .45rem;border-radius:999px;color:var(--fg);
-    font-weight:700;font-size:.92rem}
-  .menu>summary:hover{background:#eef4e9}
+    cursor:pointer;padding:.32rem .5rem;border-radius:999px;
+    color:rgba(255,255,255,.9);font-weight:700;font-size:.92rem}
+  .menu>summary:hover{background:rgba(255,255,255,.13)}
   .menu>summary::-webkit-details-marker{display:none}
-  .menu.tab>summary{font-weight:700;color:var(--muted)}
-  .menu.tab>summary.active{color:var(--brand-d);background:rgba(146,197,122,.22)}
+  .menu.tab>summary{font-weight:600;color:rgba(255,255,255,.82)}
+  .menu.tab>summary.active{color:#123018;background:var(--brand-bright);
+    box-shadow:0 4px 12px rgba(164,214,94,.4)}
   .menu.tab .panel{left:0;right:auto;min-width:210px}
   .menu .panel{position:absolute;right:0;top:122%;min-width:240px;background:#fff;
     border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
@@ -199,26 +199,89 @@ _BASE = """
   .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
     gap:1.1rem;margin-top:1.3rem}
   .tile{display:block;background:var(--card);
-    backdrop-filter:blur(22px) saturate(180%);
-    -webkit-backdrop-filter:blur(22px) saturate(180%);
-    border:1px solid var(--line);
-    border-radius:var(--radius);padding:1.5rem;box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.6);
+    border:1px solid var(--line);position:relative;overflow:hidden;
+    border-radius:var(--radius);padding:1.5rem;box-shadow:var(--shadow);
     color:var(--fg);transition:.2s}
   .tile:hover{transform:translateY(-4px);
-    box-shadow:0 22px 50px rgba(20,50,25,.20),inset 0 1px 0 rgba(255,255,255,.7);
+    box-shadow:0 18px 40px rgba(16,40,24,.14);
     text-decoration:none;border-color:rgba(146,197,122,.7)}
   .tile .ti{width:48px;height:48px;border-radius:14px;display:flex;
     align-items:center;justify-content:center;color:var(--brand-d);
-    background:rgba(146,197,122,.22);margin-bottom:.9rem}
+    background:rgba(146,197,122,.20);margin-bottom:.9rem}
   .tile .ti svg{width:25px;height:25px}
   .tile h3{margin:.1rem 0 .35rem;font-size:1.12rem}
   .tile p{margin:0;color:var(--muted);font-size:.92rem}
-  .hero{background:linear-gradient(135deg,rgba(146,197,122,.22),rgba(146,197,122,.06));}
-  .loginbg{position:fixed;inset:0;z-index:0;background-size:cover;
-    background-position:center}
-  .loginbg.tint{background:rgba(146,197,122,.20)}
-  .loginwrap{position:fixed;inset:0;z-index:1;display:flex;align-items:center;
-    justify-content:center;padding:1.2rem}
+  .hero{background:linear-gradient(135deg,rgba(146,197,122,.20),rgba(146,197,122,.05));
+    border-color:rgba(146,197,122,.35)}
+  /* --- Dashboard --- */
+  .dashhead{display:flex;align-items:baseline;justify-content:space-between;
+    gap:1rem;flex-wrap:wrap;margin:.4rem 0 1.4rem}
+  .dashhead h1{margin:0}
+  .dashhead .date{color:var(--muted);font-size:.92rem;white-space:nowrap}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:1.1rem;margin-bottom:1.6rem}
+  .stat{position:relative;overflow:hidden;background:var(--card);
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:1.3rem 1.4rem;box-shadow:var(--shadow)}
+  .stat::after{content:"";position:absolute;right:-40px;bottom:-40px;
+    width:120px;height:120px;border-radius:50%;
+    background:radial-gradient(circle at 30% 30%,rgba(146,197,122,.30),rgba(146,197,122,.06));}
+  .stat .lbl{color:var(--muted);font-size:.82rem;font-weight:600;
+    text-transform:uppercase;letter-spacing:.5px}
+  .stat .val{font-size:2rem;font-weight:800;letter-spacing:-.02em;
+    margin:.35rem 0 0;line-height:1;position:relative;z-index:1}
+  .stat .sub{color:var(--muted);font-size:.85rem;margin-top:.3rem}
+  .sectlabel{font-size:.75rem;letter-spacing:.9px;text-transform:uppercase;
+    color:var(--muted);font-weight:800;margin:.2rem 0 .7rem}
+  .quick{display:flex;flex-wrap:wrap;gap:.6rem;margin-bottom:1.8rem}
+  .qpill{display:inline-flex;align-items:center;gap:.5rem;background:var(--card);
+    border:1px solid var(--line);border-radius:999px;padding:.6rem 1.05rem;
+    font-weight:600;font-size:.92rem;color:var(--fg);box-shadow:var(--shadow);
+    transition:.15s}
+  .qpill:hover{transform:translateY(-2px);text-decoration:none;
+    border-color:rgba(146,197,122,.7);color:var(--brand-d)}
+  .qpill svg{width:17px;height:17px;color:var(--brand-d)}
+  .listrow{display:flex;align-items:center;gap:.8rem;padding:.7rem 0;
+    border-bottom:1px solid var(--line)}
+  .listrow:last-child{border-bottom:0}
+  .listrow .av{width:34px;height:34px;border-radius:50%;flex:0 0 auto;
+    background:rgba(146,197,122,.22);color:var(--brand-d);font-weight:800;
+    font-size:.8rem;display:inline-flex;align-items:center;justify-content:center}
+  .listrow .who{font-weight:600}
+  .listrow .meta{margin-left:auto;text-align:right;color:var(--muted);
+    font-size:.86rem;white-space:nowrap}
+  /* --- Login (Split) --- */
+  .loginsplit{position:fixed;inset:0;z-index:1;display:flex}
+  .loginhero{flex:1;position:relative;display:flex;flex-direction:column;
+    justify-content:center;padding:3.5rem;color:#fff;overflow:hidden;
+    background:linear-gradient(150deg,rgba(18,55,38,.92),rgba(24,74,49,.86)),
+      var(--login-bg) center/cover no-repeat}
+  .loginhero .lg{background:#fff;border-radius:14px;padding:.5rem .8rem;
+    align-self:flex-start;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+  .loginhero .lg img{height:34px;display:block}
+  .loginhero .tagpill{display:inline-block;align-self:flex-start;
+    margin:2rem 0 1.2rem;background:var(--brand-bright);color:#123018;
+    font-weight:800;letter-spacing:1px;font-size:.72rem;text-transform:uppercase;
+    padding:.45rem 1rem;border-radius:999px}
+  .loginhero h1{font-size:2.9rem;line-height:1.08;margin:0;font-weight:800;
+    letter-spacing:-.02em;max-width:12ch}
+  .loginhero p{margin:1.3rem 0 0;max-width:44ch;color:rgba(255,255,255,.9);
+    font-size:1.02rem;line-height:1.6}
+  .loginpanel{flex:1;background:#fff;display:flex;align-items:center;
+    justify-content:center;padding:1.5rem}
+  .loginform{width:100%;max-width:370px}
+  .loginform h1{margin:0 0 .3rem;font-size:1.7rem}
+  .msbtn{display:flex;align-items:center;justify-content:center;gap:.6rem;
+    width:100%;background:#fff;color:#3c4043;border:1px solid #dadce0;
+    border-radius:999px;padding:.7rem 1rem;font-weight:600;box-shadow:none}
+  .msbtn:hover{background:#f7f8f8;transform:none;box-shadow:0 2px 8px rgba(0,0,0,.08);
+    text-decoration:none}
+  .divider{display:flex;align-items:center;gap:.8rem;color:var(--muted);
+    font-size:.8rem;margin:1.2rem 0}
+  .divider::before,.divider::after{content:"";flex:1;height:1px;
+    background:var(--line)}
+  @media(max-width:820px){.loginhero{display:none}
+    .loginpanel{flex:1}}
   .rowactions{display:flex;gap:.4rem;align-items:center;white-space:nowrap}
   .rowactions form{display:inline;margin:0}
   .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;
@@ -227,7 +290,6 @@ _BASE = """
   @media (max-width:680px){
     main{margin:1rem auto;padding:0 .7rem}
     header{padding:.5rem .8rem}
-    header .brand span{display:none}
     nav{gap:.1rem;margin-left:.2rem}
     .navpill{padding:.42rem .6rem;font-size:.85rem}
     .menu>summary span:not(.avatar){display:none}
@@ -258,9 +320,10 @@ _BASE = """
 </style></head><body>
 {% if user %}
 <header>
-  <a class="brand" href="/start"><img src="{{ logo_url }}" alt="FBE"></a>
+  <a class="brand" href="/start"><span class="logochip"><img src="{{ logo_url }}" alt="FBE"></span></a>
   <nav>
     {% set pa_pages = ['dash','log','meine','abrechnung','send','reports'] %}
+    <a class="navpill {{ 'active' if page=='home' }}" href="/start">Dashboard</a>
     <details class="menu tab">
       <summary class="navpill {{ 'active' if page in pa_pages }}">Projektabrechnung ▾</summary>
       <div class="panel">
@@ -311,35 +374,52 @@ _BASE = """
 </body></html>
 """
 
+_MS_LOGO = ('<svg viewBox="0 0 23 23" width="18" height="18" '
+            'style="width:18px;height:18px;vertical-align:-3px">'
+            '<rect x="1" y="1" width="10" height="10" fill="#f25022"/>'
+            '<rect x="12" y="1" width="10" height="10" fill="#7fba00"/>'
+            '<rect x="1" y="12" width="10" height="10" fill="#00a4ef"/>'
+            '<rect x="12" y="12" width="10" height="10" fill="#ffb900"/></svg>')
+
 _LOGIN = """
 {% extends base %}
 {% block body %}
-<div class="loginbg" style="background-image:url('{{ bg_image }}')"></div>
-<div class="loginbg tint"></div>
-<div class="loginwrap">
-<div class="card" style="width:100%;max-width:400px;text-align:center;background:rgba(255,255,255,.72);box-shadow:0 24px 60px rgba(20,40,20,.4),inset 0 1px 0 rgba(255,255,255,.7);">
-  <img src="{{ logo_url }}" alt="FBE" style="height:54px;margin:.4rem 0 1.1rem;">
-  <h1 style="text-align:left;">Anmelden</h1>
-  {% if show_local and not login_possible %}
-    <div class="flash err">Noch kein Benutzer. <code>ADMIN_PASSWORD</code> in
-      der .env setzen und neu starten.</div>{% endif %}
-  {% if ms_enabled %}
-  <a class="btn" href="/auth/microsoft/login" style="display:block;text-align:center;">Mit Microsoft anmelden</a>
-  {% endif %}
-  {% if show_local %}
-    {% if ms_enabled %}<div style="margin:1rem 0;color:var(--muted);font-size:.85rem;">oder</div>{% endif %}
-    <form method="post" action="/login" style="text-align:left;">
-      <label>Benutzer</label>
-      <input name="username" autofocus autocomplete="username">
-      <label>Passwort</label>
-      <input name="password" type="password" autocomplete="current-password">
-      <div style="margin-top:1.1rem;"><button type="submit" class="{{ 'ghost' if ms_enabled }}">Einloggen</button></div>
-    </form>
-    <p style="text-align:left;margin-top:1rem;"><a href="/reset">Passwort vergessen?</a></p>
-  {% elif ms_enabled %}
-    <p style="margin-top:1.3rem;"><a href="/login?local=1" class="muted" style="font-size:.8rem;">Mit Passwort anmelden (Admin / extern)</a></p>
-  {% endif %}
-</div>
+<div class="loginsplit">
+  <div class="loginhero" style="--login-bg:url('{{ bg_image }}')">
+    <span class="lg"><img src="{{ logo_url }}" alt="FBE"></span>
+    <span class="tagpill">Intranet · Projektabrechnung</span>
+    <h1>Zeit. Projekte.<br>Flüssigboden.</h1>
+    <p>Das interne Portal der Flüssigboden Engineering GmbH – Zeiten,
+       Projektabrechnung, Tickets und Exporte an einem Ort.</p>
+  </div>
+  <div class="loginpanel">
+    <div class="loginform">
+      <h1>Willkommen zurück</h1>
+      <p class="muted" style="margin:0 0 1.5rem;">Bitte melde dich an, um fortzufahren.</p>
+      {% if show_local and not login_possible %}
+        <div class="flash err">Noch kein Benutzer. <code>ADMIN_PASSWORD</code> in
+          der .env setzen und neu starten.</div>{% endif %}
+      {% if show_local %}
+      <form method="post" action="/login">
+        <label>Benutzer</label>
+        <input name="username" autofocus autocomplete="username">
+        <label>Passwort</label>
+        <input name="password" type="password" autocomplete="current-password">
+        <div style="margin-top:1.3rem;"><button type="submit" style="width:100%;">Anmelden</button></div>
+      </form>
+      <p style="margin-top:1rem;"><a href="/reset">Passwort vergessen?</a></p>
+      {% if ms_enabled %}<div class="divider">ODER</div>{% endif %}
+      {% endif %}
+      {% if ms_enabled %}
+      <a class="msbtn" href="/auth/microsoft/login">{{ ms_logo|safe }} Mit Microsoft anmelden</a>
+      {% endif %}
+      {% if not show_local and ms_enabled %}
+      <p class="muted" style="margin-top:1.6rem;font-size:.85rem;">
+        Bei Problemen wende dich an deinen Administrator.
+        <a href="/login?local=1" style="display:block;margin-top:.5rem;">Mit Passwort anmelden (Admin / extern)</a></p>
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endblock %}
 """
@@ -347,10 +427,58 @@ _LOGIN = """
 _HOME = """
 {% extends base %}
 {% block body %}
-<div class="card glass hero">
-  <h1 style="margin:.2rem 0 .3rem;">Hallo {{ first_name }},</h1>
-  <p class="muted" style="margin:0;">willkommen im FBE-Intranet – wähle einen Bereich.</p>
+<div class="dashhead">
+  <div>
+    <h1>Willkommen, {{ first_name }}</h1>
+    <p class="muted" style="margin:.2rem 0 0;">Schön, dass du da bist. Hier ist dein Überblick.</p>
+  </div>
+  <div class="date">{{ today }}</div>
 </div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="lbl">Meine Stunden · Woche</div>
+    <div class="val">{{ week_hours }}</div>
+    <div class="sub">{{ week_sessions }} Buchung{{ '' if week_sessions==1 else 'en' }} diese Woche</div>
+  </div>
+  {% if tk_view %}
+  <div class="stat">
+    <div class="lbl">Offene Tickets</div>
+    <div class="val">{{ open_tickets }}</div>
+    <div class="sub">in Bearbeitung &amp; offen</div>
+  </div>
+  {% endif %}
+  <div class="stat">
+    <div class="lbl">Kalenderwoche</div>
+    <div class="val">KW {{ kw }}</div>
+    <div class="sub">{{ year }}</div>
+  </div>
+</div>
+
+<div class="sectlabel">Schnellzugriff</div>
+<div class="quick">
+  <a class="qpill" href="/meine-zeiten">{{ icons.history|safe }} Meine Zeiten</a>
+  <a class="qpill" href="/">{{ icons.chart|safe }} Bericht</a>
+  {% if tk_view %}<a class="qpill" href="/tickets/new">{{ icons.list|safe }} Neues Ticket</a>{% endif %}
+  {% if is_billing %}<a class="qpill" href="/abrechnung">{{ icons.calendar|safe }} Abrechnung</a>{% endif %}
+  <a class="qpill" href="{{ timemoto_url }}" target="_blank" rel="noopener">{{ icons.clock|safe }} Stempeln &amp; Urlaub ↗</a>
+</div>
+
+{% if recent %}
+<div class="card glass" style="margin-bottom:1.6rem;">
+  <h2 style="margin:0 0 .3rem;">Meine letzten Buchungen</h2>
+  {% for r in recent %}
+  <div class="listrow">
+    <span class="av">{{ r.ini }}</span>
+    <div><div class="who">{{ r.project }}</div>
+      <div class="muted" style="font-size:.84rem;">{{ r.date }} · {{ r.start }}–{{ r.end }}</div></div>
+    <div class="meta">{{ r.dur }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="sectlabel">Bereiche</div>
 <div class="tiles">
   <a class="tile" href="/">
     <div class="ti">{{ icons.chart|safe }}</div>
@@ -1503,6 +1631,7 @@ for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["icons"] = ICONS          # type: ignore
     _tpl.environment.globals["timemoto_url"] = config.TIMEMOTO_URL  # type: ignore
     _tpl.environment.globals["teilnahme_url"] = config.TEILNAHME_URL  # type: ignore
+    _tpl.environment.globals["ms_logo"] = _MS_LOGO    # type: ignore
 
 
 # --- Helfer ----------------------------------------------------------------
@@ -1720,9 +1849,39 @@ async def home(request: Request):
         return r
     nm = request.session.get("name") or _user(request) or ""
     first = nm.split()[0] if nm.split() else nm
+    ctx = _common(request, "home", "Start")
+
+    # Zeiten des angemeldeten Nutzers (TimeMoto-Name, sonst Anzeigename)
+    rec = users.get(_user(request)) or {}
+    emp = (rec.get("timemoto_name") or nm).strip()
+    now = datetime.now(config.TIMEZONE)
+    week_hours, week_sessions, recent = "0:00", 0, []
+    try:
+        ws, we = this_week_range(now)
+        if emp:
+            wk = filter_intervals(ws, we, employee=emp)
+            week_sessions = len(wk)
+            week_hours = _fmt_dur(sum(max(iv.duration_hours, 0.0) for iv in wk)).replace(" h", "")
+            for iv in filter_intervals(employee=emp)[:5]:
+                sv = _session_view(iv)
+                p = sv["project"]
+                sv["ini"] = "".join(w[0] for w in p.split()[:2]).upper() if p and p != "–" else "•"
+                recent.append(sv)
+    except Exception:
+        pass
+    open_tickets = 0
+    if ctx.get("tk_view"):
+        try:
+            c = tickets.counts_by_status()
+            open_tickets = int(c.get("open", 0)) + int(c.get("in_progress", 0))
+        except Exception:
+            open_tickets = 0
+
     return HTMLResponse(_tpls["home"].render(
-        **_common(request, "home", "Start"), teilnahme_url=config.TEILNAHME_URL,
-        first_name=first))
+        **ctx, teilnahme_url=config.TEILNAHME_URL, first_name=first,
+        today=now.strftime("%d.%m.%Y"), kw=now.isocalendar().week,
+        year=now.year, week_hours=week_hours, week_sessions=week_sessions,
+        open_tickets=open_tickets, recent=recent))
 
 
 @router.get("/login/2fa", response_class=HTMLResponse)
