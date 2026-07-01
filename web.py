@@ -1423,13 +1423,16 @@ _MEINE = """
 {% block body %}
 <div class="card glass">
   <h1>Meine Zeiten</h1>
-  {% if not tm %}
-    <p class="muted">Deinem Konto ist noch kein <b>TimeMoto-Name</b> zugeordnet.
-      Bitte wende dich an einen Administrator, damit deine Buchungen hier
-      erscheinen.</p>
-  {% else %}
-    <p class="muted">Buchungen der letzten {{ days }} Tage für <b>{{ tm }}</b>.
+    <p class="muted">Buchungen der letzten {{ days }} Tage für <b>{{ tm }}</b>{% if not assigned %}
+      (automatisch über deinen Namen; ein Administrator kann bei Bedarf einen
+      abweichenden TimeMoto-Namen zuordnen){% endif %}.
       Bitte trage je Eintrag eine Tätigkeitsbeschreibung ein (1–2 Sätze).</p>
+    {% if open_sessions %}
+    <div class="flash" style="margin-bottom:1rem;">
+      {{ icons.clock|safe }} <b>Läuft gerade:</b>
+      {% for o in open_sessions %}{{ o.project }} seit {{ o.start }}{{ ', ' if not loop.last }}{% endfor %}
+    </div>
+    {% endif %}
     {% if sessions %}
     <table>
       <thead><tr><th>Datum</th><th>Projekt</th><th>Kommt</th><th>Geht</th>
@@ -1451,8 +1454,9 @@ _MEINE = """
       {% endfor %}
       </tbody>
     </table>
-    {% else %}<p>Keine Buchungen in den letzten {{ days }} Tagen.</p>{% endif %}
-  {% endif %}
+    {% elif not open_sessions %}<p>Keine Buchungen in den letzten {{ days }} Tagen.
+      {% if not assigned %}Falls hier etwas fehlt, kann ein Administrator deinem
+      Konto den passenden <b>TimeMoto-Namen</b> zuordnen.{% endif %}</p>{% endif %}
 </div>
 {% endblock %}
 """
@@ -3039,22 +3043,43 @@ async def projects_save(request: Request):
     return RedirectResponse("/einstellungen/projekte", status_code=303)
 
 
+def _my_timemoto(request: Request) -> tuple[str, bool]:
+    """Effektiver TimeMoto-Name des angemeldeten Nutzers.
+    Rückgabe: (Name, zugeordnet?). Ist kein TimeMoto-Name gepflegt, wird der
+    Anzeigename als Fallback genutzt (passt bei Microsoft-Konten meist)."""
+    u = users.get(_user(request)) or {}
+    tm = (u.get("timemoto_name") or "").strip()
+    if tm:
+        return tm, True
+    return (request.session.get("name") or _user(request) or "").strip(), False
+
+
 @router.get("/meine-zeiten", response_class=HTMLResponse)
 async def meine_zeiten(request: Request):
     if (r := _need_login(request)):
         return r
-    u = users.get(_user(request)) or {}
-    tm = (u.get("timemoto_name") or "").strip()
-    days = 30
-    sessions = []
+    from datetime import timedelta
+    tm, assigned = _my_timemoto(request)
+    days = 60
+    sessions, opens = [], []
     if tm:
-        from datetime import timedelta
         start = datetime.now(config.TIMEZONE) - timedelta(days=days)
         ivs = filter_intervals(start, None, employee=tm)
         sessions = [_session_view(iv) for iv in ivs]
+        # Laufende (offene) Buchungen – nur aktuelle, wie im Log
+        cutoff = datetime.now(config.TIMEZONE) - timedelta(
+            hours=config.OPEN_SESSION_MAX_HOURS)
+        for o in collect_open():
+            if o.start.astimezone(config.TIMEZONE) < cutoff:
+                continue
+            if tm.lower() not in (o.employee or "").lower():
+                continue
+            opens.append({"project": o.project or "–",
+                          "start": o.start.astimezone(config.TIMEZONE)
+                          .strftime("%a %d.%m. %H:%M")})
     return HTMLResponse(_tpls["meine"].render(
-        **_common(request, "meine", "Meine Zeiten"), tm=tm, sessions=sessions,
-        days=days))
+        **_common(request, "meine", "Meine Zeiten"), tm=tm, assigned=assigned,
+        sessions=sessions, open_sessions=opens, days=days))
 
 
 @router.post("/meine-zeiten/describe")
@@ -3062,8 +3087,8 @@ async def meine_describe(request: Request, iid: str = Form(""),
                          description: str = Form("")):
     if (r := _need_login(request)):
         return r
-    u = users.get(_user(request)) or {}
-    tm = (u.get("timemoto_name") or "").strip().lower()
+    tm, _assigned = _my_timemoto(request)
+    tm = tm.lower()
     iv = _find_interval(iid)
     if not tm or not iv or (iv.employee or "").lower() != tm:
         return HTMLResponse("Kein Zugriff auf diese Buchung.", status_code=403)
