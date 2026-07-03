@@ -180,8 +180,9 @@ def set_name(username: str, name: str) -> bool:
 
 def set_profile(username: str, name: str, email: str, timemoto_name: str,
                 role: str | None = None, can_view_tickets: bool | None = None,
-                can_edit_tickets: bool | None = None) -> bool:
-    """Vom Admin pflegbare Stammdaten setzen (inkl. Rolle + Ticket-Rechte)."""
+                can_edit_tickets: bool | None = None,
+                can_fix_times: bool | None = None) -> bool:
+    """Vom Admin pflegbare Stammdaten setzen (inkl. Rolle + Rechte)."""
     with _LOCK:
         users = _load()
         if username not in users:
@@ -194,6 +195,8 @@ def set_profile(username: str, name: str, email: str, timemoto_name: str,
             u["can_view_tickets"] = bool(can_view_tickets)
         if can_edit_tickets is not None:
             u["can_edit_tickets"] = bool(can_edit_tickets)
+        if can_fix_times is not None:
+            u["can_fix_times"] = bool(can_fix_times)
         if role in ("admin", "user", "buchhaltung"):
             # Letzten AKTIVEN Admin nicht herabstufen
             is_last_active_admin = (u.get("role") == "admin"

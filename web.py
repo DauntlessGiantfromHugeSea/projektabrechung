@@ -394,6 +394,21 @@ _BASE = """
     border-bottom:1px solid var(--line)}
   .tablewrap thead th:first-child,.tablewrap tbody td:first-child{padding-left:1.15rem}
   .tablewrap thead th:last-child,.tablewrap tbody td:last-child{padding-right:1.15rem}
+  tbody tr:nth-child(even){background:#fafcf8}
+  tbody tr:nth-child(even):hover,tbody tr:hover{background:#f3f7ef}
+  a.statlink{color:var(--fg);display:block}
+  a.statlink:hover{text-decoration:none;border-color:#cbd8c2;
+    box-shadow:0 3px 14px rgba(18,38,24,.10)}
+  .stat.todo{border-color:#eddcab;background:#fffcf3}
+  .stat.todo .ico{background:#faf0d3;color:#8a6410}
+  .stat.todo .val{color:#8a6410}
+  .warnhint{color:#9a6b10;font-size:.74rem;font-weight:600;margin-top:.1rem}
+  .minirow{display:flex;gap:.5rem;flex-wrap:wrap;margin:.2rem 0 .9rem}
+  .mini{display:inline-flex;align-items:center;gap:.4rem;background:#f4f7f1;
+    border:1px solid var(--line);border-radius:999px;padding:.3rem .8rem;
+    font-size:.83rem;font-weight:600;color:var(--fg)}
+  .mini.warn{background:#fdf7e5;border-color:#eddcab;color:#8a6410}
+  .mini b{font-weight:700}
   /* --- Tätigkeitsbeschreibung: inline bearbeiten --- */
   .descedit{min-width:200px;max-width:360px}
   .descedit>summary{list-style:none;display:flex;align-items:flex-start;gap:.4rem;
@@ -425,9 +440,9 @@ _BASE = """
       <summary class="navpill {{ 'active' if page in pa_pages }}">Projektabrechnung ▾</summary>
       <div class="panel">
         <a href="/meine-zeiten">{{ icons.chart|safe }} Meine Zeiten</a>
-        {% if is_billing %}<a href="/">{{ icons.chart|safe }} Bericht</a>
-        <a href="/log">{{ icons.list|safe }} Log</a>
-        <a href="/abrechnung">{{ icons.list|safe }} Abrechnung</a>{% endif %}
+        {% if is_billing %}<a href="/">{{ icons.chart|safe }} Bericht</a>{% endif %}
+        {% if can_fix %}<a href="/log">{{ icons.list|safe }} Log</a>{% endif %}
+        {% if is_billing %}<a href="/abrechnung">{{ icons.list|safe }} Abrechnung</a>{% endif %}
         {% if role=='admin' %}<a href="/versand">{{ icons.mail|safe }} Senden</a>
         <a href="/reports">{{ icons.calendar|safe }} Berichte</a>{% endif %}
         <a href="{{ timemoto_url }}" target="_blank" rel="noopener">{{ icons.clock|safe }} Zeiterfassung &amp; Urlaub ↗</a>
@@ -555,6 +570,12 @@ _HOME = """
     <div class="sub">in Bearbeitung &amp; offen</div>
   </div>
   {% endif %}
+  <a class="stat statlink {{ 'todo' if todo_total }}" href="/meine-zeiten">
+    <div class="ico">{{ icons.edit|safe }}</div>
+    <div class="lbl">Zu erledigen</div>
+    <div class="val">{{ todo_total }}</div>
+    <div class="sub">{% if todo_total %}{{ todo_desc }} ohne Tätigkeit{% if todo_proj %} · {{ todo_proj }} ohne Projekt{% endif %}{% else %}alles gepflegt ✓{% endif %}</div>
+  </a>
   <div class="stat">
     <div class="ico">{{ icons.calendar|safe }}</div>
     <div class="lbl">Kalenderwoche</div>
@@ -566,6 +587,7 @@ _HOME = """
 <div class="sectlabel">Schnellzugriff</div>
 <div class="quick">
   <a class="qpill" href="/meine-zeiten">{{ icons.history|safe }} Meine Zeiten</a>
+  <a class="qpill" href="/meine-zeiten/neu">{{ icons.edit|safe }} Buchung nachtragen</a>
   {% if is_billing %}<a class="qpill" href="/">{{ icons.chart|safe }} Bericht</a>{% endif %}
   {% if tk_view %}<a class="qpill" href="/tickets/new">{{ icons.list|safe }} Neues Ticket</a>{% endif %}
   {% if is_billing %}<a class="qpill" href="/abrechnung">{{ icons.calendar|safe }} Abrechnung</a>{% endif %}
@@ -574,13 +596,16 @@ _HOME = """
 
 {% if recent %}
 <div class="card glass" style="margin-bottom:1.6rem;">
-  <h2 style="margin:0 0 .3rem;">Meine letzten Buchungen</h2>
+  <div class="toolbar" style="justify-content:space-between;margin-bottom:.3rem;">
+    <h2 style="margin:0;">Meine letzten Buchungen</h2>
+    <a href="/meine-zeiten" class="muted" style="font-size:.86rem;">alle ansehen →</a>
+  </div>
   {% for r in recent %}
   <div class="listrow">
     <span class="av">{{ r.ini }}</span>
     <div><div class="who">{{ r.project }}</div>
       <div class="muted" style="font-size:.84rem;">{{ r.date }} · {{ r.start }}–{{ r.end }}</div></div>
-    <div class="meta">{{ r.dur }}</div>
+    <div class="meta"><b>{{ r.dur }}</b>{% if not r.description %}<div class="warnhint">Tätigkeit fehlt</div>{% endif %}</div>
   </div>
   {% endfor %}
 </div>
@@ -782,9 +807,9 @@ _LOG = """
   <div class="toolbar" style="justify-content:space-between;">
     <h1 style="margin:0;">Log – Buchungen</h1>
     <div class="toolbar">
-      {% if role=='admin' %}<a class="btn" href="/log/edit">+ Eintrag hinzufügen</a>{% endif %}
-      <a class="btn ghost" href="/export.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Excel</a>
-      <a class="btn ghost" href="/export/amprion.csv?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Amprion-CSV</a>
+      {% if can_fix %}<a class="btn" href="/log/edit">+ Eintrag hinzufügen</a>{% endif %}
+      {% if is_billing %}<a class="btn ghost" href="/export.xlsx?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Excel</a>
+      <a class="btn ghost" href="/export/amprion.csv?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ start_in }}&end={{ end_in }}">Amprion-CSV</a>{% endif %}
     </div>
   </div>
   <form method="get" action="/log">
@@ -819,12 +844,12 @@ _LOG = """
   <div class="tablewrap"><table>
     <thead><tr><th>Datum</th><th>Mitarbeiter</th><th>Projekt</th>
       <th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th>Tätigkeit</th><th>Quelle</th>
-      {% if is_billing %}<th>Aktionen</th>{% endif %}</tr></thead>
+      {% if can_fix %}<th>Aktionen</th>{% endif %}</tr></thead>
     <tbody>
     {% for s in sessions %}
       <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
         <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td>
-        <td>{% if is_billing %}
+        <td>{% if can_fix %}
           <details class="descedit">
             <summary>{% if s.description %}<span class="desctext">{{ s.description }}</span>{% else %}<span class="descadd">+ Tätigkeit</span>{% endif %}{{ icons.edit|safe }}</summary>
             <form method="post" action="/log/describe" class="descform">
@@ -835,7 +860,7 @@ _LOG = """
           </details>
           {% else %}{{ s.description }}{% endif %}</td>
         <td>{% if s.source=='manual' %}<span class="pill role">manuell</span>{% else %}<span class="muted">TimeMoto</span>{% endif %}</td>
-        {% if is_billing %}<td><div class="rowactions">
+        {% if can_fix %}<td><div class="rowactions">
           <a class="btn ghost" href="/log/edit?iid={{ s.id|urlencode }}">{{ 'Bearbeiten' if s.source=='manual' else 'Korrigieren' }}</a>
           {% if s.source=='manual' %}
           <form method="post" action="/log/delete">
@@ -857,7 +882,7 @@ _LOG = """
   {% else %}<p>Keine Buchungen für diese Filter.</p>{% endif %}
 </div>
 
-{% if is_billing and hidden %}
+{% if can_fix and hidden %}
 <div class="card glass">
   <h2>Ausgeblendete TimeMoto-Buchungen</h2>
   <table><tbody>
@@ -1226,6 +1251,11 @@ _USERS = """
       <option value="view">Nur ansehen</option>
       <option value="edit">Ansehen &amp; bearbeiten</option>
     </select>
+    <label>Zeiten korrigieren</label>
+    <select name="fix_times">
+      <option value="no">Nein</option>
+      <option value="yes">Ja</option>
+    </select>
     <p class="muted" style="margin:.5rem 0 0">Ist eine E-Mail angegeben, wird die
       Einladung direkt per Mail versendet (Link 5 Tage gültig).</p>
     <div style="margin-top:1rem;"><button type="submit">Einladung erstellen</button></div>
@@ -1414,6 +1444,14 @@ _USER_EDIT = """
       <option value="view" {{ 'selected' if lvl=='view' }}>Nur ansehen</option>
       <option value="edit" {{ 'selected' if lvl=='edit' }}>Ansehen &amp; bearbeiten</option>
     </select>
+    <label>Zeiten korrigieren (Log, Buchungen aller Mitarbeiter pflegen)</label>
+    <select name="fix_times">
+      <option value="no" {{ 'selected' if not u.can_fix_times }}>Nein</option>
+      <option value="yes" {{ 'selected' if u.can_fix_times }}>Ja</option>
+    </select>
+    <p class="muted" style="margin:.3rem 0 0;">Admin und Buchhaltung dürfen das
+      immer. Mit „Ja" bekommt auch diese Person Zugriff auf das Log inkl.
+      Korrekturen (ohne Exporte/Berichte).</p>
     <div class="toolbar" style="margin-top:1.2rem;">
       <button type="submit">Speichern</button>
       <a class="btn ghost" href="/users">Abbrechen</a>
@@ -1448,6 +1486,11 @@ _MEINE = """
   <div class="toolbar" style="justify-content:space-between;">
     <h1 style="margin:0;">Meine Zeiten</h1>
     <a class="btn" href="/meine-zeiten/neu">+ Buchung hinzufügen</a>
+  </div>
+  <div class="minirow">
+    <span class="mini">{{ icons.clock|safe }} Diese Woche <b>{{ week_h }}</b></span>
+    <span class="mini {{ 'warn' if miss_desc }}">{{ icons.edit|safe }} <b>{{ miss_desc }}</b> ohne Tätigkeit</span>
+    {% if no_project %}<span class="mini warn">{{ icons.list|safe }} <b>{{ no_project|length }}</b> ohne Projekt</span>{% endif %}
   </div>
     <p class="muted">Buchungen der letzten {{ days }} Tage für <b>{{ tm }}</b>{% if not assigned %}
       (automatisch über deinen Namen; ein Administrator kann bei Bedarf einen
@@ -1944,6 +1987,8 @@ def _common(request: Request, page: str, title: str):
                 role_label=role_label, is_billing=(role in ("admin", "buchhaltung")),
                 tk_view=bool(request.session.get("tk_view") or role == "admin"),
                 tk_edit=bool(request.session.get("tk_edit") or role == "admin"),
+                can_fix=bool(role in ("admin", "buchhaltung")
+                             or request.session.get("fix_times")),
                 impersonating=bool(imp),
                 imp_by=(imp or {}).get("name") if imp else None,
                 flash=request.session.pop("flash", None),
@@ -2047,6 +2092,17 @@ def _need_billing(request: Request):
     return None
 
 
+def _need_timekeeper(request: Request):
+    """Zeiten korrigieren: Admin, Buchhaltung oder Recht 'Zeiten korrigieren'."""
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    if (_role(request) in ("admin", "buchhaltung")
+            or request.session.get("fix_times")):
+        return None
+    return _deny(request, "Dieser Bereich ist nur für Personen mit dem Recht "
+                 "„Zeiten korrigieren“.")
+
+
 def _need_tickets(request: Request):
     """Tickets ansehen (admin oder Recht 'Tickets sehen/bearbeiten')."""
     if not _user(request):
@@ -2103,6 +2159,8 @@ def _finalize_login(request: Request, user: dict) -> None:
         or user.get("can_edit_tickets"))
     request.session["tk_edit"] = bool(
         role == "admin" or user.get("can_edit_tickets"))
+    request.session["fix_times"] = bool(
+        role in ("admin", "buchhaltung") or user.get("can_fix_times"))
 
 
 @router.post("/login")
@@ -2171,13 +2229,23 @@ async def home(request: Request):
     emp = (rec.get("timemoto_name") or nm).strip()
     now = datetime.now(config.TIMEZONE)
     week_hours, week_sessions, recent = "0:00", 0, []
+    todo_desc = todo_proj = 0
     try:
+        from datetime import timedelta
         ws, we = this_week_range(now)
         if emp:
             wk = filter_intervals(ws, we, employee=emp)
             week_sessions = len(wk)
             week_hours = _fmt_dur(sum(max(iv.duration_hours, 0.0) for iv in wk)).replace(" h", "")
-            for iv in filter_intervals(employee=emp)[:5]:
+            horizon = now - timedelta(days=60)
+            own = filter_intervals(horizon, None, employee=emp)
+            todo_desc = sum(1 for iv in own if not (iv.description or "").strip())
+            todo_proj = sum(
+                1 for iv in collect_intervals(include_no_project=True)
+                if not (iv.project or "").strip()
+                and (iv.employee or "").lower() == emp.lower()
+                and iv.start.astimezone(config.TIMEZONE) >= horizon)
+            for iv in own[:5]:
                 sv = _session_view(iv)
                 p = sv["project"]
                 sv["ini"] = "".join(w[0] for w in p.split()[:2]).upper() if p and p != "–" else "•"
@@ -2192,11 +2260,15 @@ async def home(request: Request):
         except Exception:
             open_tickets = 0
 
+    wd = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag",
+          "Samstag", "Sonntag"][now.weekday()]
     return HTMLResponse(_tpls["home"].render(
         **ctx, teilnahme_url=config.TEILNAHME_URL, first_name=first,
-        today=now.strftime("%d.%m.%Y"), kw=now.isocalendar().week,
+        today=f"{wd}, {now:%d.%m.%Y}", kw=now.isocalendar().week,
         year=now.year, week_hours=week_hours, week_sessions=week_sessions,
-        open_tickets=open_tickets, recent=recent))
+        open_tickets=open_tickets, recent=recent,
+        todo_desc=todo_desc, todo_proj=todo_proj,
+        todo_total=todo_desc + todo_proj))
 
 
 @router.get("/login/2fa", response_class=HTMLResponse)
@@ -2416,7 +2488,7 @@ async def send_now(request: Request, project: str = Form(""),
 @router.get("/log", response_class=HTMLResponse)
 async def log_page(request: Request, employee: str = "", project: str = "",
                    start: str = "", end: str = ""):
-    if (r := _need_billing(request)):
+    if (r := _need_timekeeper(request)):
         return r
     s = e = None
     if start:
@@ -2445,7 +2517,8 @@ async def log_page(request: Request, employee: str = "", project: str = "",
         opens.append({"employee": o.employee, "project": o.project or "–",
                       "start": o.start.astimezone(config.TIMEZONE).strftime("%a %d.%m. %H:%M")})
     hidden = (sorted(manual.hidden_ids())
-              if _role(request) in ("admin", "buchhaltung") else [])
+              if (_role(request) in ("admin", "buchhaltung")
+                  or request.session.get("fix_times")) else [])
     return HTMLResponse(_tpls["log"].render(
         **_common(request, "log", "Log"),
         all_employees=_all_employees(), all_projects=_all_projects(),
@@ -2476,7 +2549,7 @@ def _find_interval_any(iid: str):
 
 @router.get("/log/edit", response_class=HTMLResponse)
 async def log_edit(request: Request, iid: str = ""):
-    if (r := _need_billing(request)):
+    if (r := _need_timekeeper(request)):
         return r
     now = datetime.now(config.TIMEZONE)
     f = {"employee": "", "project": "", "date": now.strftime("%Y-%m-%d"),
@@ -2513,7 +2586,7 @@ async def log_save(request: Request, iid: str = Form(""),
                    employee: str = Form(""), project: str = Form(""),
                    date: str = Form(""), start_time: str = Form(""),
                    end_time: str = Form(""), note: str = Form("")):
-    if (r := _need_billing(request)):
+    if (r := _need_timekeeper(request)):
         return r
     user = _user(request)
     try:
@@ -2548,7 +2621,7 @@ async def log_save(request: Request, iid: str = Form(""),
 
 @router.post("/log/delete")
 async def log_delete(request: Request, iid: str = Form("")):
-    if (r := _need_billing(request)):
+    if (r := _need_timekeeper(request)):
         return r
     user = _user(request)
     if iid.startswith("man:"):
@@ -2564,7 +2637,7 @@ async def log_delete(request: Request, iid: str = Form("")):
 
 @router.post("/log/restore")
 async def log_restore(request: Request, iid: str = Form("")):
-    if (r := _need_billing(request)):
+    if (r := _need_timekeeper(request)):
         return r
     manual.unhide(iid)
     audit.log(_user(request), "wieder eingeblendet", iid)
@@ -2574,7 +2647,7 @@ async def log_restore(request: Request, iid: str = Form("")):
 
 @router.post("/log/purge")
 async def log_purge(request: Request, iid: str = Form("")):
-    if (r := _need_billing(request)):
+    if (r := _need_timekeeper(request)):
         return r
     user = _user(request)
     if iid.startswith("wh:"):
@@ -2615,7 +2688,7 @@ async def export_xlsx(request: Request, employee: str = "", project: str = "",
 @router.post("/log/describe")
 async def log_describe(request: Request, iid: str = Form(""),
                        description: str = Form("")):
-    if (r := _need_billing(request)):
+    if (r := _need_timekeeper(request)):
         return r
     activities.set_description(iid, description, _user(request))
     audit.log(_user(request), "Tätigkeit gesetzt", f"{iid}: {description[:80]}")
@@ -3166,10 +3239,15 @@ async def meine_zeiten(request: Request):
             opens.append({"project": o.project or "ohne Projekt",
                           "start": o.start.astimezone(config.TIMEZONE)
                           .strftime("%a %d.%m. %H:%M")})
+    ws, we = this_week_range()
+    week_h = _fmt_dur(sum(
+        max(iv.duration_hours, 0.0)
+        for iv in filter_intervals(ws, we, employee=tm))) if tm else "0:00 h"
+    miss_desc = sum(1 for s in sessions if not (s.get("description") or "").strip())
     return HTMLResponse(_tpls["meine"].render(
         **_common(request, "meine", "Meine Zeiten"), tm=tm, assigned=assigned,
         sessions=sessions, open_sessions=opens, no_project=no_project,
-        days=days))
+        week_h=week_h, miss_desc=miss_desc, days=days))
 
 
 @router.post("/meine-zeiten/describe")
@@ -3501,13 +3579,17 @@ async def users_import_ms(request: Request):
 async def users_create(request: Request, username: str = Form(""),
                        role: str = Form("user"), name: str = Form(""),
                        email: str = Form(""), timemoto_name: str = Form(""),
-                       ticket_access: str = Form("none")):
+                       ticket_access: str = Form("none"),
+                       fix_times: str = Form("no")):
     if (r := _need_admin(request)):
         return r
     token = users.create_invite(
         username, role, name, email, timemoto_name,
         can_view_tickets=ticket_access in ("view", "edit"),
         can_edit_tickets=ticket_access == "edit")
+    if token is not None and fix_times == "yes":
+        users.set_profile(username, name, email, timemoto_name,
+                          can_fix_times=True)
     if token is None:
         request.session["flash"], request.session["flash_class"] = \
             "Benutzername leer oder bereits vergeben.", "err"
@@ -3537,7 +3619,8 @@ async def users_edit_save(request: Request, username: str,
                           new_username: str = Form(""), name: str = Form(""),
                           email: str = Form(""), timemoto_name: str = Form(""),
                           role: str = Form("user"),
-                          ticket_access: str = Form("none")):
+                          ticket_access: str = Form("none"),
+                          fix_times: str = Form("no")):
     if (r := _need_admin(request)):
         return r
     target = username
@@ -3554,7 +3637,8 @@ async def users_edit_save(request: Request, username: str,
             return RedirectResponse(f"/users/{username}/edit", status_code=303)
     if users.set_profile(target, name, email, timemoto_name, role,
                          can_view_tickets=ticket_access in ("view", "edit"),
-                         can_edit_tickets=ticket_access == "edit"):
+                         can_edit_tickets=ticket_access == "edit",
+                         can_fix_times=fix_times == "yes"):
         audit.log(_user(request), "Benutzer bearbeitet",
                   f"{username} (Rolle {role}, TimeMoto '{timemoto_name}')")
         request.session["flash"] = f"Benutzer {username} gespeichert."
