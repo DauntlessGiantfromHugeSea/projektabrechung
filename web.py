@@ -96,20 +96,24 @@ _BASE = """
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="FBE Intranet">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --fg:#15321f; --muted:#64748b; --brand:#92c57a; --brand-d:#6fa84f;
-    --brand-bright:#a4d65e; --accent-text:#123018;
-    --bar:#92c57a; --bar-2:#7fb565;
-    --link:#4d8838; --danger:#c0392b;
-    --line:#ebeee8; --card:#ffffff; --bg:#fbfcfa;
-    --shadow:0 1px 2px rgba(16,40,24,.05),0 10px 34px rgba(16,40,24,.07);
-    --radius:20px;
+    --fg:#1b2a20; --muted:#6a7870; --brand:#92c57a; --brand-d:#6fa84f;
+    --brand-deep:#2f6b1f; --brand-bright:#a4d65e; --accent-text:#16330f;
+    --bar:#92c57a; --bar-2:#85ba6b;
+    --link:#44772f; --danger:#b3372a;
+    --line:#e6eae1; --line-soft:#eef1ea; --card:#ffffff; --bg:#f8faf6;
+    --shadow:0 1px 2px rgba(18,38,24,.04),0 8px 28px rgba(18,38,24,.06);
+    --radius:18px;
   }
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;color:var(--fg);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
-    background:var(--bg);-webkit-font-smoothing:antialiased;}
+    font:15px/1.6 Inter,-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
+    background:var(--bg);-webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;}
   a{color:var(--link);text-decoration:none}
   a:hover{text-decoration:underline}
   svg{width:18px;height:18px;flex:0 0 auto;vertical-align:-3px}
@@ -154,8 +158,9 @@ _BASE = """
     box-shadow:0 4px 12px rgba(16,40,24,.18)}
   .menu.tab .panel{left:0;right:auto;min-width:210px}
   .menu .panel{position:absolute;right:0;top:122%;min-width:240px;background:#fff;
-    border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
-    padding:.4rem;display:none;z-index:40}
+    border:1px solid var(--line);border-radius:14px;
+    box-shadow:0 10px 36px rgba(18,38,24,.16),0 2px 6px rgba(18,38,24,.06);
+    padding:.35rem;display:none;z-index:40}
   .menu[open] .panel{display:block}
   .menu .panel a{display:flex;align-items:center;gap:.65rem;padding:.6rem .7rem;
     border-radius:11px;color:var(--fg);font-weight:600;margin:0;font-size:.92rem}
@@ -186,43 +191,49 @@ _BASE = """
   h3{font-size:1rem;margin:1rem 0 .4rem}
   label{display:block;font-size:.83rem;color:var(--muted);margin:.7rem 0 .25rem;
     font-weight:600}
-  input,select,textarea{width:100%;padding:.65rem .8rem;border-radius:16px;
-    border:1px solid rgba(146,197,122,.4);background:rgba(255,255,255,.55);
-    font:inherit;color:var(--fg);outline:none;transition:.15s}
-  input:focus,select:focus,textarea:focus{border-color:var(--brand);
-    box-shadow:0 0 0 3px rgba(146,197,122,.3);background:#fff}
+  input,select,textarea{width:100%;padding:.6rem .85rem;border-radius:12px;
+    border:1px solid #dbe1d5;background:#fff;
+    font:inherit;color:var(--fg);outline:none;
+    transition:border-color .15s,box-shadow .15s}
+  input:hover,select:hover,textarea:hover{border-color:#c6d0bf}
+  input:focus,select:focus,textarea:focus{border-color:var(--brand-d);
+    box-shadow:0 0 0 3px rgba(146,197,122,.25)}
+  input:disabled{background:#f4f6f2;color:var(--muted)}
   textarea{min-height:80px;resize:vertical}
-  button,.btn{background:linear-gradient(135deg,var(--brand),var(--brand-d));
-    color:var(--accent-text);border:0;border-radius:999px;padding:.5rem 1rem;
-    font:inherit;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(111,168,79,.35);
-    transition:.15s;display:inline-block;white-space:nowrap;font-size:.9rem}
-  button:hover,.btn:hover{transform:translateY(-1px);text-decoration:none;
-    box-shadow:0 10px 22px rgba(111,168,79,.45)}
+  button,.btn{background:var(--brand);color:var(--accent-text);border:0;
+    border-radius:12px;padding:.55rem 1.05rem;
+    font:inherit;font-weight:600;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;gap:.45rem;
+    box-shadow:0 1px 2px rgba(18,38,24,.12);line-height:1.25;
+    transition:background .15s,box-shadow .15s,transform .06s;
+    white-space:nowrap;font-size:.9rem}
+  button:hover,.btn:hover{background:#84b96b;text-decoration:none;
+    box-shadow:0 3px 10px rgba(18,38,24,.14)}
+  button:active,.btn:active{transform:translateY(1px)}
   button:disabled{opacity:.55;cursor:default;transform:none;box-shadow:none}
-  button.ghost,.btn.ghost{background:rgba(255,255,255,.6);color:var(--brand-d);
-    border:1px solid rgba(111,168,79,.5);box-shadow:none;font-weight:700}
-  button.danger{background:rgba(255,255,255,.6);color:var(--danger);
-    border:1px solid rgba(192,57,43,.5);box-shadow:none;padding:.4rem .8rem;
+  button.ghost,.btn.ghost{background:#fff;color:var(--brand-deep);
+    border:1px solid var(--line);box-shadow:0 1px 2px rgba(18,38,24,.05);
+    font-weight:600}
+  button.ghost:hover,.btn.ghost:hover{background:#f3f7f0;
+    border-color:#cfdbc6}
+  button.danger{background:#fff;color:var(--danger);
+    border:1px solid #ecdad6;box-shadow:none;padding:.45rem .85rem;
     font-size:.85rem}
-  table{border-collapse:separate;border-spacing:0;width:100%;margin-top:.6rem;
-    font-size:.93rem}
-  thead th{background:#f3f8ec;color:var(--muted);text-transform:uppercase;
-    font-size:.72rem;letter-spacing:.6px;font-weight:800;padding:.7rem .9rem;
-    text-align:left;white-space:nowrap;border-top:1px solid var(--line);
-    border-bottom:1px solid var(--line)}
-  thead th:first-child{border-top-left-radius:12px;border-bottom-left-radius:12px;
-    border-left:1px solid var(--line)}
-  thead th:last-child{border-top-right-radius:12px;border-bottom-right-radius:12px;
-    border-right:1px solid var(--line)}
+  button.danger:hover{background:#fdf3f1;border-color:#e3c4be}
+  table{border-collapse:collapse;width:100%;margin-top:.6rem;font-size:.92rem}
+  thead th{background:none;color:var(--muted);text-transform:uppercase;
+    font-size:.7rem;letter-spacing:.75px;font-weight:700;
+    padding:.4rem .9rem .55rem;text-align:left;white-space:nowrap;
+    border-bottom:1.5px solid #dde3d6}
   th{text-align:left}
-  tbody td{padding:.78rem .9rem;text-align:left;
-    border-bottom:1px solid rgba(90,107,95,.10)}
+  tbody td{padding:.8rem .9rem;text-align:left;
+    border-bottom:1px solid var(--line-soft)}
   tbody tr:last-child td{border-bottom:0}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .row{display:flex;gap:1rem;flex-wrap:wrap;align-items:end}
   .row>div{flex:1;min-width:150px}
-  .pill{display:inline-block;padding:.18rem .6rem;border-radius:999px;
-    font-size:.78rem;font-weight:700}
+  .pill{display:inline-block;padding:.16rem .6rem;border-radius:999px;
+    font-size:.74rem;font-weight:600;letter-spacing:.1px}
   .ok{background:rgba(146,197,122,.35);color:#2f6b1f}
   .no{background:rgba(192,57,43,.18);color:#922}
   .role{background:rgba(99,102,241,.18);color:#3730a3}
@@ -240,11 +251,10 @@ _BASE = """
     border:1px solid rgba(111,168,79,.35);border-radius:999px;
     padding:.15rem .6rem;margin:.15rem .25rem 0 0;font-size:.84rem}
   .chip.click{cursor:pointer}
-  .flash{padding:.75rem .95rem;border-radius:16px;margin-bottom:1rem;
-    background:rgba(146,197,122,.25);border:1px solid rgba(111,168,79,.4);
-    color:#2f6b1f;word-break:break-word}
-  .flash.err{background:rgba(192,57,43,.14);border-color:rgba(192,57,43,.4);
-    color:#922}
+  .flash{padding:.8rem 1rem;border-radius:12px;margin-bottom:1rem;
+    background:#f0f7e9;border:1px solid #d9e8ca;
+    color:#31611c;word-break:break-word;font-size:.93rem}
+  .flash.err{background:#fdf4f2;border-color:#f0d6d1;color:#8f2e22}
   code{background:rgba(255,255,255,.65);padding:.12rem .4rem;border-radius:7px;
     font-size:.86em}
   .toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
@@ -328,7 +338,7 @@ _BASE = """
   .loginform h1{margin:0 0 .3rem;font-size:1.7rem}
   .msbtn{display:flex;align-items:center;justify-content:center;gap:.6rem;
     width:100%;background:#fff;color:#3c4043;border:1px solid #dadce0;
-    border-radius:999px;padding:.7rem 1rem;font-weight:600;box-shadow:none}
+    border-radius:12px;padding:.7rem 1rem;font-weight:600;box-shadow:none}
   .msbtn:hover{background:#f7f8f8;transform:none;box-shadow:0 2px 8px rgba(0,0,0,.08);
     text-decoration:none}
   .divider{display:flex;align-items:center;gap:.8rem;color:var(--muted);
@@ -353,42 +363,37 @@ _BASE = """
     table{font-size:.86rem;min-width:520px}
     .row>div{min-width:120px}
   }
-  /* --- Politur --- */
-  h1{letter-spacing:-.015em;font-weight:800}
-  h2{letter-spacing:-.01em}
-  .card{padding:1.5rem 1.6rem;margin-bottom:1.35rem}
+  /* --- Feinschliff --- */
+  h1{letter-spacing:-.02em;font-weight:700;font-size:1.45rem}
+  h2{letter-spacing:-.012em;font-weight:700}
+  h3{font-weight:650}
+  .card{padding:1.6rem 1.7rem;margin-bottom:1.35rem}
   tbody td{vertical-align:middle}
   tbody tr{transition:background .12s}
-  tbody tr:hover{background:rgba(146,197,122,.09)}
-  input,select,textarea{background:#fff;border:1px solid #dfe6d8}
-  input:focus,select:focus,textarea:focus{border-color:var(--brand);
-    box-shadow:0 0 0 4px rgba(146,197,122,.24);background:#fff}
+  tbody tr:hover{background:#f5f8f2}
   .chip{transition:.12s}
   .chip:hover{background:rgba(146,197,122,.4);text-decoration:none}
   .hero{padding:1.7rem 1.8rem}
   .hero h1{font-size:1.7rem}
-  ::selection{background:rgba(146,197,122,.45)}
-  button:active,.btn:active{transform:translateY(0)}
+  ::selection{background:rgba(146,197,122,.4)}
   details.menu>summary{transition:.12s}
-  /* --- Modern polish --- */
-  .card{box-shadow:0 1px 2px rgba(16,40,24,.04),0 12px 34px rgba(16,40,24,.08)}
   .stat{padding:1.5rem 1.55rem}
-  .stat .ico{position:absolute;top:1.2rem;right:1.25rem;width:38px;height:38px;
+  .stat .ico{position:absolute;top:1.3rem;right:1.3rem;width:38px;height:38px;
     border-radius:12px;display:flex;align-items:center;justify-content:center;
-    color:var(--brand-d);background:rgba(146,197,122,.18);z-index:1}
+    color:var(--brand-deep);background:#eef5e8;z-index:1}
   .stat .ico svg{width:19px;height:19px}
   .stat .lbl{padding-right:3rem;position:relative;z-index:1}
-  .stat .val{font-size:2.15rem}
+  .stat .val{font-size:2.15rem;font-variant-numeric:tabular-nums}
   .quick{gap:.65rem}
-  .qpill{box-shadow:0 1px 2px rgba(16,40,24,.04),0 6px 16px rgba(16,40,24,.06)}
-  .tablewrap{border:1px solid var(--line);border-radius:16px;background:#fff;
-    box-shadow:0 1px 2px rgba(16,40,24,.04)}
+  .qpill{border-radius:12px;box-shadow:0 1px 2px rgba(18,38,24,.05)}
+  .qpill:hover{transform:none;background:#f6faf3;color:var(--brand-deep)}
+  .tile:hover{transform:translateY(-2px)}
+  .tablewrap{border:1px solid var(--line);border-radius:14px;background:#fff}
   .tablewrap table{margin-top:0}
-  .tablewrap thead th{border-top:0}
-  .tablewrap thead th:first-child{border-left:0;border-radius:0}
-  .tablewrap thead th:last-child{border-right:0;border-radius:0}
-  .tablewrap tbody td:first-child{padding-left:1rem}
-  .tablewrap tbody tr:first-child td{padding-top:.85rem}
+  .tablewrap thead th{padding-top:.85rem;background:#fafcf8;
+    border-bottom:1px solid var(--line)}
+  .tablewrap thead th:first-child,.tablewrap tbody td:first-child{padding-left:1.15rem}
+  .tablewrap thead th:last-child,.tablewrap tbody td:last-child{padding-right:1.15rem}
   /* --- Tätigkeitsbeschreibung: inline bearbeiten --- */
   .descedit{min-width:200px;max-width:360px}
   .descedit>summary{list-style:none;display:flex;align-items:flex-start;gap:.4rem;
@@ -1421,12 +1426,34 @@ _USER_EDIT = """
 _MEINE = """
 {% extends base %}
 {% block body %}
+{% if no_project %}
+<div class="card glass" style="border-color:#ecd9a8;background:#fffdf5;">
+  <h2 style="margin-bottom:.2rem;">Buchungen ohne Projekt</h2>
+  <p class="muted" style="margin:.2rem 0 .4rem;">Diese Zeiten hast du gestempelt,
+    aber ohne Projekt – sie zählen noch in keine Abrechnung. Weise ihnen ein
+    Projekt zu, damit sie berücksichtigt werden.</p>
+  <table>
+    <thead><tr><th>Datum</th><th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th></th></tr></thead>
+    <tbody>
+    {% for s in no_project %}
+      <tr><td>{{ s.date }}</td><td>{{ s.start }}</td><td>{{ s.end }}</td>
+        <td class="num">{{ s.dur }}</td>
+        <td style="text-align:right;"><a class="btn" href="/meine-zeiten/neu?iid={{ s.id|urlencode }}">Projekt zuweisen</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 <div class="card glass">
-  <h1>Meine Zeiten</h1>
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Meine Zeiten</h1>
+    <a class="btn" href="/meine-zeiten/neu">+ Buchung hinzufügen</a>
+  </div>
     <p class="muted">Buchungen der letzten {{ days }} Tage für <b>{{ tm }}</b>{% if not assigned %}
       (automatisch über deinen Namen; ein Administrator kann bei Bedarf einen
       abweichenden TimeMoto-Namen zuordnen){% endif %}.
-      Bitte trage je Eintrag eine Tätigkeitsbeschreibung ein (1–2 Sätze).</p>
+      Bitte trage je Eintrag eine Tätigkeitsbeschreibung ein (1–2 Sätze).
+      Vergessene Buchungen kannst du selbst nachtragen oder korrigieren.</p>
     {% if open_sessions %}
     <div class="flash" style="margin-bottom:1rem;">
       {{ icons.clock|safe }} <b>Läuft gerade:</b>
@@ -1434,9 +1461,9 @@ _MEINE = """
     </div>
     {% endif %}
     {% if sessions %}
-    <table>
+    <div class="tablewrap"><table>
       <thead><tr><th>Datum</th><th>Projekt</th><th>Kommt</th><th>Geht</th>
-        <th class="num">Dauer</th><th>Tätigkeitsbeschreibung</th></tr></thead>
+        <th class="num">Dauer</th><th>Tätigkeitsbeschreibung</th><th></th></tr></thead>
       <tbody>
       {% for s in sessions %}
         <tr><td>{{ s.date }}</td><td>{{ s.project }}</td><td>{{ s.start }}</td>
@@ -1450,13 +1477,56 @@ _MEINE = """
                 <div class="descbtns"><button type="submit">{{ icons.check|safe }} Speichern</button></div>
               </form>
             </details>
-          </td></tr>
+          </td>
+          <td style="text-align:right;"><div class="rowactions">
+            <a class="btn ghost" href="/meine-zeiten/neu?iid={{ s.id|urlencode }}">{{ 'Bearbeiten' if s.source=='manual' else 'Korrigieren' }}</a>
+            {% if s.source=='manual' %}
+            <form method="post" action="/meine-zeiten/delete">
+              <input type="hidden" name="iid" value="{{ s.id }}">
+              <button class="danger" onclick="return confirm('Diese Buchung löschen?')">Löschen</button></form>
+            {% endif %}
+          </div></td></tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
     {% elif not open_sessions %}<p>Keine Buchungen in den letzten {{ days }} Tagen.
       {% if not assigned %}Falls hier etwas fehlt, kann ein Administrator deinem
       Konto den passenden <b>TimeMoto-Namen</b> zuordnen.{% endif %}</p>{% endif %}
+</div>
+{% endblock %}
+"""
+
+_MY_FORM = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:560px;">
+  <h1>{{ heading }}</h1>
+  {% if mode=='assign' %}<p class="muted">Diese Buchung wurde ohne Projekt
+    gestempelt. Wähle das Projekt – die Zeiten kannst du bei Bedarf anpassen.</p>
+  {% elif mode=='correct' %}<p class="muted">Korrektur deiner TimeMoto-Buchung:
+    das Original wird ausgeblendet und durch diesen Eintrag ersetzt.</p>
+  {% elif mode=='new' %}<p class="muted">Für vergessene Buchungen: Zeitraum und
+    Projekt eintragen – der Eintrag zählt wie eine normale Buchung.</p>{% endif %}
+  <form method="post" action="/meine-zeiten/save">
+    <input type="hidden" name="iid" value="{{ iid }}">
+    <label>Mitarbeiter</label>
+    <input value="{{ tm }}" disabled>
+    <label>Projekt</label>
+    <input name="project" value="{{ f.project }}" list="projs" required
+      placeholder="Projekt wählen oder eintippen">
+    <datalist id="projs">{% for p in all_projects %}<option value="{{ p }}">{% endfor %}</datalist>
+    <div class="row">
+      <div style="flex:0 0 180px;"><label>Datum</label><input type="date" name="date" value="{{ f.date }}" required></div>
+      <div style="flex:0 0 130px;"><label>Kommt</label><input type="time" name="start_time" value="{{ f.start_time }}" required></div>
+      <div style="flex:0 0 130px;"><label>Geht</label><input type="time" name="end_time" value="{{ f.end_time }}" required></div>
+    </div>
+    <label>Tätigkeitsbeschreibung (1–2 Sätze)</label>
+    <textarea name="description" rows="3" placeholder="Was wurde gemacht?">{{ f.description }}</textarea>
+    <div class="toolbar" style="margin-top:1.2rem;">
+      <button type="submit">Speichern</button>
+      <a class="btn ghost" href="/meine-zeiten">Abbrechen</a>
+    </div>
+  </form>
 </div>
 {% endblock %}
 """
@@ -1822,7 +1892,8 @@ _tpls = {n: Template(s) for n, s in {
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
     "reports": _REPORTS, "report_form": _REPORT_FORM, "settings": _SETTINGS,
     "texts": _TEXTS, "projects": _PROJECTS,
-    "abrechnung": _ABRECHNUNG, "meine": _MEINE, "user_edit": _USER_EDIT,
+    "abrechnung": _ABRECHNUNG, "meine": _MEINE, "my_form": _MY_FORM,
+    "user_edit": _USER_EDIT,
     "twofa_verify": _TWOFA_VERIFY, "twofa_setup": _TWOFA_SETUP,
     "reset_req": _RESET_REQ, "reset_form": _RESET_FORM,
     "tickets": _TICKETS, "ticket_new": _TICKET_NEW, "ticket": _TICKET,
@@ -2390,6 +2461,14 @@ def _parse_dt(date: str, t: str) -> datetime:
 
 def _find_interval(iid: str):
     for iv in collect_intervals():
+        if iv.id == iid:
+            return iv
+    return None
+
+
+def _find_interval_any(iid: str):
+    """Wie _find_interval, aber inklusive Buchungen ohne Projekt."""
+    for iv in collect_intervals(include_no_project=True):
         if iv.id == iid:
             return iv
     return None
@@ -3061,25 +3140,36 @@ async def meine_zeiten(request: Request):
     from datetime import timedelta
     tm, assigned = _my_timemoto(request)
     days = 60
-    sessions, opens = [], []
+    sessions, opens, no_project = [], [], []
     if tm:
         start = datetime.now(config.TIMEZONE) - timedelta(days=days)
         ivs = filter_intervals(start, None, employee=tm)
         sessions = [_session_view(iv) for iv in ivs]
+        # Eigene Buchungen OHNE Projekt -> zum Zuweisen anbieten
+        for iv in collect_intervals(include_no_project=True):
+            if (iv.project or "").strip():
+                continue
+            if (iv.employee or "").lower() != tm.lower():
+                continue
+            if iv.start.astimezone(config.TIMEZONE) < start:
+                continue
+            no_project.append(_session_view(iv))
+        no_project.sort(key=lambda s: s["id"], reverse=True)
         # Laufende (offene) Buchungen – nur aktuelle, wie im Log
         cutoff = datetime.now(config.TIMEZONE) - timedelta(
             hours=config.OPEN_SESSION_MAX_HOURS)
-        for o in collect_open():
+        for o in collect_open(include_no_project=True):
             if o.start.astimezone(config.TIMEZONE) < cutoff:
                 continue
             if tm.lower() not in (o.employee or "").lower():
                 continue
-            opens.append({"project": o.project or "–",
+            opens.append({"project": o.project or "ohne Projekt",
                           "start": o.start.astimezone(config.TIMEZONE)
                           .strftime("%a %d.%m. %H:%M")})
     return HTMLResponse(_tpls["meine"].render(
         **_common(request, "meine", "Meine Zeiten"), tm=tm, assigned=assigned,
-        sessions=sessions, open_sessions=opens, days=days))
+        sessions=sessions, open_sessions=opens, no_project=no_project,
+        days=days))
 
 
 @router.post("/meine-zeiten/describe")
@@ -3096,6 +3186,128 @@ async def meine_describe(request: Request, iid: str = Form(""),
     audit.log(_user(request), "Tätigkeit (eigene)", f"{iid}: {description[:80]}")
     request.session["flash"] = ("Tätigkeit gespeichert." if description.strip()
                                 else "Tätigkeit entfernt.")
+    return RedirectResponse("/meine-zeiten", status_code=303)
+
+
+def _own_interval(request: Request, iid: str):
+    """Eigene Buchung (auch ohne Projekt) holen -- None wenn fremd/unbekannt."""
+    tm, _assigned = _my_timemoto(request)
+    if not tm:
+        return None
+    iv = _find_interval_any(iid)
+    if not iv or (iv.employee or "").lower() != tm.lower():
+        return None
+    return iv
+
+
+@router.get("/meine-zeiten/neu", response_class=HTMLResponse)
+async def meine_new(request: Request, iid: str = ""):
+    if (r := _need_login(request)):
+        return r
+    tm, _assigned = _my_timemoto(request)
+    now = datetime.now(config.TIMEZONE)
+    f = {"project": "", "date": now.strftime("%Y-%m-%d"),
+         "start_time": "08:00", "end_time": "17:00", "description": ""}
+    heading, mode = "Buchung nachtragen", "new"
+    if iid:
+        iv = _own_interval(request, iid)
+        if not iv:
+            request.session["flash"], request.session["flash_class"] = \
+                "Buchung nicht gefunden oder gehört nicht zu dir.", "err"
+            return RedirectResponse("/meine-zeiten", status_code=303)
+        st = iv.start.astimezone(config.TIMEZONE)
+        en = iv.end.astimezone(config.TIMEZONE)
+        f = {"project": iv.project or "", "date": st.strftime("%Y-%m-%d"),
+             "start_time": st.strftime("%H:%M"), "end_time": en.strftime("%H:%M"),
+             "description": iv.description or ""}
+        if not (iv.project or "").strip():
+            heading, mode = "Projekt zuweisen", "assign"
+        elif iv.source == "manual":
+            heading, mode = "Buchung bearbeiten", "edit"
+        else:
+            heading, mode = "Buchung korrigieren", "correct"
+    return HTMLResponse(_tpls["my_form"].render(
+        **_common(request, "meine", heading), heading=heading, mode=mode,
+        iid=iid, f=f, tm=tm, all_projects=_all_projects()))
+
+
+@router.post("/meine-zeiten/save")
+async def meine_save(request: Request, iid: str = Form(""),
+                     project: str = Form(""), date: str = Form(""),
+                     start_time: str = Form(""), end_time: str = Form(""),
+                     description: str = Form("")):
+    if (r := _need_login(request)):
+        return r
+    tm, _assigned = _my_timemoto(request)
+    user = _user(request)
+    project = project.strip()
+    if not tm:
+        request.session["flash"], request.session["flash_class"] = \
+            "Deinem Konto ist kein Name zugeordnet.", "err"
+        return RedirectResponse("/meine-zeiten", status_code=303)
+    if not project:
+        request.session["flash"], request.session["flash_class"] = \
+            "Bitte ein Projekt angeben.", "err"
+        return RedirectResponse(f"/meine-zeiten/neu?iid={iid}", status_code=303)
+    try:
+        start_dt = _parse_dt(date, start_time)
+        end_dt = _parse_dt(date, end_time)
+        if end_dt <= start_dt:
+            raise ValueError("Geht muss nach Kommt liegen.")
+    except ValueError as exc:
+        request.session["flash"], request.session["flash_class"] = \
+            f"Ungültige Zeit: {exc}", "err"
+        return RedirectResponse(f"/meine-zeiten/neu?iid={iid}", status_code=303)
+
+    data = {"employee": tm, "project": project,
+            "start": start_dt.isoformat(), "end": end_dt.isoformat(),
+            "note": "selbst erfasst"}
+    label = f"{tm} / {project} {date} {start_time}-{end_time}"
+    if iid.startswith("man:"):
+        e = manual.get_entry(iid[4:])
+        if not e or (e.get("employee") or "").lower() != tm.lower():
+            return HTMLResponse("Kein Zugriff auf diese Buchung.", status_code=403)
+        manual.update_entry(iid[4:], data)
+        target = iid
+        audit.log(user, "Buchung bearbeitet (selbst)", label)
+        request.session["flash"] = "Buchung gespeichert."
+    elif iid.startswith("wh:"):
+        iv = _own_interval(request, iid)
+        if not iv:
+            return HTMLResponse("Kein Zugriff auf diese Buchung.", status_code=403)
+        data["replaces"] = iid
+        e = manual.add_entry(data, user)
+        manual.hide(iid)
+        target = f"man:{e['id']}"
+        audit.log(user, "Buchung korrigiert (selbst)", f"{label} (ersetzt {iid})")
+        request.session["flash"] = ("Projekt zugewiesen."
+                                    if not (iv.project or "").strip()
+                                    else "Korrektur gespeichert.")
+    else:
+        e = manual.add_entry(data, user)
+        target = f"man:{e['id']}"
+        audit.log(user, "Buchung nachgetragen (selbst)", label)
+        request.session["flash"] = "Buchung nachgetragen."
+    if description.strip():
+        activities.set_description(target, description.strip(), user)
+    return RedirectResponse("/meine-zeiten", status_code=303)
+
+
+@router.post("/meine-zeiten/delete")
+async def meine_delete(request: Request, iid: str = Form("")):
+    if (r := _need_login(request)):
+        return r
+    tm, _assigned = _my_timemoto(request)
+    if not iid.startswith("man:"):
+        return HTMLResponse("Nur selbst erfasste Buchungen löschbar.",
+                            status_code=403)
+    e = manual.get_entry(iid[4:])
+    if not e or not tm or (e.get("employee") or "").lower() != tm.lower():
+        return HTMLResponse("Kein Zugriff auf diese Buchung.", status_code=403)
+    manual.delete_entry(iid[4:])
+    audit.log(_user(request), "Buchung gelöscht (selbst)",
+              f"{e.get('employee')} / {e.get('project')} {e.get('start')}")
+    request.session["flash"] = "Buchung gelöscht."
     return RedirectResponse("/meine-zeiten", status_code=303)
 
 

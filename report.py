@@ -20,14 +20,17 @@ def _punches():
     return [p for p in (normalize(r) for r in load_records()) if p is not None]
 
 
-def collect_intervals() -> list[Interval]:
+def collect_intervals(include_no_project: bool = False) -> list[Interval]:
     """Alle Arbeitsintervalle: Webhook-Buchungen (ohne ausgeblendete) plus
     manuell hinzugefuegte/korrigierte Eintraege. Zentrale Datenquelle fuer
-    Bericht, Log und Detailansicht."""
+    Bericht, Log und Detailansicht.
+
+    include_no_project=True liefert auch Buchungen OHNE Projekt mit --
+    z. B. damit Mitarbeiter ihnen nachtraeglich ein Projekt zuweisen koennen."""
     hidden = manual.hidden_ids()
     ivs = [iv for iv in pair_intervals(_punches()) if iv.id not in hidden]
     ivs += manual.to_intervals()
-    if config.REQUIRE_PROJECT:
+    if config.REQUIRE_PROJECT and not include_no_project:
         ivs = [iv for iv in ivs if (iv.project or "").strip()]
     desc = activities.mapping()
     for iv in ivs:
@@ -36,10 +39,10 @@ def collect_intervals() -> list[Interval]:
     return ivs
 
 
-def collect_open() -> list[OpenPunch]:
+def collect_open(include_no_project: bool = False) -> list[OpenPunch]:
     """Offene Stempelungen (eingestempelt, noch nicht ausgestempelt)."""
     opens = open_punches(_punches())
-    if config.REQUIRE_PROJECT:
+    if config.REQUIRE_PROJECT and not include_no_project:
         opens = [o for o in opens if (o.project or "").strip()]
     return opens
 
