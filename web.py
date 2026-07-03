@@ -409,6 +409,9 @@ _BASE = """
     font-size:.83rem;font-weight:600;color:var(--fg)}
   .mini.warn{background:#fdf7e5;border-color:#eddcab;color:#8a6410}
   .mini b{font-weight:700}
+  a.mini{transition:.12s}
+  a.mini:hover{text-decoration:none;background:#ebf2e6;border-color:#cfdbc6;
+    color:var(--brand-deep)}
   /* --- Tätigkeitsbeschreibung: inline bearbeiten --- */
   .descedit{min-width:200px;max-width:360px}
   .descedit>summary{list-style:none;display:flex;align-items:flex-start;gap:.4rem;
@@ -756,8 +759,14 @@ _DASH = """
 </div>
 
 <div class="card glass">
-  <h2>Zusammenfassung: {{ report_title }}</h2>
-  <p class="muted">{{ period }}</p>
+  <div class="toolbar" style="justify-content:space-between;">
+    <h2 style="margin:0;">Zusammenfassung: {{ report_title }}</h2>
+    <div class="toolbar" style="gap:.35rem;">
+      <a class="btn ghost" href="/?week=custom&project={{ project|urlencode }}&start={{ prev_start }}&end={{ prev_end }}" title="Zeitraum zurück">‹</a>
+      <a class="btn ghost" href="/?week=custom&project={{ project|urlencode }}&start={{ next_start }}&end={{ next_end }}" title="Zeitraum vor">›</a>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:.4rem;">{{ period }}</p>
   {{ report_html|safe }}
   <div class="toolbar" style="margin-top:1rem;">
     <a class="btn ghost" href="/export/amprion.csv?project={{ project|urlencode }}&start={{ start_iso }}&end={{ end_iso }}">Amprion-CSV</a>
@@ -827,6 +836,9 @@ _LOG = """
       <div style="flex:0 0 auto;"><label>&nbsp;</label><button type="submit">Filtern</button></div>
     </div>
   </form>
+  <div class="minirow" style="margin:1rem 0 0;">
+    {% for p in presets %}<a class="mini" href="/log?employee={{ employee|urlencode }}&project={{ project|urlencode }}&start={{ p.start }}&end={{ p.end }}">{{ p.label }}</a>{% endfor %}
+  </div>
 </div>
 
 {% if open_sessions %}
@@ -1599,6 +1611,9 @@ _ABRECHNUNG = """
       <button type="submit" formaction="/export/amprion.csv" class="ghost">Amprion-CSV herunterladen</button>
     </div>
   </form>
+  <div class="minirow" style="margin:1rem 0 0;">
+    {% for p in presets %}<a class="mini" href="/abrechnung?start={{ p.start }}&end={{ p.end }}">{{ p.label }}</a>{% endfor %}
+  </div>
 </div>
 <div class="card glass">
   <h2>Vorschau ({{ count }} Buchungen · {{ total }})</h2>
@@ -2062,6 +2077,23 @@ def _delivery_flash(result: dict) -> tuple[str, str]:
             f"{result.get('saved_path', '')}", "err")
 
 
+def _range_presets() -> list[dict]:
+    """Schnellauswahl-Zeitraeume fuer Log/Abrechnung (ISO-Daten)."""
+    now = datetime.now(config.TIMEZONE)
+    tw_s, tw_e = this_week_range(now)
+    lw_s, lw_e = previous_week_range(now)
+    m_s = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return [
+        {"label": "Diese Woche", "start": tw_s.date().isoformat(),
+         "end": tw_e.date().isoformat()},
+        {"label": "Letzte Woche", "start": lw_s.date().isoformat(),
+         "end": lw_e.date().isoformat()},
+        {"label": "Dieser Monat", "start": m_s.date().isoformat(),
+         "end": (now + timedelta(days=1)).date().isoformat()},
+        {"label": "Alles", "start": "", "end": ""},
+    ]
+
+
 def _need_login(request: Request):
     return None if _user(request) else RedirectResponse("/login", status_code=303)
 
@@ -2442,6 +2474,9 @@ async def dashboard(request: Request, week: str = "last",
         "dur": _fmt_dur(iv.duration_hours),
     } for iv in detail_sessions(s, e, project=proj)]
     stats = _inspect_stats()
+    span = rep.end - rep.start  # Zeitraum vor/zurueck blaettern
+    prev_s, prev_e = rep.start - span, rep.start
+    next_s, next_e = rep.end, rep.end + span
     return HTMLResponse(_tpls["dash"].render(
         **_common(request, "dash", "Dashboard"),
         week=week, project=proj, start_in=start_in, end_in=end_in,
@@ -2450,6 +2485,8 @@ async def dashboard(request: Request, week: str = "last",
         period=f"{rep.start:%d.%m.%Y} – {rep.end:%d.%m.%Y}",
         report_html=render_html(rep), sessions=sessions,
         start_iso=rep.start.date().isoformat(), end_iso=rep.end.date().isoformat(),
+        prev_start=prev_s.date().isoformat(), prev_end=prev_e.date().isoformat(),
+        next_start=next_s.date().isoformat(), next_end=next_e.date().isoformat(),
         mail_configured=config.mail_configured(),
         has_project=stats["has_project"], has_direction=stats["has_direction"],
         events_total=stats["events_total"],
@@ -2524,7 +2561,7 @@ async def log_page(request: Request, employee: str = "", project: str = "",
         all_employees=_all_employees(), all_projects=_all_projects(),
         employee=employee, project=project, start_in=start, end_in=end,
         sessions=[_session_view(iv) for iv in intervals],
-        open_sessions=opens, hidden=hidden,
+        open_sessions=opens, hidden=hidden, presets=_range_presets(),
         count=len(intervals), total=_fmt_dur(total_hours)))
 
 
@@ -3409,6 +3446,7 @@ async def abrechnung(request: Request, employee: str = "", project: str = "",
         all_employees=_all_employees(), all_projects=_all_projects(),
         start_in=start, end_in=end,
         sessions=[_session_view(iv) for iv in ivs],
+        presets=_range_presets(),
         count=len(ivs), total=_fmt_dur(total)))
 
 

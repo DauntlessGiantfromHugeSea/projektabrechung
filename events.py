@@ -63,6 +63,14 @@ _IN_VALUES = {"in", "clockin", "clock_in", "checkin", "check_in", "start",
 _OUT_VALUES = {"out", "clockout", "clock_out", "checkout", "check_out", "stop",
                "stopped", "end", "ended", "punchout", "punch_out", "0", "o",
                "leave", "exit"}
+# Felder/Werte, die eine LOESCHUNG in TimeMoto signalisieren (Korrektur:
+# Buchung entfernt). Tolerant, da das genaue Format nicht dokumentiert ist.
+_DELETE_KEYS = ["operation", "action", "changetype", "change_type",
+                "mutationtype", "mutation_type", "eventtype", "event_type",
+                "event", "type"]
+_DELETE_MARKERS = ("delet", "remov", "cancel", "storno")
+_DELETED_FLAG_KEYS = ["isdeleted", "is_deleted", "deleted", "isremoved",
+                      "is_removed", "removed"]
 
 
 @dataclass
@@ -74,6 +82,8 @@ class Punch:
     direction: str | None  # "in" | "out" | None
     pair_id: str | None    # verbindet Ein-/Ausstempeln eines Vorgangs
     raw: dict[str, Any]
+    received: datetime | None = None  # Empfangszeit -> letzte Korrektur gewinnt
+    deleted: bool = False             # Loesch-Event aus TimeMoto
 
 
 @dataclass
@@ -275,18 +285,38 @@ def normalize(record: dict[str, Any]) -> Punch | None:
     pair_id = _find_first(body, _PAIR_KEYS)
     pair_id = str(pair_id) if pair_id not in (None, "") else None
 
+    # Loeschung erkennen: expliziter Flag ODER Operations-Wert wie "Deleted".
+    deleted = False
+    for k in _DELETED_FLAG_KEYS:
+        v = _find_first(body, [k])
+        if v is True or str(v).strip().lower() in ("true", "1", "yes", "ja"):
+            deleted = True
+            break
+    if not deleted:
+        for k in _DELETE_KEYS:
+            v = _find_first(body, [k])
+            if v is not None and any(m in str(v).lower()
+                                     for m in _DELETE_MARKERS):
+                deleted = True
+                break
+
+    received = _parse_time(record.get("received_at")) or when
+
     return Punch(time=when, employee=employee, project=project,
                  direction=direction, pair_id=pair_id,
-                 raw=body if isinstance(body, dict) else {"_": body})
+                 raw=body if isinstance(body, dict) else {"_": body},
+                 received=received, deleted=deleted)
 
 
 def pair_intervals(punches: list[Punch]) -> list[Interval]:
     """Stempelungen zu Arbeitsintervallen paaren.
 
     Bevorzugt wird der von TimeMoto gelieferte ``clockingPairId``: alle
-    Stempelungen mit derselben pair_id gehoeren zu einem Vorgang -> Start =
-    fruehestes Ein-/erstes Event, Ende = spaetestes Aus-/letztes Event. Das
-    ist robust gegen doppelt zugestellte Events.
+    Stempelungen mit derselben pair_id gehoeren zu einem Vorgang. Kommen
+    mehrere Events je Richtung (Korrektur in TimeMoto -> neues Event mit
+    gleicher pair_id), gewinnt das ZULETZT empfangene Event -- so werden
+    nachtraegliche Zeit-/Projektkorrekturen automatisch uebernommen.
+    Loesch-Events entfernen den ganzen Vorgang.
 
     Gibt es keine pair_id, faellt es auf die Heuristik zurueck: pro
     Mitarbeiter chronologisch, 'in' oeffnet und 'out' schliesst (bzw. ohne
@@ -296,21 +326,34 @@ def pair_intervals(punches: list[Punch]) -> list[Interval]:
     unpaired = [p for p in punches if not p.pair_id]
     intervals: list[Interval] = []
 
+    def _recv(p: Punch) -> datetime:
+        return p.received or p.time
+
     # 1) Exakte Paarung ueber pair_id
     groups: dict[tuple[str, str], list[Punch]] = {}
     for p in paired:
         groups.setdefault((p.employee, p.pair_id), []).append(p)  # type: ignore[arg-type]
     for (employee, pid), plist in groups.items():
+        if any(p.deleted for p in plist):
+            continue  # in TimeMoto geloescht
         plist.sort(key=lambda x: x.time)
         ins = [p for p in plist if p.direction == "in"]
         outs = [p for p in plist if p.direction == "out"]
         if ins and outs:
-            start, end = min(p.time for p in ins), max(p.time for p in outs)
+            # Korrekturen: pro Richtung zaehlt das zuletzt empfangene Event.
+            start = max(ins, key=_recv).time
+            end = max(outs, key=_recv).time
         elif len(plist) >= 2:
             start, end = plist[0].time, plist[-1].time
         else:
             continue  # offener Vorgang (nur Ein- oder nur Ausstempeln)
-        project = next((p.project for p in plist if p.project), None)
+        if end <= start:  # inkonsistente Korrektur -> Extremwerte als Fallback
+            start = min(p.time for p in plist)
+            end = max(p.time for p in plist)
+            if end <= start:
+                continue
+        withproj = [p for p in plist if p.project]
+        project = max(withproj, key=_recv).project if withproj else None
         intervals.append(Interval(employee, project, start, end,
                                   id=f"wh:{employee}:{pid}"))
 
@@ -354,11 +397,14 @@ def open_punches(punches: list[Punch]) -> list[OpenPunch]:
     for p in paired:
         groups.setdefault((p.employee, p.pair_id), []).append(p)  # type: ignore[arg-type]
     for (employee, _pid), plist in groups.items():
+        if any(p.deleted for p in plist):
+            continue  # in TimeMoto geloescht
         ins = [p for p in plist if p.direction == "in"]
         outs = [p for p in plist if p.direction == "out"]
         if ins and not outs:
-            first = min(ins, key=lambda p: p.time)
-            opens.append(OpenPunch(employee, first.project, first.time))
+            # Letzte Korrektur gewinnt (Zeit/Projekt des neuesten Events)
+            latest = max(ins, key=lambda p: p.received or p.time)
+            opens.append(OpenPunch(employee, latest.project, latest.time))
 
     by_emp: dict[str, list[Punch]] = {}
     for p in unpaired:
