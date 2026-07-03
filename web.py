@@ -994,16 +994,9 @@ _ANLEITUNG = """
 {% extends base %}
 {% block body %}
 <div class="card glass">
-  <div class="toolbar" style="justify-content:space-between;">
-    <h1 style="margin:0;">Hilfe &amp; Dokumentation</h1>
-    <div class="toolbar">
-      <a class="btn ghost" href="/anleitung.pdf">{{ icons.book|safe }} Anleitung als PDF</a>
-      {% if role=='admin' %}<a class="btn ghost" href="/anleitung-admin.pdf">{{ icons.gear|safe }} Admin-Doku als PDF</a>{% endif %}
-    </div>
-  </div>
+  <h1 style="margin:0 0 .4rem;">Hilfe &amp; Dokumentation</h1>
   <p class="muted">Anleitung zu allen Funktionen{% if role=='admin' %} sowie die
-    Administrations-Dokumentation{% endif %}. Beide Teile lassen sich als PDF
-    herunterladen.</p>
+    Administrations-Dokumentation{% endif %}.</p>
   <div class="doctoc">
     <div>
       <div class="sectlabel">Anleitung</div>
@@ -2722,39 +2715,6 @@ async def anleitung(request: Request):
         **_common(request, "help", "Anleitung"),
         sections=docs.user_sections(config.ms_enabled()),
         admin_secs=admin_secs))
-
-
-@router.get("/anleitung.pdf")
-async def anleitung_pdf(request: Request):
-    """Anleitung (alle Funktionen) als PDF."""
-    if (r := _need_login(request)):
-        return r
-    data = docs.build_pdf(
-        "FBE Intranet – Anleitung",
-        "Alle Funktionen im Überblick · Stand "
-        f"{datetime.now(config.TIMEZONE):%d.%m.%Y}",
-        [("", docs.user_sections(config.ms_enabled()))])
-    return Response(content=data, media_type="application/pdf",
-                    headers={"Content-Disposition":
-                             'attachment; filename="FBE-Intranet-Anleitung.pdf"'})
-
-
-@router.get("/anleitung-admin.pdf")
-async def anleitung_admin_pdf(request: Request):
-    """Anleitung + Admin-Dokumentation als PDF (nur Admin)."""
-    if (r := _need_admin(request)):
-        return r
-    webhook_url = f"{request.base_url}{config.WEBHOOK_PATH.lstrip('/')}"
-    data = docs.build_pdf(
-        "FBE Intranet – Anleitung & Admin-Dokumentation",
-        "Alle Funktionen und die Administration · Stand "
-        f"{datetime.now(config.TIMEZONE):%d.%m.%Y}",
-        [("Anleitung", docs.user_sections(config.ms_enabled())),
-         ("Administration",
-          docs.admin_sections(webhook_url, config.SHARED_SECRET))])
-    return Response(content=data, media_type="application/pdf",
-                    headers={"Content-Disposition":
-                             'attachment; filename="FBE-Intranet-Admin-Doku.pdf"'})
 
 
 _TZ_ZONES = ["Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Europe/Paris",
