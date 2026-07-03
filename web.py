@@ -26,6 +26,7 @@ import activities
 import audit
 import config
 import csvout
+import docs
 import downloads
 import mailer
 import manual
@@ -412,6 +413,20 @@ _BASE = """
   a.mini{transition:.12s}
   a.mini:hover{text-decoration:none;background:#ebf2e6;border-color:#cfdbc6;
     color:var(--brand-deep)}
+  /* --- Dokumentation / Hilfe --- */
+  .doctoc{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:1rem;margin-top:1rem}
+  .doctoc ul{margin:.2rem 0 0;padding-left:1.1rem;line-height:1.95}
+  .docsec h3{margin-top:1.2rem;color:var(--brand-deep)}
+  .docsec ul{line-height:1.75}
+  .docfig{margin:1.1rem 0;padding:1rem 1.1rem;background:#fafcf8;
+    border:1px solid var(--line);border-radius:14px}
+  .docfig figcaption{margin-top:.6rem;font-size:.82rem;color:var(--muted)}
+  .doccode{background:#f4f7f1;border:1px solid var(--line);border-radius:10px;
+    padding:.7rem .9rem;font-size:.85rem;overflow-x:auto;white-space:pre-wrap;
+    word-break:break-all}
+  .docnote{background:#fdf7e5;border:1px solid #eddcab;border-radius:10px;
+    padding:.65rem .9rem;font-size:.9rem;color:#6d5410;margin:.6rem 0}
   /* --- Tätigkeitsbeschreibung: inline bearbeiten --- */
   .descedit{min-width:200px;max-width:360px}
   .descedit>summary{list-style:none;display:flex;align-items:flex-start;gap:.4rem;
@@ -577,7 +592,7 @@ _HOME = """
     <div class="ico">{{ icons.edit|safe }}</div>
     <div class="lbl">Zu erledigen</div>
     <div class="val">{{ todo_total }}</div>
-    <div class="sub">{% if todo_total %}{{ todo_desc }} ohne Tätigkeit{% if todo_proj %} · {{ todo_proj }} ohne Projekt{% endif %}{% else %}alles gepflegt ✓{% endif %}</div>
+    <div class="sub">{% if todo_total %}{{ todo_desc }} ohne Tätigkeitsbeschreibung{% else %}alles gepflegt ✓{% endif %}</div>
   </a>
   <div class="stat">
     <div class="ico">{{ icons.calendar|safe }}</div>
@@ -859,7 +874,8 @@ _LOG = """
       {% if can_fix %}<th>Aktionen</th>{% endif %}</tr></thead>
     <tbody>
     {% for s in sessions %}
-      <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td><td>{{ s.project }}</td>
+      <tr><td>{{ s.date }}</td><td>{{ s.employee }}</td>
+        <td>{% if s.project=='–' %}<span class="pill inv">ohne Projekt</span>{% else %}{{ s.project }}{% endif %}</td>
         <td>{{ s.start }}</td><td>{{ s.end }}</td><td class="num">{{ s.dur }}</td>
         <td>{% if can_fix %}
           <details class="descedit">
@@ -978,162 +994,55 @@ _ANLEITUNG = """
 {% extends base %}
 {% block body %}
 <div class="card glass">
-  <h1>Hilfe &amp; Dokumentation</h1>
-  <p class="muted">Kurzanleitung zu allen Funktionen. Bei Fragen wende dich an
-    den Projektverantwortlichen oder einen Administrator.</p>
-  <p class="muted" style="font-weight:700;text-transform:uppercase;font-size:.75rem;letter-spacing:.6px;margin-top:1rem;">Inhalt</p>
-  <ul style="line-height:1.9;">
-    <li><a href="#anmeldung">Anmeldung &amp; Sicherheit</a></li>
-    <li><a href="#bericht">Projektabrechnung – Bericht</a></li>
-    <li><a href="#meine">Meine Zeiten (eigene Stunden)</a></li>
-    <li><a href="#log">Log – alle Buchungen</a></li>
-    <li><a href="#tickets">Tickets</a></li>
-    <li><a href="#konto">Mein Konto</a></li>
-    {% if role=='admin' %}<li><a href="#admin">Administration</a></li>{% endif %}
-  </ul>
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Hilfe &amp; Dokumentation</h1>
+    <div class="toolbar">
+      <a class="btn ghost" href="/anleitung.pdf">{{ icons.book|safe }} Anleitung als PDF</a>
+      {% if role=='admin' %}<a class="btn ghost" href="/anleitung-admin.pdf">{{ icons.gear|safe }} Admin-Doku als PDF</a>{% endif %}
+    </div>
+  </div>
+  <p class="muted">Anleitung zu allen Funktionen{% if role=='admin' %} sowie die
+    Administrations-Dokumentation{% endif %}. Beide Teile lassen sich als PDF
+    herunterladen.</p>
+  <div class="doctoc">
+    <div>
+      <div class="sectlabel">Anleitung</div>
+      <ul>{% for s in sections %}<li><a href="#{{ s.id }}">{{ s.title }}</a></li>{% endfor %}</ul>
+    </div>
+    {% if admin_secs %}
+    <div>
+      <div class="sectlabel">Administration</div>
+      <ul>{% for s in admin_secs %}<li><a href="#{{ s.id }}">{{ s.title }}</a></li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </div>
 </div>
 
-<div class="card glass" id="anmeldung">
-  <h2>Anmeldung &amp; Sicherheit</h2>
-  <ul>
-    {% if ms_enabled %}<li><b>Mit Microsoft anmelden</b> – melde dich mit deinem
-      Firmen-Microsoft-Konto an. Die Sicherheit (MFA) übernimmt Microsoft.</li>{% endif %}
-    <li><b>Passwort + 2-Faktor</b> (für Administratoren): nach dem Passwort gibst
-      du einen 6-stelligen Code aus einer Authenticator-App ein. Beim ersten Mal
-      wird die 2FA per QR-Code eingerichtet.</li>
-    <li><b>Passwort vergessen?</b> – Link auf der Login-Seite: du bekommst einen
-      Reset-Link per E-Mail (sofern eine E-Mail hinterlegt ist).</li>
-  </ul>
+{% macro render_section(s) %}
+<div class="card glass docsec" id="{{ s.id }}">
+  <h2>{{ s.title }}</h2>
+  {% for b in s.blocks %}
+    {% if b.t == 'p' %}<p>{{ b.html|safe }}</p>
+    {% elif b.t == 'h3' %}<h3>{{ b.text }}</h3>
+    {% elif b.t == 'ul' %}<ul>{% for it in b['items'] %}<li>{{ it|safe }}</li>{% endfor %}</ul>
+    {% elif b.t == 'ol' %}<ol>{% for it in b['items'] %}<li>{{ it|safe }}</li>{% endfor %}</ol>
+    {% elif b.t == 'code' %}<pre class="doccode">{{ b.text }}</pre>
+    {% elif b.t == 'note' %}<div class="docnote">{{ b.html|safe }}</div>
+    {% elif b.t == 'fig' %}<figure class="docfig">{{ b.svg|safe }}<figcaption>{{ b.caption }}</figcaption></figure>
+    {% elif b.t == 'table' %}
+      <div class="tablewrap" style="margin-top:.6rem;"><table>
+        <thead><tr>{% for h in b.head %}<th {{ 'class=num' if not loop.first }}>{{ h }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for row in b.rows %}<tr>{% for c in row %}<td {{ 'class=num' if not loop.first }}>{{ c|safe }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+      </table></div>
+    {% endif %}
+  {% endfor %}
 </div>
+{% endmacro %}
 
-<div class="card glass" id="bericht">
-  <h2>Projektabrechnung – Bericht (Startseite)</h2>
-  <ul>
-    <li>Wähle <b>Woche</b> (vorige / diese / eigener Zeitraum) und optional einen
-      <b>Projektfilter</b>.</li>
-    <li>Oben die <b>Zusammenfassung</b> je Mitarbeiter (Stunden mit Minuten),
-      darunter die <b>Einzelbuchungen</b> mit Kommt/Geht.</li>
-    <li><b>Diese Ansicht jetzt senden</b> verschickt den aktuellen Ausschnitt
-      sofort per E-Mail (mit Excel-Download-Link).</li>
-  </ul>
-</div>
-
-<div class="card glass" id="meine">
-  <h2>Meine Zeiten</h2>
-  <ul>
-    <li>Zeigt <b>deine eigenen Buchungen</b> der letzten 30 Tage (Zuordnung über
-      deinen TimeMoto-Namen).</li>
-    <li>Trage je Buchung die <b>Tätigkeitsbeschreibung</b> ein (1–2 Sätze – von
-      Arcadis/Amprion verlangt).</li>
-    <li>Fehlt 24 h nach einer Buchung die Beschreibung, bekommst du eine
-      <b>Erinnerung per E-Mail</b>.</li>
-  </ul>
-</div>
-
-<div class="card glass" id="log">
-  <h2>Log – alle Buchungen</h2>
-  <ul>
-    <li>Alle Buchungen, filterbar nach <b>Mitarbeiter</b>, <b>Projekt</b> und
-      <b>Zeitraum</b>; <b>Läuft gerade</b> zeigt offene (noch nicht beendete)
-      Stempelungen des Tages.</li>
-    <li><b>Excel</b>- und <b>Arcadis-CSV</b>-Export der gefilterten Liste
-      (Format: Datum; Nachname; Vorname; Stunden; Tätigkeit).</li>
-    <li>Admins: Einträge <b>hinzufügen/bearbeiten</b>, TimeMoto-Buchungen
-      <b>korrigieren/ausblenden/löschen</b>, Tätigkeit direkt eintragen.</li>
-  </ul>
-</div>
-
-<div class="card glass" id="tickets">
-  <h2>Tickets</h2>
-  <ul>
-    <li><b>Neues Ticket</b>: Titel, Beschreibung, Priorität, Kategorie.</li>
-    <li>Im Ticket: <b>Status</b> per Ein-Klick (Offen / In Arbeit / Gelöst /
-      Geschlossen), <b>Mir zuweisen</b>, <b>Kommentare</b> und <b>Anhänge</b>.</li>
-    <li><b>Aufwand (WorkLog)</b>: Datum, Anfahrt (km), Stunden, Material,
-      Tätigkeit – pro Ticket mehrere Einträge mit Summe.</li>
-    <li>Zugriff wird je Benutzer vergeben: <b>Nur ansehen</b> oder
-      <b>Ansehen &amp; bearbeiten</b>.</li>
-  </ul>
-</div>
-
-<div class="card glass" id="konto">
-  <h2>Mein Konto</h2>
-  <ul>
-    <li><b>Anzeigename</b> und (bei Passwort-Konten) <b>Passwort</b> ändern.</li>
-    <li><b>Zwei-Faktor-Authentifizierung</b> einrichten oder neu einrichten
-      (z. B. bei neuem Handy).</li>
-  </ul>
-</div>
-
-{% if role=='admin' %}
-<div class="card glass" id="admin">
-  <h1>{{ icons.gear|safe }} Administration</h1>
-
-  <h2>Benutzer &amp; Rollen</h2>
-  <ul>
-    <li><b>Rollen</b>: <code>admin</code> (alles), <code>buchhaltung</code>
-      (Bereich „Abrechnung“ + Exporte), <code>user</code> (Bericht, Log, Meine
-      Zeiten).</li>
-    <li><b>Ticket-Zugriff</b> pro Benutzer: Kein Zugriff / Nur ansehen /
-      Ansehen &amp; bearbeiten.</li>
-    <li><b>TimeMoto-Name</b> je Benutzer eintragen („Vorname Nachname“ exakt wie
-      in TimeMoto) – verknüpft das Konto mit den Stunden. Kann schon vor der
-      ersten Buchung gesetzt werden; die Zuordnung greift dann automatisch.</li>
-  </ul>
-
-  {% if ms_enabled %}
-  <h2>Microsoft-Konten</h2>
-  <ul>
-    <li><b>Aus Microsoft importieren</b> (Benutzer-Seite): legt alle Tenant-Nutzer
-      als Konten an (Rolle <code>user</code>). Danach Rollen/Rechte/TimeMoto-Name
-      je Person setzen.</li>
-    <li>Bei aktivem Microsoft ist der <b>Passwort-Login nur für Admins</b>; alle
-      anderen melden sich über Microsoft an.</li>
-  </ul>
-  {% endif %}
-
-  <h2>Abrechnung (Buchhaltung)</h2>
-  <ul>
-    <li>Alle Stunden über alle Projekte filtern (Mitarbeiter/Projekt/Zeitraum)
-      und direkt als <b>Excel</b> oder <b>Arcadis-CSV</b> herunterladen.</li>
-  </ul>
-
-  <h2>Automatische Berichte</h2>
-  <ul>
-    <li>Pro Bericht festlegen: <b>welche Projekte</b>, <b>an wen</b> (inkl. CC),
-      <b>Format</b> (Excel/CSV), <b>Nachricht</b> und <b>Wochentag + Uhrzeit</b>.</li>
-    <li>Es wird nur versendet, was definiert ist – nie automatisch „alle“.
-      <b>jetzt senden</b> testet sofort (Inhalt = vorige Woche).</li>
-  </ul>
-
-  <h2>Einstellungen &amp; Verlauf</h2>
-  <ul>
-    <li><b>Einstellungen</b>: Zeitzone (für Wochengrenzen, Anzeige, Versandzeiten).</li>
-    <li><b>Verlauf</b>: lückenloses Protokoll – wer hat wann was geändert und
-      welche Mails wurden versendet.</li>
-  </ul>
-
-  <hr style="border:none;border-top:1px solid var(--line);margin:1.4rem 0;">
-  <h2>Webhook einrichten (TimeMoto)</h2>
-  <p>In der <b>TimeMoto Cloud</b> (Plus-Plan) unter <b>Einstellungen → Webhooks</b>
-    einen Webhook mit dieser Ziel-URL anlegen:</p>
-  <p><code>{{ webhook_url }}</code></p>
-  <p>Ereignisse: An-/Abwesenheits-Stempelungen (Ein- und Ausstempeln).
-    Hinterlegtes <b>Secret</b>:</p>
-  <p><code>{{ secret if secret else 'kein Secret gesetzt (SHARED_SECRET in .env)' }}</code></p>
-
-  <h2>Server-Konfiguration (.env)</h2>
-  <p class="muted">Auf dem Server unter <code>deploy/.env</code>, danach
-    <code>docker compose up -d --build</code>:</p>
-  <ul class="muted">
-    <li><code>BREVO_API_KEY</code> – Mailversand (Brevo HTTP-API)</li>
-    <li><code>PUBLIC_BASE_URL</code> – z. B. https://intern.rss-fb.com (für Links)</li>
-    <li><code>MS_CLIENT_ID / MS_CLIENT_SECRET / MS_TENANT_ID</code> – Microsoft-Login</li>
-    <li><code>SHARED_SECRET</code> – TimeMoto-Webhook-Secret</li>
-    <li><code>REPORT_RECIPIENTS</code> – Standard-Empfänger für „jetzt senden“</li>
-    <li><code>SESSION_SECRET</code> – fester Wert, damit Logins Neustarts überleben</li>
-  </ul>
-</div>
+{% for s in sections %}{{ render_section(s) }}{% endfor %}
+{% if admin_secs %}
+<div class="sectlabel" style="margin-top:2rem;">Administration</div>
+{% for s in admin_secs %}{{ render_section(s) }}{% endfor %}
 {% endif %}
 {% endblock %}
 """
@@ -1476,24 +1385,6 @@ _USER_EDIT = """
 _MEINE = """
 {% extends base %}
 {% block body %}
-{% if no_project %}
-<div class="card glass" style="border-color:#ecd9a8;background:#fffdf5;">
-  <h2 style="margin-bottom:.2rem;">Buchungen ohne Projekt</h2>
-  <p class="muted" style="margin:.2rem 0 .4rem;">Diese Zeiten hast du gestempelt,
-    aber ohne Projekt – sie zählen noch in keine Abrechnung. Weise ihnen ein
-    Projekt zu, damit sie berücksichtigt werden.</p>
-  <table>
-    <thead><tr><th>Datum</th><th>Kommt</th><th>Geht</th><th class="num">Dauer</th><th></th></tr></thead>
-    <tbody>
-    {% for s in no_project %}
-      <tr><td>{{ s.date }}</td><td>{{ s.start }}</td><td>{{ s.end }}</td>
-        <td class="num">{{ s.dur }}</td>
-        <td style="text-align:right;"><a class="btn" href="/meine-zeiten/neu?iid={{ s.id|urlencode }}">Projekt zuweisen</a></td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
 <div class="card glass">
   <div class="toolbar" style="justify-content:space-between;">
     <h1 style="margin:0;">Meine Zeiten</h1>
@@ -1502,7 +1393,6 @@ _MEINE = """
   <div class="minirow">
     <span class="mini">{{ icons.clock|safe }} Diese Woche <b>{{ week_h }}</b></span>
     <span class="mini {{ 'warn' if miss_desc }}">{{ icons.edit|safe }} <b>{{ miss_desc }}</b> ohne Tätigkeit</span>
-    {% if no_project %}<span class="mini warn">{{ icons.list|safe }} <b>{{ no_project|length }}</b> ohne Projekt</span>{% endif %}
   </div>
     <p class="muted">Buchungen der letzten {{ days }} Tage für <b>{{ tm }}</b>{% if not assigned %}
       (automatisch über deinen Namen; ein Administrator kann bei Bedarf einen
@@ -2261,7 +2151,7 @@ async def home(request: Request):
     emp = (rec.get("timemoto_name") or nm).strip()
     now = datetime.now(config.TIMEZONE)
     week_hours, week_sessions, recent = "0:00", 0, []
-    todo_desc = todo_proj = 0
+    todo_desc = 0
     try:
         from datetime import timedelta
         ws, we = this_week_range(now)
@@ -2272,11 +2162,6 @@ async def home(request: Request):
             horizon = now - timedelta(days=60)
             own = filter_intervals(horizon, None, employee=emp)
             todo_desc = sum(1 for iv in own if not (iv.description or "").strip())
-            todo_proj = sum(
-                1 for iv in collect_intervals(include_no_project=True)
-                if not (iv.project or "").strip()
-                and (iv.employee or "").lower() == emp.lower()
-                and iv.start.astimezone(config.TIMEZONE) >= horizon)
             for iv in own[:5]:
                 sv = _session_view(iv)
                 p = sv["project"]
@@ -2299,8 +2184,7 @@ async def home(request: Request):
         today=f"{wd}, {now:%d.%m.%Y}", kw=now.isocalendar().week,
         year=now.year, week_hours=week_hours, week_sessions=week_sessions,
         open_tickets=open_tickets, recent=recent,
-        todo_desc=todo_desc, todo_proj=todo_proj,
-        todo_total=todo_desc + todo_proj))
+        todo_desc=todo_desc, todo_total=todo_desc))
 
 
 @router.get("/login/2fa", response_class=HTMLResponse)
@@ -2538,7 +2422,9 @@ async def log_page(request: Request, employee: str = "", project: str = "",
             e = datetime.fromisoformat(end).replace(tzinfo=config.TIMEZONE)
         except ValueError:
             e = None
-    intervals = filter_intervals(s, e, project=project, employee=employee)
+    # Bearbeiter sehen auch Buchungen OHNE Projekt -> zuweisen/korrigieren
+    intervals = filter_intervals(s, e, project=project, employee=employee,
+                                 include_no_project=not project.strip())
     total_hours = sum(iv.duration_hours for iv in intervals)
     # Offene Sessions: nur aktuelle (alte = unvollstaendige Daten, kein echtes
     # "noch eingestempelt").
@@ -2603,7 +2489,7 @@ async def log_edit(request: Request, iid: str = ""):
                  "end_time": en.strftime("%H:%M"), "note": e.get("note", "")}
             heading = "Eintrag bearbeiten"
     elif iid.startswith("wh:"):
-        iv = _find_interval(iid)
+        iv = _find_interval_any(iid)
         if iv:
             st = iv.start.astimezone(config.TIMEZONE)
             en = iv.end.astimezone(config.TIMEZONE)
@@ -2828,11 +2714,47 @@ async def versand_send(request: Request, name: str = Form(""),
 async def anleitung(request: Request):
     if (r := _need_login(request)):
         return r
-    secret = config.SHARED_SECRET if _role(request) == "admin" else ""
-    webhook_url = f"{request.base_url}{config.WEBHOOK_PATH.lstrip('/')}"
+    admin_secs = []
+    if _role(request) == "admin":
+        webhook_url = f"{request.base_url}{config.WEBHOOK_PATH.lstrip('/')}"
+        admin_secs = docs.admin_sections(webhook_url, config.SHARED_SECRET)
     return HTMLResponse(_tpls["anleitung"].render(
         **_common(request, "help", "Anleitung"),
-        webhook_url=webhook_url, secret=secret, ms_enabled=config.ms_enabled()))
+        sections=docs.user_sections(config.ms_enabled()),
+        admin_secs=admin_secs))
+
+
+@router.get("/anleitung.pdf")
+async def anleitung_pdf(request: Request):
+    """Anleitung (alle Funktionen) als PDF."""
+    if (r := _need_login(request)):
+        return r
+    data = docs.build_pdf(
+        "FBE Intranet – Anleitung",
+        "Alle Funktionen im Überblick · Stand "
+        f"{datetime.now(config.TIMEZONE):%d.%m.%Y}",
+        [("", docs.user_sections(config.ms_enabled()))])
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             'attachment; filename="FBE-Intranet-Anleitung.pdf"'})
+
+
+@router.get("/anleitung-admin.pdf")
+async def anleitung_admin_pdf(request: Request):
+    """Anleitung + Admin-Dokumentation als PDF (nur Admin)."""
+    if (r := _need_admin(request)):
+        return r
+    webhook_url = f"{request.base_url}{config.WEBHOOK_PATH.lstrip('/')}"
+    data = docs.build_pdf(
+        "FBE Intranet – Anleitung & Admin-Dokumentation",
+        "Alle Funktionen und die Administration · Stand "
+        f"{datetime.now(config.TIMEZONE):%d.%m.%Y}",
+        [("Anleitung", docs.user_sections(config.ms_enabled())),
+         ("Administration",
+          docs.admin_sections(webhook_url, config.SHARED_SECRET))])
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             'attachment; filename="FBE-Intranet-Admin-Doku.pdf"'})
 
 
 _TZ_ZONES = ["Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Europe/Paris",
@@ -3250,21 +3172,11 @@ async def meine_zeiten(request: Request):
     from datetime import timedelta
     tm, assigned = _my_timemoto(request)
     days = 60
-    sessions, opens, no_project = [], [], []
+    sessions, opens = [], []
     if tm:
         start = datetime.now(config.TIMEZONE) - timedelta(days=days)
         ivs = filter_intervals(start, None, employee=tm)
         sessions = [_session_view(iv) for iv in ivs]
-        # Eigene Buchungen OHNE Projekt -> zum Zuweisen anbieten
-        for iv in collect_intervals(include_no_project=True):
-            if (iv.project or "").strip():
-                continue
-            if (iv.employee or "").lower() != tm.lower():
-                continue
-            if iv.start.astimezone(config.TIMEZONE) < start:
-                continue
-            no_project.append(_session_view(iv))
-        no_project.sort(key=lambda s: s["id"], reverse=True)
         # Laufende (offene) Buchungen – nur aktuelle, wie im Log
         cutoff = datetime.now(config.TIMEZONE) - timedelta(
             hours=config.OPEN_SESSION_MAX_HOURS)
@@ -3283,7 +3195,7 @@ async def meine_zeiten(request: Request):
     miss_desc = sum(1 for s in sessions if not (s.get("description") or "").strip())
     return HTMLResponse(_tpls["meine"].render(
         **_common(request, "meine", "Meine Zeiten"), tm=tm, assigned=assigned,
-        sessions=sessions, open_sessions=opens, no_project=no_project,
+        sessions=sessions, open_sessions=opens,
         week_h=week_h, miss_desc=miss_desc, days=days))
 
 
