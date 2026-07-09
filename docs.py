@@ -215,6 +215,17 @@ def user_sections(ms_enabled: bool = True) -> list[dict]:
             "<b>Zwei-Faktor</b> neu einrichten – z. B. bei neuem Handy.",
             "Benutzername und Anzeigename ändert nur ein Administrator."]},
     ]})
+    s.append({"id": "bereiche", "title": "ISO 9001 (FiFB) & KI-Schulungen",
+              "blocks": [
+        {"t": "p", "html": "In der Kopfleiste findest du die Bereiche "
+         "<b>ISO 9001 (FiFB)</b> (interne Prozesse, Verfahrensanweisungen, "
+         "QM-Dokumente) und <b>KI-Schulungen</b> (Unterlagen und Videos)."},
+        {"t": "ul", "items": [
+            "Dokumente lassen sich <b>direkt im Browser ansehen</b> (PDF, "
+            "Bilder, Videos, Texte) oder <b>herunterladen</b>.",
+            "Mit den Kategorie-Chips oben filterst du die Liste.",
+            "Neue Dokumente stellen Administratoren ein."]},
+    ]})
     s.append({"id": "webapp", "title": "Als App installieren", "blocks": [
         {"t": "ul", "items": [
             "<b>iPhone/iPad</b> (Safari): Teilen-Symbol → „Zum "
@@ -333,6 +344,20 @@ def admin_sections(webhook_url: str = "", secret: str = "") -> list[dict]:
             "Download-Link auf die Datei.",
             "<b>Senden</b> (Menüpunkt) verschickt einmalig einen frei "
             "definierten Zeitraum an beliebige Empfänger."]},
+    ]})
+    s.append({"id": "adm-bereiche",
+              "title": "Dokument-Bereiche (ISO 9001, KI-Schulungen)",
+              "blocks": [
+        {"t": "ul", "items": [
+            "Als Admin gibt es auf den Bereichsseiten unten das Formular "
+            "<b>„Dokument hochladen“</b>: Titel, optionale Kategorie und "
+            "Datei wählen.",
+            "PDF, Bilder, Videos, Audio und Texte werden im Browser "
+            "angezeigt; Office-Dateien stehen als Download bereit.",
+            "<b>Löschen</b> über die Aktion in der Liste; Uploads und "
+            "Löschungen stehen im Verlauf.",
+            "Dateien liegen unter <code>/data/doc_files</code> – im Backup "
+            "berücksichtigen."]},
     ]})
     s.append({"id": "adm-texte", "title": "Texte anpassen", "blocks": [
         {"t": "ul", "items": [

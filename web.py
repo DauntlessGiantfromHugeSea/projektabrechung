@@ -10,8 +10,10 @@ Templates inline (Jinja2), damit das Image schlank bleibt.
 from __future__ import annotations
 
 import io
+import shutil
 from datetime import datetime, timedelta
 from html import escape
+from pathlib import Path
 
 import pyotp
 import secrets
@@ -27,6 +29,7 @@ import audit
 import config
 import csvout
 import docs
+import docfiles
 import downloads
 import mailer
 import manual
@@ -427,6 +430,7 @@ _BASE = """
     word-break:break-all}
   .docnote{background:#fdf7e5;border:1px solid #eddcab;border-radius:10px;
     padding:.65rem .9rem;font-size:.9rem;color:#6d5410;margin:.6rem 0}
+  .docview{width:100%;height:78vh;border:0;border-radius:10px;background:#fff}
   /* --- Tätigkeitsbeschreibung: inline bearbeiten --- */
   .descedit{min-width:200px;max-width:360px}
   .descedit>summary{list-style:none;display:flex;align-items:flex-start;gap:.4rem;
@@ -475,6 +479,8 @@ _BASE = """
       </div>
     </details>
     {% endif %}
+    <a class="navpill {{ 'active' if page=='area-iso' }}" href="/bereich/iso">ISO 9001 (FiFB)</a>
+    <a class="navpill {{ 'active' if page=='area-ki-schulungen' }}" href="/bereich/ki-schulungen">KI-Schulungen</a>
   </nav>
   <div class="topright">
     <a class="iconbtn" href="/anleitung" title="Hilfe &amp; Anleitung">{{ icons.help|safe }}</a>
@@ -663,6 +669,14 @@ _HOME = """
     <h3>Benutzer</h3>
     <p>Konten, Rollen, Rechte &amp; TimeMoto-Zuordnung.</p></a>
   {% endif %}
+  <a class="tile" href="/bereich/iso">
+    <div class="ti">{{ icons.book|safe }}</div>
+    <h3>ISO 9001 (FiFB)</h3>
+    <p>Interne Prozesse &amp; QM-Dokumente ansehen.</p></a>
+  <a class="tile" href="/bereich/ki-schulungen">
+    <div class="ti">{{ icons.chart|safe }}</div>
+    <h3>KI-Schulungen</h3>
+    <p>Schulungsunterlagen &amp; Videos rund um KI.</p></a>
   <a class="tile" href="{{ teilnahme_url }}" target="_blank" rel="noopener">
     <div class="ti">{{ icons.book|safe }}</div>
     <h3>Teilnahmemanagement ↗</h3>
@@ -1827,6 +1841,92 @@ _PROJECTS = """
 {% endblock %}
 """
 
+_AREA = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <h1 style="margin:0 0 .3rem;">{{ area.title }}</h1>
+  <p class="muted" style="margin:0 0 .6rem;">{{ area.desc }}</p>
+  {% if cats %}
+  <div class="minirow">
+    <a class="mini" href="{{ area.url }}" {% if not cat %}style="background:#e6f0de;border-color:#b9d3a8;color:var(--brand-deep)"{% endif %}>Alle</a>
+    {% for c in cats %}<a class="mini" href="{{ area.url }}?cat={{ c|urlencode }}" {% if cat==c %}style="background:#e6f0de;border-color:#b9d3a8;color:var(--brand-deep)"{% endif %}>{{ c }}</a>{% endfor %}
+  </div>
+  {% endif %}
+  {% if docs %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Titel</th><th>Kategorie</th><th>Typ</th><th class="num">Größe</th><th>Stand</th><th></th></tr></thead>
+    <tbody>
+    {% for d in docs %}
+      <tr>
+        <td><a href="{{ area.url }}/{{ d.id }}"><b>{{ d.title }}</b></a></td>
+        <td>{% if d.category %}<span class="pill role">{{ d.category }}</span>{% endif %}</td>
+        <td class="muted">{{ d.ext }}</td>
+        <td class="num muted">{{ d.size_disp }}</td>
+        <td class="muted">{{ d.at_disp }}</td>
+        <td style="text-align:right;"><div class="rowactions">
+          <a class="btn ghost" href="{{ area.url }}/{{ d.id }}">Ansehen</a>
+          <a class="btn ghost" href="{{ area.url }}/{{ d.id }}/file?download=1">Download</a>
+          {% if role=='admin' %}
+          <form method="post" action="{{ area.url }}/{{ d.id }}/delete">
+            <button class="danger" onclick="return confirm('Dokument löschen?')">Löschen</button></form>
+          {% endif %}
+        </div></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">Noch keine Dokumente vorhanden.</p>{% endif %}
+</div>
+{% if role=='admin' %}
+<div class="card glass" style="max-width:640px;">
+  <h2>Dokument hochladen</h2>
+  <form method="post" action="{{ area.url }}/upload" enctype="multipart/form-data">
+    <div class="row">
+      <div><label>Titel (leer = Dateiname)</label><input name="title"></div>
+      <div style="flex:0 0 230px;"><label>Kategorie (optional)</label>
+        <input name="category" list="catlist" placeholder="z. B. Prozess, Schulung">
+        <datalist id="catlist">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist></div>
+    </div>
+    <label>Datei</label>
+    <input type="file" name="file" required>
+    <p class="muted" style="margin:.4rem 0 0;">PDF, Bilder, Videos und Texte
+      werden direkt im Browser angezeigt; andere Formate (z. B. Word/Excel)
+      stehen als Download bereit.</p>
+    <div style="margin-top:1rem;"><button type="submit">Hochladen</button></div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}
+"""
+
+_AREA_VIEW = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <div class="toolbar" style="justify-content:space-between;">
+    <div>
+      <h1 style="margin:0;">{{ d.title }}</h1>
+      <p class="muted" style="margin:.3rem 0 0;">{{ area.title }}{% if d.category %} · {{ d.category }}{% endif %} · {{ d.filename }} · {{ d.size_disp }} · Stand {{ d.at_disp }}</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn ghost" href="{{ area.url }}">← Zurück</a>
+      <a class="btn" href="{{ area.url }}/{{ d.id }}/file?download=1">Download</a>
+    </div>
+  </div>
+</div>
+<div class="card glass" style="padding:.8rem;">
+  {% if kind=='pdf' or kind=='text' %}<iframe class="docview" src="{{ file_url }}" title="{{ d.title }}"></iframe>
+  {% elif kind=='image' %}<img src="{{ file_url }}" alt="{{ d.title }}" style="max-width:100%;border-radius:10px;display:block;margin:0 auto;">
+  {% elif kind=='video' %}<video controls preload="metadata" style="width:100%;border-radius:10px;display:block;" src="{{ file_url }}"></video>
+  {% elif kind=='audio' %}<audio controls style="width:100%;display:block;" src="{{ file_url }}"></audio>
+  {% else %}<p class="muted" style="padding:1rem;">Für dieses Format gibt es
+    keine Browser-Vorschau ({{ d.mime }}). Bitte über den Download-Button
+    öffnen.</p>{% endif %}
+</div>
+{% endblock %}
+"""
+
 _tpls = {n: Template(s) for n, s in {
     "login": _LOGIN, "home": _HOME, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
@@ -1838,6 +1938,7 @@ _tpls = {n: Template(s) for n, s in {
     "twofa_verify": _TWOFA_VERIFY, "twofa_setup": _TWOFA_SETUP,
     "reset_req": _RESET_REQ, "reset_form": _RESET_FORM,
     "tickets": _TICKETS, "ticket_new": _TICKET_NEW, "ticket": _TICKET,
+    "area": _AREA, "area_view": _AREA_VIEW,
 }.items()}
 
 
@@ -3123,6 +3224,115 @@ def _my_timemoto(request: Request) -> tuple[str, bool]:
     if tm:
         return tm, True
     return (request.session.get("name") or _user(request) or "").strip(), False
+
+
+
+
+# --- Dokument-Bereiche (ISO 9001, KI-Schulungen) -----------------------------
+
+_AREAS = {
+    "iso": {"slug": "iso", "url": "/bereich/iso", "page": "area-iso",
+            "title": "ISO 9001 (FiFB)",
+            "desc": "Interne Prozesse, Verfahrensanweisungen und "
+                    "QM-Dokumente – zum Ansehen und Herunterladen."},
+    "ki-schulungen": {"slug": "ki-schulungen", "url": "/bereich/ki-schulungen",
+                      "page": "area-ki-schulungen", "title": "KI-Schulungen",
+                      "desc": "Schulungsunterlagen, Anleitungen und Videos "
+                              "rund um den Einsatz von KI bei FBE."},
+}
+
+
+def _fmt_size(n: int) -> str:
+    n = int(n or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n/1:.1f} {unit}"
+        n /= 1024
+    return f"{n} B"
+
+
+def _doc_view(d: dict) -> dict:
+    d = dict(d)
+    d["size_disp"] = _fmt_size(d.get("size", 0))
+    d["at_disp"] = _disp(d.get("at", ""))[:10]
+    d["ext"] = (Path(d.get("filename", "")).suffix or "").lstrip(".").upper() or "–"
+    return d
+
+
+@router.get("/bereich/{slug}", response_class=HTMLResponse)
+async def area_page(request: Request, slug: str, cat: str = ""):
+    if (r := _need_login(request)):
+        return r
+    area = _AREAS.get(slug)
+    if not area:
+        return RedirectResponse("/start", status_code=303)
+    docs_list = [_doc_view(d) for d in docfiles.list_docs(slug, category=cat)]
+    return HTMLResponse(_tpls["area"].render(
+        **_common(request, area["page"], area["title"]), area=area,
+        docs=docs_list, cats=docfiles.categories(slug), cat=cat))
+
+
+@router.post("/bereich/{slug}/upload")
+async def area_upload(request: Request, slug: str, title: str = Form(""),
+                      category: str = Form(""), file: UploadFile = File(...)):
+    if (r := _need_admin(request)):
+        return r
+    area = _AREAS.get(slug)
+    if not area:
+        return RedirectResponse("/start", status_code=303)
+    safe = docfiles.safe_name(file.filename or "datei")
+    target_dir = config.DOC_FILES_DIR / slug
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stored = target_dir / f"{secrets.token_hex(6)}_{safe}"
+    with stored.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+    doc = docfiles.add(slug, title, category, safe, str(stored),
+                       stored.stat().st_size, _user(request))
+    audit.log(_user(request), "Dokument hochgeladen",
+              f"{area['title']}: {doc['title']} ({safe})")
+    request.session["flash"] = f"„{doc['title']}“ hochgeladen."
+    return RedirectResponse(area["url"], status_code=303)
+
+
+@router.get("/bereich/{slug}/{did}", response_class=HTMLResponse)
+async def area_view(request: Request, slug: str, did: str):
+    if (r := _need_login(request)):
+        return r
+    area = _AREAS.get(slug)
+    d = docfiles.get(did)
+    if not area or not d or d.get("area") != slug:
+        return RedirectResponse(area["url"] if area else "/start",
+                                status_code=303)
+    return HTMLResponse(_tpls["area_view"].render(
+        **_common(request, area["page"], d["title"]), area=area,
+        d=_doc_view(d), kind=docfiles.viewer_kind(d.get("mime", "")),
+        file_url=f"{area['url']}/{did}/file"))
+
+
+@router.get("/bereich/{slug}/{did}/file")
+async def area_file(request: Request, slug: str, did: str, download: int = 0):
+    if (r := _need_login(request)):
+        return r
+    d = docfiles.get(did)
+    if not d or d.get("area") != slug or not Path(d["stored"]).exists():
+        return HTMLResponse("Datei nicht gefunden.", status_code=404)
+    return FileResponse(
+        d["stored"], media_type=d.get("mime") or "application/octet-stream",
+        filename=d.get("filename", "datei"),
+        content_disposition_type="attachment" if download else "inline")
+
+
+@router.post("/bereich/{slug}/{did}/delete")
+async def area_delete(request: Request, slug: str, did: str):
+    if (r := _need_admin(request)):
+        return r
+    area = _AREAS.get(slug)
+    removed = docfiles.delete(did)
+    if area and removed:
+        audit.log(_user(request), "Dokument gelöscht",
+                  f"{area['title']}: {removed.get('title')}")
+        request.session["flash"] = "Dokument gelöscht."
+    return RedirectResponse(area["url"] if area else "/start", status_code=303)
 
 
 @router.get("/meine-zeiten", response_class=HTMLResponse)

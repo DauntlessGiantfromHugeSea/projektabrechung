@@ -191,6 +191,10 @@ MANUAL_FILE = Path(os.getenv("MANUAL_FILE", "/data/manual.json"))
 # Ticketsystem
 TICKETS_FILE = Path(os.getenv("TICKETS_FILE", "/data/tickets.json"))
 TICKET_FILES_DIR = Path(os.getenv("TICKET_FILES_DIR", "/data/ticket_files"))
+
+# Dokument-Bereiche (ISO 9001, KI-Schulungen): Index + Dateiablage.
+DOCFILES_FILE = Path(os.getenv("DOCFILES_FILE", "/data/docfiles.json"))
+DOC_FILES_DIR = Path(os.getenv("DOC_FILES_DIR", "/data/doc_files"))
 # Aenderungsprotokoll (Audit-Log): wer hat wann was geaendert.
 AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "/data/audit.json"))
 

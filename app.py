@@ -43,7 +43,7 @@ from report import build_report, previous_week_range, render_text
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     for d in (config.LOG_FILE.parent, config.REPORT_DIR, config.DOWNLOAD_DIR,
-              config.TICKET_FILES_DIR):
+              config.TICKET_FILES_DIR, config.DOC_FILES_DIR):
         try:
             d.mkdir(parents=True, exist_ok=True)
         except Exception:
