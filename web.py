@@ -2078,16 +2078,19 @@ _VCARD_PUB = Template("""
   h1{margin:1rem 0 .2rem;font-size:1.75rem;letter-spacing:-.02em}
   .sub{margin:0;color:rgba(255,255,255,.88)}
   main{flex:1;max-width:560px;width:100%;margin:0 auto;padding:2.2rem 1.2rem}
-  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem 1rem;
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.6rem 1rem;
     justify-items:center}
-  .tile{display:flex;flex-direction:column;align-items:center;gap:.5rem;
-    text-decoration:none;color:#33413a;font-size:.85rem;font-weight:600}
-  .tile .ic{width:64px;height:64px;border-radius:16px;display:flex;
+  .tile{display:flex;flex-direction:column;align-items:center;gap:.6rem;
+    text-decoration:none;color:#33413a;font-size:.83rem;font-weight:600;
+    text-align:center;line-height:1.3}
+  .tile .ic{width:62px;height:62px;border-radius:18px;display:flex;
     align-items:center;justify-content:center;
-    box-shadow:0 4px 14px rgba(20,40,25,.18);transition:.15s}
-  .tile:hover .ic{transform:translateY(-3px);box-shadow:0 8px 20px rgba(20,40,25,.25)}
-  .tile svg{width:30px;height:30px;stroke:#fff;fill:none;stroke-width:2;
-    stroke-linecap:round;stroke-linejoin:round}
+    box-shadow:0 2px 6px rgba(20,40,25,.10),0 8px 18px rgba(20,40,25,.14);
+    transition:transform .15s,box-shadow .15s}
+  .tile:hover .ic{transform:translateY(-3px);
+    box-shadow:0 4px 10px rgba(20,40,25,.14),0 14px 26px rgba(20,40,25,.22)}
+  .tile:active .ic{transform:translateY(0)}
+  .tile svg{width:32px;height:32px;display:block}
   footer{padding:1.4rem 1rem 1.8rem;text-align:center;color:#6a7870;
     font-size:.85rem}
   footer a{color:#44772f;text-decoration:none;margin:0 .5rem}
@@ -2103,31 +2106,31 @@ _VCARD_PUB = Template("""
 <main>
   <div class="grid">
     <a class="tile" href="/v/{{ c.slug }}/kontakt.vcf">
-      <span class="ic" style="background:#6fa84f;"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg></span>
+      <span class="ic" style="background:#6fa84f;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M9 11.5a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5zM1.5 20.4C1.5 16.6 4.9 14 9 14s7.5 2.6 7.5 6.4c0 .6-.5 1.1-1.1 1.1H2.6c-.6 0-1.1-.5-1.1-1.1z"/><path fill="#fff" d="M19.75 5.5c.55 0 1 .45 1 1V9h2.5c.55 0 1 .45 1 1s-.45 1-1 1h-2.5v2.5c0 .55-.45 1-1 1s-1-.45-1-1V11h-2.5c-.55 0-1-.45-1-1s.45-1 1-1h2.5V6.5c0-.55.45-1 1-1z"/></svg></span>
       Kontakt speichern</a>
     {% if c.linkedin %}
     <a class="tile" href="{{ c.linkedin }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#0a66c2;"><svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4V9h4v1.5"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg></span>
+      <span class="ic" style="background:#0a66c2;"><svg viewBox="0 0 24 24"><circle fill="#fff" cx="6.2" cy="6.4" r="1.85"/><path fill="#fff" d="M4.6 9.5h3.2V19H4.6z"/><path fill="#fff" d="M10 9.5h3.05v1.3h.05c.43-.8 1.47-1.65 3.03-1.65 3.23 0 3.82 2.13 3.82 4.9V19h-3.18v-4.4c0-1.05-.02-2.4-1.46-2.4-1.47 0-1.69 1.14-1.69 2.32V19H10z"/></svg></span>
       LinkedIn</a>
     {% endif %}
     {% if c.email %}
     <a class="tile" href="mailto:{{ c.email }}">
-      <span class="ic" style="background:#3d7ff0;"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 6l10 7 10-7"/></svg></span>
+      <span class="ic" style="background:#3d7ff0;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M4.4 4.5h15.2A2.4 2.4 0 0 1 22 6.9v.25l-10 6.05L2 7.15V6.9a2.4 2.4 0 0 1 2.4-2.4z"/><path fill="#fff" d="M22 9.5v7.6a2.4 2.4 0 0 1-2.4 2.4H4.4A2.4 2.4 0 0 1 2 17.1V9.5l9.48 5.73c.32.2.72.2 1.04 0z"/></svg></span>
       E-Mail</a>
     {% endif %}
     {% if c.whatsapp %}
     <a class="tile" href="https://wa.me/{{ c.whatsapp }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#25d366;"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.4L3 21l2.2-5.5A8.5 8.5 0 1 1 21 11.5z"/><path d="M8.7 9.2c.4 2.4 3 5 5.4 5.4l1.4-1.4 2 1.2c-.5 1.6-2 2-3.4 1.6-3-.8-6-3.8-6.8-6.8-.4-1.4 0-2.9 1.6-3.4l1.2 2z"/></svg></span>
+      <span class="ic" style="background:#25d366;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg></span>
       WhatsApp</a>
     {% endif %}
     {% if c.maps %}
     <a class="tile" href="{{ c.maps }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#ea4335;"><svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+      <span class="ic" style="background:#ea4335;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M12 1.8a7.45 7.45 0 0 0-7.45 7.45c0 5.4 6.55 12.42 6.83 12.72a.85.85 0 0 0 1.24 0c.28-.3 6.83-7.32 6.83-12.72A7.45 7.45 0 0 0 12 1.8z"/><circle fill="#ea4335" cx="12" cy="9.3" r="2.7"/></svg></span>
       Standort</a>
     {% endif %}
     {% if c.website %}
     <a class="tile" href="{{ c.website }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#123726;"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg></span>
+      <span class="ic" style="background:#123726;"><svg viewBox="0 0 24 24"><circle fill="#fff" cx="12" cy="12" r="9.4"/><path fill="none" stroke="#123726" stroke-width="1.7" d="M3.1 12h17.8M12 2.9c3 2.5 3 15.7 0 18.2-3-2.5-3-15.7 0-18.2z"/><circle fill="none" stroke="#123726" stroke-width="1.7" cx="12" cy="12" r="9.1"/></svg></span>
       Webseite</a>
     {% endif %}
   </div>
