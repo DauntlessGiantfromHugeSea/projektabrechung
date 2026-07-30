@@ -15,5 +15,8 @@
 - **FBE Intranet** – internes Tool der Flüssigboden Engineering GmbH
   (TimeMoto-Zeiten, Projektabrechnung, Tickets, Exporte).
 - Deploy: `https://intern.rss-fb.com` hinter `fbe-caddy`.
+- **Pfad auf dem Server:** `/root/projektabrechnung/` (Update: dort
+  `git pull origin claude/relaxed-hawking-VJjx3`, dann in `deploy/`
+  `docker compose up --build -d`).
 - Entwicklungs-Branch: `claude/relaxed-hawking-VJjx3`.
 - Secrets nur in `deploy/.env` – niemals committen.
