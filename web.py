@@ -2091,6 +2091,9 @@ _VCARD_PUB = Template("""
     box-shadow:0 4px 10px rgba(20,40,25,.14),0 14px 26px rgba(20,40,25,.22)}
   .tile:active .ic{transform:translateY(0)}
   .tile svg{width:32px;height:32px;display:block}
+  .tile .ic.full{overflow:hidden;background:#fff}
+  .tile .ic.full svg{width:100%;height:100%}
+  .tile .ic img{width:40px;height:auto;display:block}
   footer{padding:1.4rem 1rem 1.8rem;text-align:center;color:#6a7870;
     font-size:.85rem}
   footer a{color:#44772f;text-decoration:none;margin:0 .5rem}
@@ -2106,31 +2109,31 @@ _VCARD_PUB = Template("""
 <main>
   <div class="grid">
     <a class="tile" href="/v/{{ c.slug }}/kontakt.vcf">
-      <span class="ic" style="background:#6fa84f;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M9 11.5a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5zM1.5 20.4C1.5 16.6 4.9 14 9 14s7.5 2.6 7.5 6.4c0 .6-.5 1.1-1.1 1.1H2.6c-.6 0-1.1-.5-1.1-1.1z"/><path fill="#fff" d="M19.75 5.5c.55 0 1 .45 1 1V9h2.5c.55 0 1 .45 1 1s-.45 1-1 1h-2.5v2.5c0 .55-.45 1-1 1s-1-.45-1-1V11h-2.5c-.55 0-1-.45-1-1s.45-1 1-1h2.5V6.5c0-.55.45-1 1-1z"/></svg></span>
+      <span class="ic full"><svg viewBox="0 0 62 62"><rect width="62" height="62" fill="#f2f2f2"/><rect x="52" y="8" width="10" height="10" fill="#ea4335"/><rect x="52" y="18" width="10" height="10" fill="#fbbc04"/><rect x="52" y="28" width="10" height="10" fill="#34a853"/><rect x="52" y="38" width="10" height="10" fill="#4285f4"/><circle cx="29" cy="24" r="9" fill="#9aa0a6"/><path d="M13 51c0-8.8 7.2-14 16-14s16 5.2 16 14z" fill="#9aa0a6"/></svg></span>
       Kontakt speichern</a>
     {% if c.linkedin %}
     <a class="tile" href="{{ c.linkedin }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#0a66c2;"><svg viewBox="0 0 24 24"><circle fill="#fff" cx="6.2" cy="6.4" r="1.85"/><path fill="#fff" d="M4.6 9.5h3.2V19H4.6z"/><path fill="#fff" d="M10 9.5h3.05v1.3h.05c.43-.8 1.47-1.65 3.03-1.65 3.23 0 3.82 2.13 3.82 4.9V19h-3.18v-4.4c0-1.05-.02-2.4-1.46-2.4-1.47 0-1.69 1.14-1.69 2.32V19H10z"/></svg></span>
+      <span class="ic" style="background:#0a66c2;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M5.337 7.433a2.064 2.064 0 1 1 0-4.129 2.064 2.064 0 0 1 0 4.129zM7.119 20.452H3.555V9h3.564v11.452z"/><path fill="#fff" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286z"/></svg></span>
       LinkedIn</a>
     {% endif %}
     {% if c.email %}
     <a class="tile" href="mailto:{{ c.email }}">
-      <span class="ic" style="background:#3d7ff0;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M4.4 4.5h15.2A2.4 2.4 0 0 1 22 6.9v.25l-10 6.05L2 7.15V6.9a2.4 2.4 0 0 1 2.4-2.4z"/><path fill="#fff" d="M22 9.5v7.6a2.4 2.4 0 0 1-2.4 2.4H4.4A2.4 2.4 0 0 1 2 17.1V9.5l9.48 5.73c.32.2.72.2 1.04 0z"/></svg></span>
+      <span class="ic" style="background:linear-gradient(180deg,#5eb1f7,#2f7ff0);"><svg viewBox="0 0 24 24"><path fill="#fff" d="M3.6 5h16.8c.88 0 1.6.72 1.6 1.6v.28l-9.53 5.9a.9.9 0 0 1-.94 0L2 7.16V6.6C2 5.72 2.72 5 3.6 5z"/><path fill="#fff" d="M22 9.02v8.38c0 .88-.72 1.6-1.6 1.6H3.6c-.88 0-1.6-.72-1.6-1.6V9.02l9.06 5.6c.58.36 1.3.36 1.88 0z"/></svg></span>
       E-Mail</a>
     {% endif %}
     {% if c.whatsapp %}
     <a class="tile" href="https://wa.me/{{ c.whatsapp }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#25d366;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg></span>
+      <span class="ic" style="background:#25d366;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347zm-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884zm8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg></span>
       WhatsApp</a>
     {% endif %}
     {% if c.maps %}
     <a class="tile" href="{{ c.maps }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#ea4335;"><svg viewBox="0 0 24 24"><path fill="#fff" d="M12 1.8a7.45 7.45 0 0 0-7.45 7.45c0 5.4 6.55 12.42 6.83 12.72a.85.85 0 0 0 1.24 0c.28-.3 6.83-7.32 6.83-12.72A7.45 7.45 0 0 0 12 1.8z"/><circle fill="#ea4335" cx="12" cy="9.3" r="2.7"/></svg></span>
+      <span class="ic full"><svg viewBox="0 0 62 62"><rect width="62" height="62" fill="#fff"/><path d="M0 44 L26 20 L38 32 L62 12 v50 H0z" fill="#e8f0e4"/><path d="M0 46 L24 24 L36 36 L62 15" fill="none" stroke="#fbbc04" stroke-width="5"/><path d="M0 62 L18 44 L34 58 L44 62z" fill="#a8dab5"/><path d="M31 12c-6.1 0-11 4.9-11 11 0 8.2 11 20 11 20s11-11.8 11-20c0-6.1-4.9-11-11-11z" fill="#ea4335"/><circle cx="31" cy="23" r="4.2" fill="#fff"/></svg></span>
       Standort</a>
     {% endif %}
     {% if c.website %}
     <a class="tile" href="{{ c.website }}" target="_blank" rel="noopener">
-      <span class="ic" style="background:#123726;"><svg viewBox="0 0 24 24"><circle fill="#fff" cx="12" cy="12" r="9.4"/><path fill="none" stroke="#123726" stroke-width="1.7" d="M3.1 12h17.8M12 2.9c3 2.5 3 15.7 0 18.2-3-2.5-3-15.7 0-18.2z"/><circle fill="none" stroke="#123726" stroke-width="1.7" cx="12" cy="12" r="9.1"/></svg></span>
+      <span class="ic" style="background:#12301f;"><img src="{{ logo_white }}" alt="FBE"></span>
       Webseite</a>
     {% endif %}
   </div>
@@ -3637,6 +3640,7 @@ async def vcard_public(slug: str):
     html = _VCARD_PUB.render(
         c=c, has_photo=bool(c.get("photo") and Path(c["photo"]).exists()),
         initials=initials, bg=config.LOGIN_BG_IMAGE,
+        logo_white=LOGO_URL_WHITE,
         year=datetime.now(config.TIMEZONE).year)
     return HTMLResponse(html, headers=_PUB_HEADERS)
 
