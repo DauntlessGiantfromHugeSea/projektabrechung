@@ -195,6 +195,10 @@ TICKET_FILES_DIR = Path(os.getenv("TICKET_FILES_DIR", "/data/ticket_files"))
 # Dokument-Bereiche (ISO 9001, KI-Schulungen): Index + Dateiablage.
 DOCFILES_FILE = Path(os.getenv("DOCFILES_FILE", "/data/docfiles.json"))
 DOC_FILES_DIR = Path(os.getenv("DOC_FILES_DIR", "/data/doc_files"))
+
+# Digitale Visitenkarten (oeffentliche Karten unter /v/<slug>).
+VCARDS_FILE = Path(os.getenv("VCARDS_FILE", "/data/vcards.json"))
+VCARD_FILES_DIR = Path(os.getenv("VCARD_FILES_DIR", "/data/vcard_files"))
 # Aenderungsprotokoll (Audit-Log): wer hat wann was geaendert.
 AUDIT_FILE = Path(os.getenv("AUDIT_FILE", "/data/audit.json"))
 

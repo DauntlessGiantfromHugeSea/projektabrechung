@@ -38,6 +38,7 @@ import scheduler
 import settings
 import tickets
 import users
+import vcards
 import xlsxout
 from events import delete_interval, load_records, normalize, pair_intervals
 from fastapi.responses import FileResponse
@@ -496,6 +497,7 @@ _BASE = """
         <a href="/einstellungen/projekte">{{ icons.list|safe }} Projekte</a>
         <a href="/einstellungen">{{ icons.gear|safe }} Einstellungen</a>
         <a href="/einstellungen/texte">{{ icons.edit|safe }} Texte</a>
+        <a href="/einstellungen/visitenkarten">{{ icons.users|safe }} Visitenkarten</a>
         <a href="/audit">{{ icons.history|safe }} Verlauf</a>
         {% endif %}
         <div class="pdiv"></div>
@@ -1927,6 +1929,90 @@ _AREA_VIEW = """
 {% endblock %}
 """
 
+_VCARDS = """
+{% extends base %}
+{% block body %}
+<div class="card glass">
+  <h1 style="margin:0 0 .3rem;">Visitenkarten</h1>
+  <p class="muted">Digitale Visitenkarten mit eigener öffentlicher URL – zum
+    Aufdrucken/QR-Code auf die gedruckte Karte. Die öffentliche Seite zeigt
+    <b>nur</b> die hier eingetragenen Angaben; ein Zugang zum Intranet ist
+    darüber nicht möglich.</p>
+  {% if cards %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for c in cards %}
+      <tr>
+        <td><b>{{ c.name }}</b>{% if c.title %}<div class="muted" style="font-size:.84rem;">{{ c.title }}</div>{% endif %}</td>
+        <td><code>{{ c.url }}</code></td>
+        <td>{% if c.enabled %}<span class="pill ok">aktiv</span>{% else %}<span class="pill no">aus</span>{% endif %}</td>
+        <td style="text-align:right;"><div class="rowactions">
+          {% if c.enabled %}<a class="btn ghost" href="/v/{{ c.slug }}" target="_blank" rel="noopener">Ansehen ↗</a>{% endif %}
+          <a class="btn ghost" href="/einstellungen/visitenkarten/{{ c.id }}">Bearbeiten</a>
+          <form method="post" action="/einstellungen/visitenkarten/{{ c.id }}/delete">
+            <button class="danger" onclick="return confirm('Visitenkarte löschen?')">Löschen</button></form>
+        </div></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">Noch keine Visitenkarten angelegt.</p>{% endif %}
+</div>
+<div class="card glass" style="max-width:560px;">
+  <h2>Neue Visitenkarte</h2>
+  <form method="post" action="/einstellungen/visitenkarten">
+    <label>Name</label>
+    <input name="name" placeholder="z. B. Dustyn Model" list="usernames" required>
+    <datalist id="usernames">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
+    <div style="margin-top:1rem;"><button type="submit">Anlegen &amp; bearbeiten</button></div>
+  </form>
+</div>
+{% endblock %}
+"""
+
+_VCARD_EDIT = """
+{% extends base %}
+{% block body %}
+<div class="card glass" style="max-width:640px;">
+  <div class="toolbar" style="justify-content:space-between;">
+    <h1 style="margin:0;">Visitenkarte: {{ c.name }}</h1>
+    <a class="btn ghost" href="/einstellungen/visitenkarten">Zurück</a>
+  </div>
+  <form method="post" action="/einstellungen/visitenkarten/{{ c.id }}" enctype="multipart/form-data">
+    {% for key, label, ph in fields %}
+      <label>{{ label }}</label>
+      <input name="{{ key }}" value="{{ c[key] or '' }}" placeholder="{{ ph }}">
+    {% endfor %}
+    <label>URL-Kennung (wird gedruckt: {{ base_url }}/v/…)</label>
+    <input name="slug" value="{{ c.slug }}" pattern="[a-z0-9][a-z0-9-]{1,48}[a-z0-9]">
+    <p class="muted" style="margin:.3rem 0 0;">Nur Kleinbuchstaben, Zahlen und
+      Bindestriche. Nach dem Druck nicht mehr ändern!</p>
+    <label>Foto (rund angezeigt, JPG/PNG)</label>
+    <input type="file" name="photo" accept="image/*">
+    {% if c.photo %}<p class="muted" style="margin:.3rem 0 0;">Foto vorhanden –
+      neues Foto ersetzt das alte.</p>{% endif %}
+    <label style="display:flex;align-items:center;gap:.5rem;margin-top:1rem;cursor:pointer;">
+      <input type="checkbox" name="enabled" value="1" {{ 'checked' if c.enabled }}
+        style="width:auto;"> Karte öffentlich erreichbar (aktiv)
+    </label>
+    <div class="toolbar" style="margin-top:1.2rem;">
+      <button type="submit">Speichern</button>
+      {% if c.enabled %}<a class="btn ghost" href="/v/{{ c.slug }}" target="_blank" rel="noopener">Vorschau ↗</a>{% endif %}
+    </div>
+  </form>
+</div>
+{% if c.enabled %}
+<div class="card glass" style="max-width:640px;">
+  <h2>Für den Druck</h2>
+  <p>URL: <code>{{ url }}</code></p>
+  <p class="muted">QR-Code (Rechtsklick → „Bild speichern“ für die Druckerei):</p>
+  <img src="{{ qr }}" alt="QR-Code" style="width:190px;height:190px;background:#fff;padding:10px;border:1px solid var(--line);border-radius:12px;">
+</div>
+{% endif %}
+{% endblock %}
+"""
+
 _tpls = {n: Template(s) for n, s in {
     "login": _LOGIN, "home": _HOME, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
@@ -1939,6 +2025,7 @@ _tpls = {n: Template(s) for n, s in {
     "reset_req": _RESET_REQ, "reset_form": _RESET_FORM,
     "tickets": _TICKETS, "ticket_new": _TICKET_NEW, "ticket": _TICKET,
     "area": _AREA, "area_view": _AREA_VIEW,
+    "vcards": _VCARDS, "vcard_edit": _VCARD_EDIT,
 }.items()}
 
 
@@ -1962,6 +2049,98 @@ for _tpl in [_base_tpl, *_tpls.values()]:
     _tpl.environment.globals["ms_logo"] = _MS_LOGO    # type: ignore
     _tpl.environment.globals["logo_url_white"] = LOGO_URL_WHITE  # type: ignore
     _tpl.environment.globals["texts"] = _texts_proxy   # type: ignore
+
+
+# Oeffentliche Visitenkarte: bewusst EIGENSTAENDIG (kein {% extends base %}),
+# keine Session, keine internen Links -- nur die Kartendaten.
+_VCARD_PUB = Template("""
+<!doctype html><html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{ c.name }} – {{ c.company }}</title>
+<link rel="icon" href="https://fb-eng.de/wp-content/uploads/2024/10/cropped-FBE_midnight.png">
+<meta name="theme-color" content="#123726">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#f4f6f2;color:#1b2a20;
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,system-ui,Segoe UI,Roboto,sans-serif;
+    display:flex;flex-direction:column}
+  .hero{background:linear-gradient(160deg,rgba(18,55,38,.90),rgba(24,74,49,.84)),
+    url('{{ bg }}') center/cover no-repeat;
+    padding:3.2rem 1rem 2.6rem;text-align:center;color:#fff}
+  .photo{width:128px;height:128px;border-radius:50%;object-fit:cover;
+    border:4px solid rgba(255,255,255,.92);box-shadow:0 10px 30px rgba(0,0,0,.35);
+    background:#fff}
+  .initials{width:128px;height:128px;border-radius:50%;display:inline-flex;
+    align-items:center;justify-content:center;font-size:2.4rem;font-weight:800;
+    color:#2f6b1f;background:#fff;border:4px solid rgba(255,255,255,.92);
+    box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  h1{margin:1rem 0 .2rem;font-size:1.75rem;letter-spacing:-.02em}
+  .sub{margin:0;color:rgba(255,255,255,.88)}
+  main{flex:1;max-width:560px;width:100%;margin:0 auto;padding:2.2rem 1.2rem}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem 1rem;
+    justify-items:center}
+  .tile{display:flex;flex-direction:column;align-items:center;gap:.5rem;
+    text-decoration:none;color:#33413a;font-size:.85rem;font-weight:600}
+  .tile .ic{width:64px;height:64px;border-radius:16px;display:flex;
+    align-items:center;justify-content:center;
+    box-shadow:0 4px 14px rgba(20,40,25,.18);transition:.15s}
+  .tile:hover .ic{transform:translateY(-3px);box-shadow:0 8px 20px rgba(20,40,25,.25)}
+  .tile svg{width:30px;height:30px;stroke:#fff;fill:none;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round}
+  footer{padding:1.4rem 1rem 1.8rem;text-align:center;color:#6a7870;
+    font-size:.85rem}
+  footer a{color:#44772f;text-decoration:none;margin:0 .5rem}
+  @media(max-width:400px){.grid{gap:1.1rem .6rem}.tile .ic{width:58px;height:58px}}
+</style></head><body>
+<div class="hero">
+  {% if has_photo %}<img class="photo" src="/v/{{ c.slug }}/foto" alt="{{ c.name }}">
+  {% else %}<span class="initials">{{ initials }}</span>{% endif %}
+  <h1>{{ c.name }}</h1>
+  {% if c.title %}<p class="sub">{{ c.title }}</p>{% endif %}
+  <p class="sub">{{ c.company }}</p>
+</div>
+<main>
+  <div class="grid">
+    <a class="tile" href="/v/{{ c.slug }}/kontakt.vcf">
+      <span class="ic" style="background:#6fa84f;"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg></span>
+      Kontakt speichern</a>
+    {% if c.linkedin %}
+    <a class="tile" href="{{ c.linkedin }}" target="_blank" rel="noopener">
+      <span class="ic" style="background:#0a66c2;"><svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4V9h4v1.5"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg></span>
+      LinkedIn</a>
+    {% endif %}
+    {% if c.email %}
+    <a class="tile" href="mailto:{{ c.email }}">
+      <span class="ic" style="background:#3d7ff0;"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 6l10 7 10-7"/></svg></span>
+      E-Mail</a>
+    {% endif %}
+    {% if c.whatsapp %}
+    <a class="tile" href="https://wa.me/{{ c.whatsapp }}" target="_blank" rel="noopener">
+      <span class="ic" style="background:#25d366;"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.4L3 21l2.2-5.5A8.5 8.5 0 1 1 21 11.5z"/><path d="M8.7 9.2c.4 2.4 3 5 5.4 5.4l1.4-1.4 2 1.2c-.5 1.6-2 2-3.4 1.6-3-.8-6-3.8-6.8-6.8-.4-1.4 0-2.9 1.6-3.4l1.2 2z"/></svg></span>
+      WhatsApp</a>
+    {% endif %}
+    {% if c.maps %}
+    <a class="tile" href="{{ c.maps }}" target="_blank" rel="noopener">
+      <span class="ic" style="background:#ea4335;"><svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+      Standort</a>
+    {% endif %}
+    {% if c.website %}
+    <a class="tile" href="{{ c.website }}" target="_blank" rel="noopener">
+      <span class="ic" style="background:#123726;"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg></span>
+      Webseite</a>
+    {% endif %}
+  </div>
+</main>
+<footer>
+  © {{ year }} {{ c.company }}
+  <div style="margin-top:.4rem;">
+    <a href="https://fb-eng.de/impressum/" target="_blank" rel="noopener">Impressum</a>
+    <a href="https://fb-eng.de/datenschutz/" target="_blank" rel="noopener">Datenschutz</a>
+  </div>
+</footer>
+</body></html>
+""")
 
 
 # --- Helfer ----------------------------------------------------------------
@@ -3333,6 +3512,154 @@ async def area_delete(request: Request, slug: str, did: str):
                   f"{area['title']}: {removed.get('title')}")
         request.session["flash"] = "Dokument gelöscht."
     return RedirectResponse(area["url"] if area else "/start", status_code=303)
+
+
+
+
+# --- Digitale Visitenkarten --------------------------------------------------
+
+@router.get("/einstellungen/visitenkarten", response_class=HTMLResponse)
+async def vcards_page(request: Request):
+    if (r := _need_admin(request)):
+        return r
+    cards = [dict(c, url=vcards.public_url(c)) for c in vcards.list_cards()]
+    names = [u.get("name") or u["username"] for u in users.list_users()]
+    return HTMLResponse(_tpls["vcards"].render(
+        **_common(request, "settings", "Visitenkarten"),
+        cards=cards, names=sorted(set(names), key=str.lower)))
+
+
+@router.post("/einstellungen/visitenkarten")
+async def vcards_create(request: Request, name: str = Form("")):
+    if (r := _need_admin(request)):
+        return r
+    if not name.strip():
+        return RedirectResponse("/einstellungen/visitenkarten", status_code=303)
+    c = vcards.add(name)
+    audit.log(_user(request), "Visitenkarte angelegt", c["name"])
+    return RedirectResponse(f"/einstellungen/visitenkarten/{c['id']}",
+                            status_code=303)
+
+
+@router.get("/einstellungen/visitenkarten/{cid}", response_class=HTMLResponse)
+async def vcard_edit(request: Request, cid: str):
+    if (r := _need_admin(request)):
+        return r
+    c = vcards.get(cid)
+    if not c:
+        return RedirectResponse("/einstellungen/visitenkarten", status_code=303)
+    url = vcards.public_url(c)
+    qr = segno.make(url).svg_data_uri(scale=5) if c.get("enabled") else ""
+    return HTMLResponse(_tpls["vcard_edit"].render(
+        **_common(request, "settings", "Visitenkarte"),
+        c=c, fields=vcards.FIELDS, url=url, qr=qr,
+        base_url=config.PUBLIC_BASE_URL))
+
+
+@router.post("/einstellungen/visitenkarten/{cid}")
+async def vcard_save(request: Request, cid: str):
+    if (r := _need_admin(request)):
+        return r
+    c = vcards.get(cid)
+    if not c:
+        return RedirectResponse("/einstellungen/visitenkarten", status_code=303)
+    form = await request.form()
+    values = {k: str(form.get(k, "") or "").strip()
+              for k, _l, _p in vcards.FIELDS}
+    slug = str(form.get("slug", "") or "").strip().lower()
+    if not vcards.valid_slug(slug):
+        request.session["flash"], request.session["flash_class"] = \
+            "Ungültige URL-Kennung (nur a-z, 0-9, Bindestriche).", "err"
+        return RedirectResponse(f"/einstellungen/visitenkarten/{cid}",
+                                status_code=303)
+    if vcards.slug_taken(slug, except_id=cid):
+        request.session["flash"], request.session["flash_class"] = \
+            "Diese URL-Kennung ist bereits vergeben.", "err"
+        return RedirectResponse(f"/einstellungen/visitenkarten/{cid}",
+                                status_code=303)
+    values["slug"] = slug
+    values["enabled"] = form.get("enabled") == "1"
+    photo = form.get("photo")
+    if photo is not None and getattr(photo, "filename", ""):
+        ext = Path(photo.filename).suffix.lower()
+        if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+            request.session["flash"], request.session["flash_class"] = \
+                "Foto bitte als JPG, PNG oder WebP hochladen.", "err"
+            return RedirectResponse(f"/einstellungen/visitenkarten/{cid}",
+                                    status_code=303)
+        config.VCARD_FILES_DIR.mkdir(parents=True, exist_ok=True)
+        stored = config.VCARD_FILES_DIR / f"{cid}{ext}"
+        with stored.open("wb") as out:
+            shutil.copyfileobj(photo.file, out)
+        if c.get("photo") and c["photo"] != str(stored):
+            Path(c["photo"]).unlink(missing_ok=True)
+        values["photo"] = str(stored)
+    vcards.update(cid, values)
+    audit.log(_user(request), "Visitenkarte gespeichert",
+              f"{values.get('name') or c['name']} (/v/{slug}, "
+              f"{'aktiv' if values['enabled'] else 'aus'})")
+    request.session["flash"] = "Visitenkarte gespeichert."
+    return RedirectResponse(f"/einstellungen/visitenkarten/{cid}",
+                            status_code=303)
+
+
+@router.post("/einstellungen/visitenkarten/{cid}/delete")
+async def vcard_delete(request: Request, cid: str):
+    if (r := _need_admin(request)):
+        return r
+    removed = vcards.delete(cid)
+    if removed:
+        audit.log(_user(request), "Visitenkarte gelöscht",
+                  removed.get("name", ""))
+        request.session["flash"] = "Visitenkarte gelöscht."
+    return RedirectResponse("/einstellungen/visitenkarten", status_code=303)
+
+
+# Oeffentliche Karten-Routen: KEIN Login, aber strikt auf die Karte begrenzt.
+# Es werden ausschliesslich die vom Admin gepflegten Kartendaten ausgeliefert.
+
+_PUB_HEADERS = {"X-Robots-Tag": "noindex, nofollow",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff"}
+
+
+@router.get("/v/{slug}", response_class=HTMLResponse)
+async def vcard_public(slug: str):
+    c = vcards.by_slug(slug)
+    if not c:
+        return HTMLResponse("Nicht gefunden.", status_code=404,
+                            headers=_PUB_HEADERS)
+    nm = (c.get("name") or "?").split()
+    initials = "".join(w[0] for w in nm[:2]).upper() or "?"
+    html = _VCARD_PUB.render(
+        c=c, has_photo=bool(c.get("photo") and Path(c["photo"]).exists()),
+        initials=initials, bg=config.LOGIN_BG_IMAGE,
+        year=datetime.now(config.TIMEZONE).year)
+    return HTMLResponse(html, headers=_PUB_HEADERS)
+
+
+@router.get("/v/{slug}/foto")
+async def vcard_public_photo(slug: str):
+    c = vcards.by_slug(slug)
+    if not c or not c.get("photo") or not Path(c["photo"]).exists():
+        return HTMLResponse("Nicht gefunden.", status_code=404,
+                            headers=_PUB_HEADERS)
+    return FileResponse(c["photo"], headers=_PUB_HEADERS,
+                        content_disposition_type="inline")
+
+
+@router.get("/v/{slug}/kontakt.vcf")
+async def vcard_public_vcf(slug: str):
+    c = vcards.by_slug(slug)
+    if not c:
+        return HTMLResponse("Nicht gefunden.", status_code=404,
+                            headers=_PUB_HEADERS)
+    fname = f"{(c.get('name') or 'kontakt').replace(' ', '_')}.vcf"
+    return Response(vcards.build_vcf(c),
+                    media_type="text/vcard; charset=utf-8",
+                    headers={**_PUB_HEADERS,
+                             "Content-Disposition":
+                             f'attachment; filename="{fname}"'})
 
 
 @router.get("/meine-zeiten", response_class=HTMLResponse)

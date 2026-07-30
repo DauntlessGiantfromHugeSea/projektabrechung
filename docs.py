@@ -359,6 +359,27 @@ def admin_sections(webhook_url: str = "", secret: str = "") -> list[dict]:
             "Dateien liegen unter <code>/data/doc_files</code> – im Backup "
             "berücksichtigen."]},
     ]})
+    s.append({"id": "adm-vcards", "title": "Digitale Visitenkarten",
+              "blocks": [
+        {"t": "p", "html": "<b>Administration → Visitenkarten</b>: pro Person "
+         "eine öffentliche Karte unter <code>/v/&lt;kennung&gt;</code> – die "
+         "URL bzw. der QR-Code kommt auf die gedruckte Visitenkarte."},
+        {"t": "ul", "items": [
+            "Karte anlegen (Name), dann Felder pflegen: Titel, Firma, "
+            "E-Mail, Telefon, WhatsApp, LinkedIn, Standort, Webseite, Foto.",
+            "<b>URL-Kennung</b> vor dem Druck festlegen und danach nicht "
+            "mehr ändern; der <b>QR-Code</b> zum Speichern steht auf der "
+            "Bearbeiten-Seite.",
+            "„Kontakt speichern“ liefert eine vCard (.vcf) mit den "
+            "Kartendaten.",
+            "Erst der Haken <b>„Karte öffentlich erreichbar“</b> schaltet "
+            "die Seite frei – ohne ihn liefert die URL 404."]},
+        {"t": "note", "html": "Sicherheit: Die öffentliche Seite zeigt "
+         "ausschließlich die hier eingetragenen Angaben, hat keine Session "
+         "und keinerlei Links ins Intranet; Suchmaschinen sind per "
+         "noindex ausgeschlossen. Ein Zugang zu internen Daten über diese "
+         "URLs ist nicht möglich."},
+    ]})
     s.append({"id": "adm-texte", "title": "Texte anpassen", "blocks": [
         {"t": "ul", "items": [
             "<b>Administration → Texte</b>: Login-Texte (Pille oben, große "
