@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.db
+*.db-*
+backups/
+beispieldaten/
+tests/
+*.csv
+*.xlsx
+start.bat

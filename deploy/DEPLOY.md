@@ -115,6 +115,82 @@ curl http://127.0.0.1:8080/report/preview
 ## Update einspielen
 
 ```bash
-cd ~/projektabrechung && git pull
+cd /root/projektabrechnung && git pull origin main
 cd deploy && docker compose up --build -d
 ```
+
+## E-Mail-Verteiler (`/verteiler/`)
+
+Der Verteiler (Ordner `verteiler/`) läuft als zweiter Container `verteiler`
+im selben Compose-Projekt. Erreichbar ist er unter
+**`https://intern.rss-fb.com/verteiler/`**, für Administratoren auch über den
+Menüpunkt „E-Mail-Verteiler“ im Intranet.
+
+Schutz:
+- fbe-caddy prüft **jede** Anfrage an `/verteiler/*` per `forward_auth`
+  gegen `/auth/verteiler` im Intranet. Ohne Login geht es zum Login, wer kein
+  Admin ist, bekommt 403. Microsoft-Login und 2FA gelten wie im Intranet.
+- Die App prüft das Login zusätzlich selbst (`VERTEILER_AUTH_URL`) und ist
+  damit auch dann gesperrt, wenn jemand den Container im Docker-Netz direkt
+  anspricht. Ist das Intranet nicht erreichbar, bleibt der Verteiler gesperrt.
+- Auf dem Host wird kein Port veröffentlicht. Der Container läuft nicht als root.
+- Daten im Docker-Volume `projektabrechnung_verteiler-daten`
+  (`verteiler.db` + `backups/`), bleiben bei Updates erhalten.
+
+### Einmalig einrichten
+
+```bash
+# 1. Code holen (der Server stand bisher auf claude/relaxed-hawking-VJjx3)
+cd /root/projektabrechnung
+git fetch origin
+git checkout main
+git pull origin main
+
+# 2. Container bauen/starten (Intranet wird mit aktualisiert, kurzer Neustart)
+cd deploy
+docker compose up --build -d
+docker compose ps            # projektabrechnung + verteiler: "Up" / "healthy"
+
+# 3. Caddy-Block für intern.rss-fb.com ersetzen
+cd /opt/fbe-tools
+grep -c "Block fuer die TimeMoto-Projektabrechnung" Caddyfile    # muss 1 ergeben
+grep -c "Ende Block TimeMoto-Projektabrechnung" Caddyfile         # muss 1 ergeben
+cp Caddyfile Caddyfile.bak-$(date +%F-%H%M)
+sed '/# >>> Block fuer die TimeMoto-Projektabrechnung >>>/,/# <<< Ende Block TimeMoto-Projektabrechnung <<</d' \
+    Caddyfile > /tmp/Caddyfile.neu
+cat /root/projektabrechnung/deploy/fbe-caddy.snippet >> /tmp/Caddyfile.neu
+cat /tmp/Caddyfile.neu > Caddyfile     # Inhalt ersetzen, Datei bleibt dieselbe (Bind-Mount!)
+
+# 4. Prüfen und ohne Downtime neu laden
+docker exec fbe-caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec fbe-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+Falls die beiden `grep -c` **nicht** je 1 ergeben (Block ohne Markierungen
+eingefügt): den alten `intern.rss-fb.com { … }`-Block in der Caddyfile von
+Hand durch den Inhalt von `deploy/fbe-caddy.snippet` ersetzen.
+**Nicht** `sed -i` direkt auf die Caddyfile anwenden, denn das legt eine neue
+Datei an, und der Container sieht dann weiter die alte.
+
+### Prüfen
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://intern.rss-fb.com/verteiler/   # 303 (zum Login)
+curl -s https://intern.rss-fb.com/health                                         # Intranet ok
+```
+
+Im Browser als Admin anmelden → Menü **E-Mail-Verteiler**.
+
+Zurück zum alten Stand, falls etwas nicht passt:
+`cat Caddyfile.bak-… > Caddyfile` und erneut `caddy reload`.
+
+### Datensicherung
+
+Vor jedem Import legt der Verteiler selbst ein Backup im Volume an. Zusätzlich
+lässt sich die Datenbank vom Server holen:
+
+```bash
+docker cp verteiler:/data/verteiler.db /root/verteiler-$(date +%F).db
+```
+
+Logs: `docker compose logs -f verteiler`

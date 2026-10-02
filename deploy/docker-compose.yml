@@ -72,6 +72,29 @@ services:
     networks:
       - fbe-tools
 
+  # E-Mail-Verteiler (Reach) unter https://intern.rss-fb.com/verteiler/.
+  # Kein Port auf dem Host: erreichbar nur über fbe-caddy, der jede Anfrage
+  # per forward_auth gegen den Intranet-Login prüft (nur Administratoren).
+  # Die App prüft den Login zusätzlich selbst über VERTEILER_AUTH_URL.
+  verteiler:
+    build: ../verteiler
+    container_name: verteiler
+    restart: unless-stopped
+    expose:
+      - "8501"
+    environment:
+      VERTEILER_AUTH_URL: "http://projektabrechnung:8080/auth/verteiler"
+    volumes:
+      - verteiler-daten:/data        # verteiler.db + backups/
+    depends_on:
+      - app
+    networks:
+      - fbe-tools
+
+# Docker-Volume für die Verteiler-Datenbank (bleibt bei Updates erhalten).
+volumes:
+  verteiler-daten:
+
 # Das bestehende Netz des fbe-caddy-Stacks einbinden (nicht selbst anlegen).
 networks:
   fbe-tools:

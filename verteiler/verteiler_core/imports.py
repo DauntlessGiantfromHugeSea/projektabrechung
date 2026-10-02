@@ -53,12 +53,12 @@ def _zelle(zeile: dict[str, str], spalte: str | None) -> str:
 
 
 def _log(conn: sqlite3.Connection, art: str, dateiname: str, neu: int,
-         aktualisiert: int, uebersprungen: int, details: dict) -> None:
+         aktualisiert: int, uebersprungen: int, details: dict, benutzer: str = "") -> None:
     conn.execute(
-        "INSERT INTO import_log (zeitpunkt, art, dateiname, neu, aktualisiert, uebersprungen, details) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO import_log (zeitpunkt, art, dateiname, neu, aktualisiert, uebersprungen, details, "
+        "benutzer) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (db.jetzt(), art, clean_text(dateiname, 255), neu, aktualisiert, uebersprungen,
-         json.dumps(details, ensure_ascii=False)))
+         json.dumps(details, ensure_ascii=False), clean_text(benutzer, 200)))
 
 
 def sperren(conn: sqlite3.Connection, email: str, grund: str, datum: str | None = None) -> bool:
@@ -234,7 +234,7 @@ def analysiere_kontakte(conn: sqlite3.Connection, zeilen: list[dict[str, str]],
 
 def importiere_kontakte(db_path, backup_dir, dateiname: str, zeilen: list[dict[str, str]],
                         zuordnung: dict[str, str | None], standardwerte: dict[str, str] | None = None,
-                        modus: str = "ergaenzen") -> dict:
+                        modus: str = "ergaenzen", benutzer: str = "") -> dict:
     sicherung = _backup(db_path, backup_dir)
     conn = db.connect(db_path)
     try:
@@ -254,7 +254,7 @@ def importiere_kontakte(db_path, backup_dir, dateiname: str, zeilen: list[dict[s
                              (*aend.values(), jetzt, kid))
             z = plan.zahlen()
             _log(conn, "kontakte", dateiname, z["neu"], z["dublette_bestand_aktualisiert"],
-                 z["ungueltig"] + z["gesperrt"], z)
+                 z["ungueltig"] + z["gesperrt"], z, benutzer)
     finally:
         conn.close()
     return {**plan.zahlen(), "backup": sicherung}
@@ -397,7 +397,7 @@ def _serie_ohne_kampagne(conn, contact_id: int, datum: str, kampagne_id: int | N
 
 def importiere_report(db_path, backup_dir, dateiname: str, zeilen: list[dict[str, str]],
                       zuordnung: dict[str, str | None], status_zuordnung: dict[str, str | None],
-                      kampagne: dict, unbekannte_anlegen: bool = True) -> dict:
+                      kampagne: dict, unbekannte_anlegen: bool = True, benutzer: str = "") -> dict:
     """Schreibt einen Reach-Report.
 
     kampagne: {"id": <bestehende Kampagne>} oder
@@ -471,7 +471,7 @@ def importiere_report(db_path, backup_dir, dateiname: str, zeilen: list[dict[str
             z["soft_bounce_3x"] = soft_gesperrt
             z["kampagne_id"] = kid
             _log(conn, "report", dateiname, z["neue_kontakte"], z["verarbeitet"] - z["neue_kontakte"],
-                 z["ungueltig"] + z["status_unbekannt"] + z["unbekannt_uebersprungen"], z)
+                 z["ungueltig"] + z["status_unbekannt"] + z["unbekannt_uebersprungen"], z, benutzer)
     finally:
         conn.close()
     return {**z, "backup": sicherung}
@@ -548,7 +548,8 @@ def analysiere_sperrliste(conn: sqlite3.Connection, zeilen: list[dict[str, str]]
 
 
 def importiere_sperrliste(db_path, backup_dir, dateiname: str, zeilen: list[dict[str, str]],
-                          zuordnung: dict[str, str | None], standard_grund: str) -> dict:
+                          zuordnung: dict[str, str | None], standard_grund: str,
+                          benutzer: str = "") -> dict:
     sicherung = _backup(db_path, backup_dir)
     conn = db.connect(db_path)
     try:
@@ -558,7 +559,7 @@ def importiere_sperrliste(db_path, backup_dir, dateiname: str, zeilen: list[dict
                 sperren(conn, email, grund, datum or None)
             z = plan.zahlen()
             _log(conn, "sperrliste", dateiname, z["neu_gesperrt"], z["betrifft_bestehende_kontakte"],
-                 z["ungueltig"] + z["bereits_gesperrt"] + z["dublette_in_datei"], z)
+                 z["ungueltig"] + z["bereits_gesperrt"] + z["dublette_in_datei"], z, benutzer)
     finally:
         conn.close()
     return {**z, "backup": sicherung}

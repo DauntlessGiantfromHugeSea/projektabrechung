@@ -5,12 +5,13 @@ tags: [projekt/fbe-intranet, verteiler, reach, changelog, entwicklung]
 aliases: ["Verteiler-Tool", "Reach Verteiler", "E-Mail-Verteiler"]
 status: ausgeliefert
 branch: main
+url: https://intern.rss-fb.com/verteiler/
 ---
 
 # E-Mail-Verteiler – neues Tool vom 02.10.2026
 
 > [!summary] Kurzfassung
-> Neues lokales Werkzeug im Ordner `verteiler/` (Repo `projektabrechung`,
+> Neues Werkzeug im Ordner `verteiler/` (Repo `projektabrechung`,
 > Branch `main`). Der E-Mail-Verteiler liegt jetzt in **einer SQLite-Datei**
 > (`verteiler.db`), und diese Datenbank ist die einzige maßgebliche Quelle.
 > Für Reach wird aus der Datenbank exportiert, Listen werden nicht mehr neu
@@ -21,10 +22,26 @@ branch: main
 
 ## Start
 
-- Windows: Ordner `verteiler` nach z. B. `C:\Verteiler\` kopieren (nicht in
-  OneDrive), **`start.bat`** doppelklicken → <http://localhost:8501>
-- Erster Start installiert pandas + streamlit in `.venv` (einige Minuten)
-- Nur auf dem eigenen PC erreichbar (`localhost`), keine Anmeldung nötig
+- **Server:** <https://intern.rss-fb.com/verteiler/>, im Intranet-Menü
+  „E-Mail-Verteiler“ (nur Administratoren, Login wie im Intranet inkl. 2FA)
+- Eigener Container `verteiler` neben `projektabrechnung`, Daten im
+  Docker-Volume `projektabrechnung_verteiler-daten`
+- Optional lokal unter Windows über `verteiler/start.bat`
+
+## Einrichtung auf dem Server
+
+Siehe `deploy/DEPLOY.md` → „E-Mail-Verteiler“. Kurzform:
+
+```bash
+cd /root/projektabrechnung && git fetch origin && git checkout main && git pull origin main
+cd deploy && docker compose up --build -d
+# danach Caddy-Block für intern.rss-fb.com ersetzen und fbe-caddy neu laden
+```
+
+Sicherheit: fbe-caddy prüft jede Anfrage gegen das Intranet (`forward_auth`),
+und die App prüft selbst noch einmal. Getestet: ohne Login → Login-Seite,
+Mitarbeiter → 403, deaktivierter Admin → Login, gefälschter Header oder
+Cookie → abgewiesen, direkter Zugriff am Proxy vorbei → gesperrt.
 
 ## Einmalig einrichten
 
@@ -64,7 +81,7 @@ Kontaktliste mit 80 Zeilen, je 20 neu / Dublette / ungültig / gesperrt:
 |---|---|---|---|
 | 20 | 20 (10 doppelt in der Datei, 10 bestehende Kontakte ergänzt) | 20 | 20 |
 
-- 28 automatische Tests grün (`python -m unittest discover -s tests -v`)
+- 31 automatische Tests grün (`python -m unittest discover -s tests -v`)
 - Lasttest mit 5.220 Empfängern: Report-Import 0,3 s, 1.399 harte Bounces
   korrekt gesperrt, harte Bounce-Rate 26,8 %
 

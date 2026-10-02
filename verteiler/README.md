@@ -10,14 +10,23 @@ Anlass: Die letzte Kampagne hatte 26,8 % harte Bounces (1.399 von 5.220),
 Hostinger warnt vor einer Versandsperre.
 
 - Python 3.10+, SQLite, läuft unter Windows
-- Oberfläche: Streamlit (nur auf dem eigenen PC erreichbar: `localhost`)
+- Oberfläche: Streamlit, auf dem Server hinter dem Intranet-Login
 - Abhängigkeiten: nur `pandas` und `streamlit` (XLSX wird ohne Zusatzpaket gelesen)
 
 ---
 
 ## Starten
 
-### Windows (empfohlen)
+### Auf dem Server (Standard)
+
+Der Verteiler läuft als Container `verteiler` neben dem Intranet unter
+**<https://intern.rss-fb.com/verteiler/>** (Menüpunkt „E-Mail-Verteiler“ für
+Administratoren). Anmeldung über das Intranet (Microsoft-Login, 2FA), Zugriff
+nur für Administratoren. Einrichtung und Updates: `deploy/DEPLOY.md`,
+Abschnitt „E-Mail-Verteiler“. Im Import-Protokoll steht, wer importiert,
+gesperrt oder gelöscht hat.
+
+### Lokal unter Windows (optional)
 
 1. Python 3 installieren (python.org, beim Setup „Add Python to PATH“ anhaken).
 2. Ordner `verteiler` an einen festen Ort kopieren, z. B. `C:\Verteiler\`.
@@ -44,6 +53,8 @@ streamlit run app.py
 
 Optional lassen sich die Pfade per Umgebungsvariable ändern:
 `VERTEILER_DB` (Datenbankdatei) und `VERTEILER_BACKUPS` (Backup-Ordner).
+Im Container: `VERTEILER_MODUS=server` und `VERTEILER_AUTH_URL` (siehe
+`deploy/docker-compose.yml`).
 
 ---
 
@@ -144,9 +155,13 @@ Bindestriche egal). Unbekannte Werte zeigt die Vorschau an. Sie werden
   alles zurückgerollt, halbe Importe gibt es nicht.
 - **Vor jedem Import** legt das Tool automatisch ein Backup an:
   `backups/verteiler_JJJJMMTT_HHMMSS.db`, die neuesten 100 werden aufbewahrt.
-- Die Oberfläche lauscht nur auf `localhost` und ist **nicht** aus dem
-  Netzwerk erreichbar (`.streamlit/config.toml`). Bitte so lassen: Das Tool
-  hat keine eigene Anmeldung.
+- **Server:** Zugriff nur für angemeldete Intranet-Administratoren. fbe-caddy
+  prüft jede Anfrage (`forward_auth`), und die App prüft selbst noch einmal
+  über `VERTEILER_AUTH_URL`. Ist das Intranet nicht erreichbar oder die
+  Variable nicht gesetzt, bleibt der Verteiler gesperrt. Der Container läuft
+  ohne root und veröffentlicht keinen Port auf dem Host.
+- **Lokal (Windows):** Die Oberfläche lauscht nur auf `localhost` und ist
+  **nicht** aus dem Netzwerk erreichbar (`.streamlit/config.toml`).
 - Namen im Export werden gegen Formel-Injection in Excel geschützt (Werte, die
   mit `= + - @` beginnen, bekommen ein `'` vorangestellt).
 - `verteiler.db`, `backups/` und alle CSV/XLSX-Dateien im Ordner sind per
@@ -154,7 +169,12 @@ Bindestriche egal). Unbekannte Werte zeigt die Vorschau an. Sie werden
 
 ### Backup zurückspielen
 
-Tool beenden, `verteiler.db` umbenennen (z. B. `verteiler_kaputt.db`), das
+Server: `docker compose stop verteiler`, dann im Container-Volume das
+gewünschte Backup nach `verteiler.db` kopieren (z. B. per
+`docker run --rm -v projektabrechnung_verteiler-daten:/data alpine cp
+/data/backups/verteiler_….db /data/verteiler.db`), `docker compose start verteiler`.
+
+Lokal: Tool beenden, `verteiler.db` umbenennen (z. B. `verteiler_kaputt.db`), das
 gewünschte Backup aus `backups/` nach `verteiler.db` kopieren, Tool starten.
 
 ### Hinweis DSGVO
@@ -173,7 +193,7 @@ Backups, die älter als die Löschung sind.
 | `campaigns` | id, name, betreff, gesendet_am, empfaenger_anzahl |
 | `campaign_events` | contact_id, campaign_id, geoeffnet, geklickt, zustellstatus (zugestellt / unzustellbar / soft_bounce / nicht_zugestellt / abgemeldet) – je Kontakt und Kampagne genau ein Eintrag |
 | `suppression_list` | email (UNIQUE), grund (bounce_hart / abgemeldet / beschwerde / manuell), datum |
-| `import_log` | zeitpunkt, art, dateiname, neu, aktualisiert, uebersprungen, details (JSON mit allen Zahlen, ohne personenbezogene Daten) |
+| `import_log` | zeitpunkt, art, benutzer, dateiname, neu, aktualisiert, uebersprungen, details (JSON mit allen Zahlen, ohne personenbezogene Daten) |
 
 Kontaktstatus aus der Sperrliste: bounce_hart → `bounce_hart`,
 abgemeldet → `abgemeldet`, beschwerde/manuell → `gesperrt`.

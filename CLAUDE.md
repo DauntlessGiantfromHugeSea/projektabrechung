@@ -16,7 +16,12 @@
   (TimeMoto-Zeiten, Projektabrechnung, Tickets, Exporte).
 - Deploy: `https://intern.rss-fb.com` hinter `fbe-caddy`.
 - **Pfad auf dem Server:** `/root/projektabrechnung/` (Update: dort
-  `git pull origin claude/relaxed-hawking-VJjx3`, dann in `deploy/`
-  `docker compose up --build -d`).
-- Entwicklungs-Branch: `claude/relaxed-hawking-VJjx3`.
+  `git pull origin main`, dann in `deploy/` `docker compose up --build -d`).
+- Hauptbranch: `main` (der frühere Entwicklungs-Branch
+  `claude/relaxed-hawking-VJjx3` ist darin aufgegangen).
+- **E-Mail-Verteiler** (`verteiler/`): eigener Container `verteiler`
+  (Streamlit, SQLite im Volume `verteiler-daten`) unter
+  `https://intern.rss-fb.com/verteiler/`. Zugriff nur für Intranet-Admins
+  (Caddy `forward_auth` + Prüfung in der App über `/auth/verteiler`).
+  Einrichtung: `deploy/DEPLOY.md`, Abschnitt „E-Mail-Verteiler“.
 - Secrets nur in `deploy/.env` – niemals committen.

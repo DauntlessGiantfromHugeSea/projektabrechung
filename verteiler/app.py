@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from verteiler_core import db, imports, queries
+from verteiler_core import auth, db, imports, queries
 from verteiler_core.fileio import DateiFehler, lese_datei
 from verteiler_core.normalize import REPORT_ZIELE, spalte_erkennen
 
@@ -24,6 +24,36 @@ DB_PFAD = Path(os.environ.get("VERTEILER_DB", BASIS / "verteiler.db"))
 BACKUP_DIR = Path(os.environ.get("VERTEILER_BACKUPS", BASIS / "backups"))
 
 st.set_page_config(page_title="E-Mail-Verteiler", layout="wide")
+
+
+def _cookie_header() -> str:
+    try:
+        roh = st.context.headers.get("Cookie", "")
+        if roh:
+            return roh
+        return "; ".join(f"{k}={v}" for k, v in st.context.cookies.to_dict().items())
+    except Exception:  # ältere Streamlit-Version oder kein Request-Kontext
+        return ""
+
+
+def zugang_pruefen() -> str:
+    """Im Server-Betrieb nur für angemeldete Intranet-Administratoren (sonst Stopp)."""
+    erg = auth.pruefen(_cookie_header())
+    if erg.erlaubt:
+        return erg.benutzer
+    texte = {
+        "nicht_angemeldet": "Bitte zuerst im FBE Intranet anmelden.",
+        "kein_recht": "Der E-Mail-Verteiler ist nur für Administratoren freigegeben.",
+        "fehler": "Die Anmeldung konnte nicht geprüft werden (Intranet nicht erreichbar). "
+                  "Aus Sicherheitsgründen bleibt der Verteiler gesperrt.",
+        "nicht_konfiguriert": "Server-Betrieb ohne VERTEILER_AUTH_URL – Zugriff gesperrt.",
+    }
+    st.error(texte.get(erg.grund, "Kein Zugriff."))
+    st.link_button("Zum Intranet-Login", "/login")
+    st.stop()
+
+
+BENUTZER = zugang_pruefen()
 
 NICHT = "– nicht vorhanden –"
 STATUS_TEXT = {"aktiv": "Aktiv", "bounce_hart": "Bounce (hart)", "bounce_weich": "Bounce (weich)",
@@ -237,7 +267,7 @@ def seite_kontakte_import():
                  disabled=schreiben == 0, key=f"k_{kennung}_los"):
         try:
             e = imports.importiere_kontakte(DB_PFAD, BACKUP_DIR, name, tabelle.zeilen, zuordnung,
-                                            standard, modus)
+                                            standard, modus, benutzer=BENUTZER)
         except imports.ImportFehler as exc:
             st.error(str(exc))
             return
@@ -359,7 +389,7 @@ def seite_report_import():
                  disabled=not bereit, key=f"r_{kennung}_los"):
         try:
             e = imports.importiere_report(DB_PFAD, BACKUP_DIR, name, tabelle.zeilen, zuordnung,
-                                          status_zuordnung, kampagne, anlegen)
+                                          status_zuordnung, kampagne, anlegen, benutzer=BENUTZER)
         except imports.ImportFehler as exc:
             st.error(str(exc))
             return
@@ -383,7 +413,7 @@ def seite_sperrliste_import():
             grund = b.selectbox("Grund", list(GRUND_TEXT), index=3, format_func=GRUND_TEXT.get)
             if st.form_submit_button("Sperren"):
                 try:
-                    neu = queries.adresse_sperren(DB_PFAD, adr, grund)
+                    neu = queries.adresse_sperren(DB_PFAD, adr, grund, benutzer=BENUTZER)
                     st.success("Gesperrt." if neu else "Adresse stand bereits auf der Sperrliste.")
                 except imports.ImportFehler as exc:
                     st.error(str(exc))
@@ -420,7 +450,8 @@ def seite_sperrliste_import():
     if st.button(f"Sperrliste importieren ({zahl(z['neu_gesperrt'])} Adressen sperren)", type="primary",
                  disabled=z["neu_gesperrt"] == 0, key=f"s_{kennung}_los"):
         try:
-            e = imports.importiere_sperrliste(DB_PFAD, BACKUP_DIR, name, tabelle.zeilen, zuordnung, standard)
+            e = imports.importiere_sperrliste(DB_PFAD, BACKUP_DIR, name, tabelle.zeilen, zuordnung,
+                                              standard, benutzer=BENUTZER)
         except imports.ImportFehler as exc:
             st.error(str(exc))
             return
@@ -549,7 +580,7 @@ def kontakt_detail(kid: int):
                     if not ok:
                         st.error("Bitte zuerst das Häkchen zur Bestätigung setzen.")
                     else:
-                        queries.kontakt_sperren(DB_PFAD, kid, grund)
+                        queries.kontakt_sperren(DB_PFAD, kid, grund, benutzer=BENUTZER)
                         st.session_state["meldung"] = f"{k['email']} wurde gesperrt."
                         st.rerun()
 
@@ -563,7 +594,7 @@ def kontakt_detail(kid: int):
             best = st.text_input("Zur Bestätigung die E-Mail-Adresse eintippen")
             if st.form_submit_button("Endgültig löschen", type="primary"):
                 try:
-                    queries.kontakt_dsgvo_loeschen(DB_PFAD, kid, best, behalten)
+                    queries.kontakt_dsgvo_loeschen(DB_PFAD, kid, best, behalten, benutzer=BENUTZER)
                     st.session_state["meldung"] = "Kontakt gelöscht."
                     st.rerun()
                 except imports.ImportFehler as exc:
@@ -604,6 +635,9 @@ SEITEN = {
 with st.sidebar:
     st.title("E-Mail-Verteiler")
     seite = st.radio("Bereich", list(SEITEN), label_visibility="collapsed")
+    if BENUTZER:
+        st.caption(f"Angemeldet: {BENUTZER}")
+        st.link_button("← Zurück zum Intranet", "/start")
     st.caption(f"Datenbank: {DB_PFAD.name}")
 
 db.connect(DB_PFAD).close()  # Schema anlegen, falls neu

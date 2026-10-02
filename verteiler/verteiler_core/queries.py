@@ -128,7 +128,7 @@ def kampagnen_kennzahlen(conn: sqlite3.Connection) -> list[dict]:
 
 
 def import_protokoll(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
-    return conn.execute("SELECT zeitpunkt, art, dateiname, neu, aktualisiert, uebersprungen, details "
+    return conn.execute("SELECT zeitpunkt, art, benutzer, dateiname, neu, aktualisiert, uebersprungen, details "
                         "FROM import_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
 
 
@@ -230,7 +230,7 @@ def kontakt_aktualisieren(db_path, contact_id: int, daten: dict) -> None:
         conn.close()
 
 
-def kontakt_sperren(db_path, contact_id: int, grund: str = "manuell") -> bool:
+def kontakt_sperren(db_path, contact_id: int, grund: str = "manuell", benutzer: str = "") -> bool:
     conn = db.connect(db_path)
     try:
         with db.transaction(conn):
@@ -238,13 +238,13 @@ def kontakt_sperren(db_path, contact_id: int, grund: str = "manuell") -> bool:
             if k is None:
                 raise ImportFehler("Kontakt nicht gefunden.")
             neu = sperren(conn, k["email"], grund)
-            _log(conn, "manuell_gesperrt", "", 0, 1 if neu else 0, 0, {"grund": grund})
+            _log(conn, "manuell_gesperrt", "", 0, 1 if neu else 0, 0, {"grund": grund}, benutzer)
             return neu
     finally:
         conn.close()
 
 
-def adresse_sperren(db_path, email_roh: str, grund: str = "manuell") -> bool:
+def adresse_sperren(db_path, email_roh: str, grund: str = "manuell", benutzer: str = "") -> bool:
     """Einzelne Adresse sperren – auch wenn sie (noch) kein Kontakt ist."""
     email = normalize_email(email_roh)
     fehler = email_fehler(email)
@@ -254,14 +254,14 @@ def adresse_sperren(db_path, email_roh: str, grund: str = "manuell") -> bool:
     try:
         with db.transaction(conn):
             neu = sperren(conn, email, grund)
-            _log(conn, "manuell_gesperrt", "", 1 if neu else 0, 0, 0, {"grund": grund})
+            _log(conn, "manuell_gesperrt", "", 1 if neu else 0, 0, 0, {"grund": grund}, benutzer)
             return neu
     finally:
         conn.close()
 
 
 def kontakt_dsgvo_loeschen(db_path, contact_id: int, bestaetigung: str,
-                           sperre_behalten: bool = True) -> dict:
+                           sperre_behalten: bool = True, benutzer: str = "") -> dict:
     """Kontakt vollständig löschen (DSGVO Art. 17).
 
     - bestaetigung muss exakt der E-Mail-Adresse des Kontakts entsprechen.
@@ -295,7 +295,7 @@ def kontakt_dsgvo_loeschen(db_path, contact_id: int, bestaetigung: str,
             # Protokoll ohne personenbezogene Daten.
             _log(conn, "dsgvo_loeschung", "", 0, 0, 0,
                  {"ereignisse_geloescht": events, "sperre_behalten": sperre_behalten,
-                  "sperre_entfernt": sperre_entfernt})
+                  "sperre_entfernt": sperre_entfernt}, benutzer)
         return {"ereignisse_geloescht": events, "sperre_behalten": sperre_behalten}
     finally:
         conn.close()

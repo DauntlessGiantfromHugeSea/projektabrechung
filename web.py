@@ -14,6 +14,7 @@ import shutil
 from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
+from urllib.parse import quote
 
 import pyotp
 import secrets
@@ -482,6 +483,7 @@ _BASE = """
     {% endif %}
     <a class="navpill {{ 'active' if page=='area-iso' }}" href="/bereich/iso">ISO 9001 (FiFB)</a>
     <a class="navpill {{ 'active' if page=='area-ki-schulungen' }}" href="/bereich/ki-schulungen">KI-Schulungen</a>
+    {% if role=='admin' %}<a class="navpill" href="/verteiler/">E-Mail-Verteiler</a>{% endif %}
   </nav>
   <div class="topright">
     <a class="iconbtn" href="/anleitung" title="Hilfe &amp; Anleitung">{{ icons.help|safe }}</a>
@@ -2538,6 +2540,31 @@ async def twofa_setup_save(request: Request, code: str = Form("")):
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
+
+
+# --- E-Mail-Verteiler (/verteiler/, eigener Container) -------------------------
+
+@router.get("/auth/verteiler")
+async def auth_verteiler(request: Request):
+    """Zugriffsprüfung für den E-Mail-Verteiler.
+
+    Wird von fbe-caddy (forward_auth) bei jeder Anfrage an /verteiler/* und
+    zusätzlich von der Verteiler-App selbst aufgerufen. Erlaubt sind nur
+    aktive Administratoren mit vollständigem Login (inkl. 2FA). Der Status
+    wird bei jeder Anfrage frisch aus der Benutzerverwaltung gelesen, ein
+    deaktivierter oder herabgestufter Account verliert den Zugriff sofort.
+    """
+    uname = _user(request)
+    u = users.get(uname) if uname else None
+    if not u or u.get("status") != "active":
+        return RedirectResponse("/login", status_code=303,
+                                headers={"Cache-Control": "no-store"})
+    if u.get("role") != "admin" or _role(request) != "admin":
+        return Response("Der E-Mail-Verteiler ist nur für Administratoren freigegeben.",
+                        status_code=403, media_type="text/plain; charset=utf-8",
+                        headers={"Cache-Control": "no-store"})
+    return Response(status_code=204, headers={"X-Verteiler-User": quote(uname, safe="@._-"),
+                                              "Cache-Control": "no-store"})
 
 
 @router.get("/reset", response_class=HTMLResponse)

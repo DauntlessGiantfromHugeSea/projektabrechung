@@ -448,3 +448,69 @@ class TestSchutz(Basis):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ------------------------------------------------ Server-Betrieb: Anmeldung
+
+class TestAnmeldung(unittest.TestCase):
+    """Prüft verteiler_core.auth gegen einen kleinen Fake-Intranet-Server."""
+
+    @classmethod
+    def setUpClass(cls):
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                cookie = self.headers.get("Cookie", "")
+                if "admin-ok" in cookie:
+                    self.send_response(204)
+                    self.send_header("X-Verteiler-User", "m%C3%BCller%40fb-eng.de")
+                elif "mitarbeiter" in cookie:
+                    self.send_response(403)
+                else:
+                    self.send_response(303)
+                    self.send_header("Location", "/login")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        cls.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        cls.url = f"http://127.0.0.1:{cls.server.server_port}/auth/verteiler"
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def test_ergebnisse(self):
+        from verteiler_core import auth
+        ok = auth.pruefen("projektabrechnung_session=admin-ok", self.url)
+        self.assertEqual((ok.erlaubt, ok.benutzer), (True, "müller@fb-eng.de"))
+        self.assertEqual(auth.pruefen("x=mitarbeiter", self.url).grund, "kein_recht")
+        self.assertEqual(auth.pruefen("x=irgendwas", self.url).grund, "nicht_angemeldet")
+        self.assertEqual(auth.pruefen("", self.url).grund, "nicht_angemeldet")
+        # Intranet nicht erreichbar -> gesperrt (fail closed)
+        self.assertEqual(auth.pruefen("x=admin-ok", "http://127.0.0.1:1/auth").grund, "fehler")
+
+    def test_servermodus_ohne_url_gesperrt(self):
+        from verteiler_core import auth
+        with mock.patch.dict("os.environ", {"VERTEILER_MODUS": "server", "VERTEILER_AUTH_URL": ""}):
+            self.assertFalse(auth.pruefen("x=admin-ok").erlaubt)
+        with mock.patch.dict("os.environ", {"VERTEILER_MODUS": "", "VERTEILER_AUTH_URL": ""}):
+            self.assertTrue(auth.pruefen("").erlaubt)  # lokaler Windows-Betrieb
+
+    def test_migration_v1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "alt.db"
+            c = sqlite3.connect(p)
+            c.executescript(db.SCHEMA.replace("    details       TEXT NOT NULL DEFAULT '',\n"
+                                              "    benutzer      TEXT NOT NULL DEFAULT ''\n",
+                                              "    details       TEXT NOT NULL DEFAULT ''\n"))
+            c.execute("PRAGMA user_version = 1")
+            c.close()
+            with closing(db.connect(p)) as c2:
+                spalten = [r[1] for r in c2.execute("PRAGMA table_info(import_log)")]
+                self.assertIn("benutzer", spalten)
+                self.assertEqual(c2.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)

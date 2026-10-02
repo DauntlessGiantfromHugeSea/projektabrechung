@@ -9,15 +9,42 @@
 intern.rss-fb.com {
 	encode gzip
 
-	# /report/* hat keine eigene Authentifizierung -> von aussen sperren.
-	# Oeffentlich erreichbar bleiben nur der Webhook (/timemoto) und /health.
-	# Lokal nutzt du /report/* ueber 127.0.0.1:8080 (siehe docker-compose.yml).
-	@report_extern {
-		path /report/*
-		not remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/8
+	# E-Mail-Verteiler: jede Anfrage (Seite, Dateien, WebSocket) wird vorher
+	# beim Intranet geprueft. Nicht angemeldet -> Weiterleitung zum Login,
+	# kein Administrator -> 403. Ein vom Browser mitgeschickter
+	# X-Verteiler-User-Header wird vorher entfernt (kein Faelschen moeglich).
+	redir /verteiler /verteiler/ 308
+	handle /verteiler/* {
+		route {
+			request_header -X-Verteiler-User
+			forward_auth projektabrechnung:8080 {
+				uri /auth/verteiler
+				copy_headers X-Verteiler-User
+				# Die Pruefanfrage ist ein normaler GET, auch wenn der Browser
+				# gerade die WebSocket-Verbindung der App aufbaut.
+				header_up -Connection
+				header_up -Upgrade
+			}
+			header {
+				X-Frame-Options "DENY"
+				X-Content-Type-Options "nosniff"
+				Referrer-Policy "same-origin"
+			}
+			reverse_proxy verteiler:8501
+		}
 	}
-	respond @report_extern "Forbidden" 403
 
-	reverse_proxy projektabrechnung:8080
+	handle {
+		# /report/* hat keine eigene Authentifizierung -> von aussen sperren.
+		# Oeffentlich erreichbar bleiben nur der Webhook (/timemoto) und /health.
+		# Lokal nutzt du /report/* ueber 127.0.0.1:8080 (siehe docker-compose.yml).
+		@report_extern {
+			path /report/*
+			not remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/8
+		}
+		respond @report_extern "Forbidden" 403
+
+		reverse_proxy projektabrechnung:8080
+	}
 }
 # <<< Ende Block TimeMoto-Projektabrechnung <<<

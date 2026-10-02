@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 KONTAKT_STATUS = ("aktiv", "bounce_hart", "bounce_weich", "abgemeldet", "gesperrt")
 ZUSTELLSTATUS = ("zugestellt", "unzustellbar", "soft_bounce", "nicht_zugestellt", "abgemeldet")
@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS import_log (
     neu           INTEGER NOT NULL DEFAULT 0,
     aktualisiert  INTEGER NOT NULL DEFAULT 0,
     uebersprungen INTEGER NOT NULL DEFAULT 0,
-    details       TEXT NOT NULL DEFAULT ''
+    details       TEXT NOT NULL DEFAULT '',
+    benutzer      TEXT NOT NULL DEFAULT ''
 );
 
 -- Nur während einer DSGVO-Löschung befüllt (innerhalb derselben Transaktion).
@@ -162,9 +163,12 @@ def connect(db_path: str | os.PathLike) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version < SCHEMA_VERSION:
-        # Schema komplett oder gar nicht anlegen.
+        # Schema komplett oder gar nicht anlegen bzw. aktualisieren.
+        migration = ""
+        if version == 1:  # v2: wer hat importiert/gelöscht (Server-Betrieb)
+            migration = "ALTER TABLE import_log ADD COLUMN benutzer TEXT NOT NULL DEFAULT '';\n"
         try:
-            conn.executescript("BEGIN IMMEDIATE;\n" + SCHEMA
+            conn.executescript("BEGIN IMMEDIATE;\n" + migration + SCHEMA
                                + f"\nPRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;")
         except BaseException:
             if conn.in_transaction:
