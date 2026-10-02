@@ -1,0 +1,81 @@
+﻿E-Mail;Vorname;Nachname;Firma;Einwilligung;Einwilligungsdatum
+neu01@example.com;Anna;Abel;Firma 1;Webinar-Anmeldung;15.03.2026
+neu02@example.com;Ben;Becker;Firma 2;Webinar-Anmeldung;15.03.2026
+neu03@example.com;Clara;Cramer;Firma 3;Webinar-Anmeldung;15.03.2026
+neu04@example.com;David;Dörr;Firma 4;Webinar-Anmeldung;15.03.2026
+neu05@example.com;Emma;Eckert;Firma 5;Webinar-Anmeldung;15.03.2026
+max@example.123;X;Y;;;
+max muster@example.com;X;Y;;;
+ GESPERRT15@EXAMPLE.NET ;Gesperrt;15;;;
+NEU02@Example.com;;;;;
+NEU07@Example.com;;;;;
+kein-at-zeichen.example.com;X;Y;;;
+ GESPERRT16@EXAMPLE.NET ;Gesperrt;16;;;
+ GESPERRT19@EXAMPLE.NET ;Gesperrt;19;;;
+max@example..com;X;Y;;;
+NEU10@Example.com;;;;;
+neu06@example.com;Felix;Fuchs;Firma 6;Webinar-Anmeldung;15.03.2026
+neu07@example.com;Greta;Groß;Firma 7;Webinar-Anmeldung;15.03.2026
+neu08@example.com;Hannes;Hahn;Firma 8;Webinar-Anmeldung;15.03.2026
+neu09@example.com;Ida;Imhof;Firma 9;Webinar-Anmeldung;15.03.2026
+neu10@example.com;Jonas;Jäger;Firma 10;Webinar-Anmeldung;15.03.2026
+neu11@example.com;Klara;Kühn;Firma 11;Webinar-Anmeldung;15.03.2026
+neu12@example.com;Lukas;Lang;Firma 12;Webinar-Anmeldung;15.03.2026
+neu13@example.com;Mia;Maier;Firma 13;Webinar-Anmeldung;15.03.2026
+neu14@example.com;Noah;Neumann;Firma 14;Webinar-Anmeldung;15.03.2026
+neu15@example.com;Olga;Otto;Firma 15;Webinar-Anmeldung;15.03.2026
+neu16@example.com;Paul;Peters;Firma 16;Webinar-Anmeldung;15.03.2026
+neu17@example.com;Rosa;Quandt;Firma 17;Webinar-Anmeldung;15.03.2026
+neu18@example.com;Simon;Rösch;Firma 18;Webinar-Anmeldung;15.03.2026
+neu19@example.com;Tara;Schulz;Firma 19;Webinar-Anmeldung;15.03.2026
+neu20@example.com;Ümit;Thiel;Firma 20;Webinar-Anmeldung;15.03.2026
+  Bestand10@EXAMPLE.org ;;Jäger;Bestandsfirma 10;;
+"max@example.com;moritz@example.com";X;Y;;;
+max@;X;Y;;;
+ GESPERRT06@EXAMPLE.NET ;Gesperrt;6;;;
+@example.com;X;Y;;;
+ GESPERRT10@EXAMPLE.NET ;Gesperrt;10;;;
+  Bestand04@EXAMPLE.org ;;Dörr;Bestandsfirma 4;;
+a@b;X;Y;;;
+ GESPERRT11@EXAMPLE.NET ;Gesperrt;11;;;
+  Bestand05@EXAMPLE.org ;;Eckert;Bestandsfirma 5;;
+;X;Y;;;
+NEU01@Example.com;;;;;
+ GESPERRT20@EXAMPLE.NET ;Gesperrt;20;;;
+doppel@@example.com;X;Y;;;
+ GESPERRT02@EXAMPLE.NET ;Gesperrt;2;;;
+max@example;X;Y;;;
+  Bestand01@EXAMPLE.org ;;Abel;Bestandsfirma 1;;
+ GESPERRT05@EXAMPLE.NET ;Gesperrt;5;;;
+max..muster@example.com;X;Y;;;
+ GESPERRT13@EXAMPLE.NET ;Gesperrt;13;;;
+NEU09@Example.com;;;;;
+max@example.c;X;Y;;;
+max,muster@example.com;X;Y;;;
+.max@example.com;X;Y;;;
+ GESPERRT09@EXAMPLE.NET ;Gesperrt;9;;;
+NEU03@Example.com;;;;;
+max(at)example.com;X;Y;;;
+ GESPERRT03@EXAMPLE.NET ;Gesperrt;3;;;
+max@exa mple.com;X;Y;;;
+ GESPERRT14@EXAMPLE.NET ;Gesperrt;14;;;
+NEU04@Example.com;;;;;
+ GESPERRT07@EXAMPLE.NET ;Gesperrt;7;;;
+ GESPERRT18@EXAMPLE.NET ;Gesperrt;18;;;
+  Bestand03@EXAMPLE.org ;;Cramer;Bestandsfirma 3;;
+max@-example.com;X;Y;;;
+max@example_.com;X;Y;;;
+  Bestand06@EXAMPLE.org ;;Fuchs;Bestandsfirma 6;;
+mäx@example.com;X;Y;;;
+ GESPERRT12@EXAMPLE.NET ;Gesperrt;12;;;
+ GESPERRT04@EXAMPLE.NET ;Gesperrt;4;;;
+  Bestand07@EXAMPLE.org ;;Groß;Bestandsfirma 7;;
+ GESPERRT17@EXAMPLE.NET ;Gesperrt;17;;;
+  Bestand09@EXAMPLE.org ;;Imhof;Bestandsfirma 9;;
+NEU05@Example.com;;;;;
+NEU06@Example.com;;;;;
+NEU08@Example.com;;;;;
+ GESPERRT08@EXAMPLE.NET ;Gesperrt;8;;;
+  Bestand02@EXAMPLE.org ;;Becker;Bestandsfirma 2;;
+  Bestand08@EXAMPLE.org ;;Hahn;Bestandsfirma 8;;
+ GESPERRT01@EXAMPLE.NET ;Gesperrt;1;;;

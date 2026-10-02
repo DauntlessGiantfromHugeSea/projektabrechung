@@ -1,0 +1,18 @@
+# Sicherheit: Die Oberfläche ist nur auf diesem PC erreichbar (localhost),
+# nicht im Netzwerk. Nicht ändern, solange es keine Anmeldung gibt.
+[server]
+address = "localhost"
+port = 8501
+headless = true
+maxUploadSize = 50
+enableXsrfProtection = true
+enableCORS = true
+runOnSave = false
+fileWatcherType = "none"
+
+[browser]
+serverAddress = "localhost"
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"

@@ -1,0 +1,21 @@
+﻿E-Mail,Vorname,Nachname,Geöffnet,Geklickt,Status
+neu01@example.com,Anna,Abel,2,1,Zugestellt
+neu02@example.com,Ben,Becker,2,1,Zugestellt
+neu03@example.com,Clara,Cramer,2,1,Zugestellt
+neu04@example.com,David,Dörr,2,0,Zugestellt
+neu05@example.com,Emma,Eckert,2,0,Zugestellt
+neu06@example.com,Felix,Fuchs,2,0,Zugestellt
+neu07@example.com,Greta,Groß,2,0,Zugestellt
+neu08@example.com,Hannes,Hahn,2,0,Zugestellt
+neu09@example.com,Ida,Imhof,0,0,Zugestellt
+neu10@example.com,Jonas,Jäger,0,0,Zugestellt
+neu11@example.com,Klara,Kühn,0,0,Zugestellt
+neu12@example.com,Lukas,Lang,0,0,Zugestellt
+neu13@example.com,Mia,Maier,0,0,Unzustellbar
+neu14@example.com,Noah,Neumann,0,0,Unzustellbar
+neu15@example.com,Olga,Otto,0,0,Unzustellbar
+neu16@example.com,Paul,Peters,0,0,Soft-Bounce
+neu17@example.com,Rosa,Quandt,0,0,Soft-Bounce
+neu18@example.com,Simon,Rösch,0,0,Abgemeldet
+neu19@example.com,Tara,Schulz,0,0,Abgemeldet
+neu20@example.com,Ümit,Thiel,0,0,Nicht zugestellt

@@ -151,3 +151,11 @@ der Bericht landet nur als Datei und im Log.
 | POST | `/report/run` | Bericht erzeugen **und** zustellen |
 | GET | `/report/projects` | erkannte Projekte im Zeitraum |
 | GET | `/report/inspect` | erkannte Felder der letzten Events |
+
+## Weiteres Tool im Repo: E-Mail-Verteiler
+
+Im Ordner [`verteiler/`](verteiler/README.md) liegt ein eigenständiges, lokales
+Werkzeug (Python, SQLite, Streamlit) zur Pflege des E-Mail-Verteilers für
+Reach. Es verwaltet Sperrliste, Bounces und Abmeldungen und exportiert
+bereinigte Segmente. Es läuft unter Windows über `verteiler/start.bat` und
+ist nicht Teil des Docker-Images.
