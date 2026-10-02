@@ -1,4 +1,4 @@
-# E-Mail-Verteiler – Server-Betrieb hinter fbe-caddy unter /verteiler/.
+# E-Mail-Verteiler – Server-Betrieb hinter dem Caddy-Dienst unter /verteiler/.
 # Zugriff nur über den Intranet-Login (siehe verteiler_core/auth.py).
 FROM python:3.12-slim
 
@@ -26,8 +26,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/verteiler/_stcore/health', timeout=4)"
 
 # Kommandozeilen-Optionen haben Vorrang vor .streamlit/config.toml (dort: nur localhost
-# für den Windows-Betrieb). Im Container lauscht Streamlit im Docker-Netz, erreichbar
-# ist er nur über fbe-caddy – es wird kein Port auf dem Host veröffentlicht.
+# für den Windows-Betrieb). Im Container lauscht Streamlit auf allen Schnittstellen;
+# auf dem Host ist Port 8501 nur an 127.0.0.1 gebunden (deploy/docker-compose.yml).
 CMD ["python", "-m", "streamlit", "run", "app.py", \
      "--server.address=0.0.0.0", "--server.port=8501", \
      "--server.baseUrlPath=verteiler", "--server.headless=true", \

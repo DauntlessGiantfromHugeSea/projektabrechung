@@ -73,15 +73,18 @@ services:
       - fbe-tools
 
   # E-Mail-Verteiler (Reach) unter https://intern.rss-fb.com/verteiler/.
-  # Kein Port auf dem Host: erreichbar nur über fbe-caddy, der jede Anfrage
-  # per forward_auth gegen den Intranet-Login prüft (nur Administratoren).
-  # Die App prüft den Login zusätzlich selbst über VERTEILER_AUTH_URL.
+  # Nur auf 127.0.0.1 veröffentlicht: erreichbar von außen nur über den
+  # Caddy-Dienst des Servers, der jede Anfrage per forward_auth gegen den
+  # Intranet-Login prüft (nur Administratoren). Die App prüft den Login
+  # zusätzlich selbst über VERTEILER_AUTH_URL.
   verteiler:
     build: ../verteiler
     container_name: verteiler
     restart: unless-stopped
     expose:
       - "8501"
+    ports:
+      - "127.0.0.1:8501:8501"        # nur lokal, für den Caddy-Dienst
     environment:
       VERTEILER_AUTH_URL: "http://projektabrechnung:8080/auth/verteiler"
     volumes:

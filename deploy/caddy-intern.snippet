@@ -1,11 +1,8 @@
-# >>> Block fuer die TimeMoto-Projektabrechnung >>>
-# Diesen Block in /opt/fbe-tools/Caddyfile einfuegen (als eigene Site, auf
-# oberster Ebene, NICHT in einen anderen Block hinein). Danach fbe-caddy neu
-# laden:  docker exec fbe-caddy caddy reload --config /etc/caddy/Caddyfile
-#
-# fbe-caddy holt das Let's-Encrypt-Zertifikat fuer intern.rss-fb.com beim
-# Reload automatisch (Port 80/443 bedient es ja schon fuer die anderen Seiten).
-
+# >>> Block intern.rss-fb.com (FBE Intranet + E-Mail-Verteiler) >>>
+# Fuer den Caddy-Systemdienst auf dem Server: /etc/caddy/Caddyfile.
+# Ersetzt den bisherigen Block "intern.rss-fb.com { ... }" komplett.
+# Einrichtung und sicherer Austausch: deploy/DEPLOY.md.
+# Apps sind nur auf 127.0.0.1 veroeffentlicht (Intranet 8080, Verteiler 8501).
 intern.rss-fb.com {
 	encode gzip
 
@@ -17,7 +14,7 @@ intern.rss-fb.com {
 	handle /verteiler/* {
 		route {
 			request_header -X-Verteiler-User
-			forward_auth projektabrechnung:8080 {
+			forward_auth 127.0.0.1:8080 {
 				uri /auth/verteiler
 				copy_headers X-Verteiler-User
 				# Die Pruefanfrage ist ein normaler GET, auch wenn der Browser
@@ -30,21 +27,19 @@ intern.rss-fb.com {
 				X-Content-Type-Options "nosniff"
 				Referrer-Policy "same-origin"
 			}
-			reverse_proxy verteiler:8501
+			reverse_proxy 127.0.0.1:8501
 		}
 	}
 
 	handle {
-		# /report/* hat keine eigene Authentifizierung -> von aussen sperren.
-		# Oeffentlich erreichbar bleiben nur der Webhook (/timemoto) und /health.
-		# Lokal nutzt du /report/* ueber 127.0.0.1:8080 (siehe docker-compose.yml).
+		# /report/* ist unauthentifiziert - von aussen sperren, lokal via 127.0.0.1:8080 nutzen
 		@report_extern {
 			path /report/*
 			not remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/8
 		}
 		respond @report_extern "Forbidden" 403
 
-		reverse_proxy projektabrechnung:8080
+		reverse_proxy 127.0.0.1:8080
 	}
 }
-# <<< Ende Block TimeMoto-Projektabrechnung <<<
+# <<< Ende Block intern.rss-fb.com <<<

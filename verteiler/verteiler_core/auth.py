@@ -2,7 +2,8 @@
 Anmeldung im Server-Betrieb über das FBE Intranet.
 
 Auf dem Server läuft der Verteiler unter https://intern.rss-fb.com/verteiler/.
-fbe-caddy prüft jede Anfrage per forward_auth gegen das Intranet. Zusätzlich
+Der Caddy-Dienst des Servers prüft jede Anfrage per forward_auth gegen das
+Intranet. Zusätzlich
 prüft die App selbst bei jedem Seitenaufbau noch einmal: Sie schickt das
 Cookie des Browsers an den Intranet-Endpunkt /auth/verteiler. Nur wenn dieser
 mit 204 antwortet (angemeldeter, aktiver Administrator inkl. 2FA), werden

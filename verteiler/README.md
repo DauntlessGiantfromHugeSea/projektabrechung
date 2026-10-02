@@ -155,11 +155,11 @@ Bindestriche egal). Unbekannte Werte zeigt die Vorschau an. Sie werden
   alles zurückgerollt, halbe Importe gibt es nicht.
 - **Vor jedem Import** legt das Tool automatisch ein Backup an:
   `backups/verteiler_JJJJMMTT_HHMMSS.db`, die neuesten 100 werden aufbewahrt.
-- **Server:** Zugriff nur für angemeldete Intranet-Administratoren. fbe-caddy
-  prüft jede Anfrage (`forward_auth`), und die App prüft selbst noch einmal
+- **Server:** Zugriff nur für angemeldete Intranet-Administratoren. Der
+  Caddy-Dienst des Servers prüft jede Anfrage (`forward_auth`), und die App prüft selbst noch einmal
   über `VERTEILER_AUTH_URL`. Ist das Intranet nicht erreichbar oder die
   Variable nicht gesetzt, bleibt der Verteiler gesperrt. Der Container läuft
-  ohne root und veröffentlicht keinen Port auf dem Host.
+  ohne root, Port 8501 ist nur auf `127.0.0.1` veröffentlicht.
 - **Lokal (Windows):** Die Oberfläche lauscht nur auf `localhost` und ist
   **nicht** aus dem Netzwerk erreichbar (`.streamlit/config.toml`).
 - Namen im Export werden gegen Formel-Injection in Excel geschützt (Werte, die

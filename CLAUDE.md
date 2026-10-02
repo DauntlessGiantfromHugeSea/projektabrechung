@@ -14,7 +14,9 @@
 ## Tool
 - **FBE Intranet** – internes Tool der Flüssigboden Engineering GmbH
   (TimeMoto-Zeiten, Projektabrechnung, Tickets, Exporte).
-- Deploy: `https://intern.rss-fb.com` hinter `fbe-caddy`.
+- Deploy: `https://intern.rss-fb.com` hinter dem **Caddy-Systemdienst** des
+  Servers (`/etc/caddy/Caddyfile`, Caddy 2.6, Apps über `127.0.0.1:<port>`).
+  Der Container `fbe-caddy` bekommt keinen Verkehr.
 - **Pfad auf dem Server:** `/root/projektabrechung/` (Update: dort
   `git pull origin main`, dann in `deploy/` `docker compose up --build -d`).
 - Hauptbranch: `main` (der frühere Entwicklungs-Branch
@@ -23,5 +25,6 @@
   (Streamlit, SQLite im Volume `verteiler-daten`) unter
   `https://intern.rss-fb.com/verteiler/`. Zugriff nur für Intranet-Admins
   (Caddy `forward_auth` + Prüfung in der App über `/auth/verteiler`).
-  Einrichtung: `deploy/DEPLOY.md`, Abschnitt „E-Mail-Verteiler“.
+  Einrichtung: `deploy/DEPLOY.md`, Abschnitt „E-Mail-Verteiler“;
+  Caddy-Block per `deploy/caddy-einrichten.sh`.
 - Secrets nur in `deploy/.env` – niemals committen.

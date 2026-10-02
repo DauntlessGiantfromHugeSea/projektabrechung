@@ -126,68 +126,56 @@ im selben Compose-Projekt. Erreichbar ist er unter
 **`https://intern.rss-fb.com/verteiler/`**, für Administratoren auch über den
 Menüpunkt „E-Mail-Verteiler“ im Intranet.
 
+> **Wichtig: Wer auf dem Server Port 443 bedient.** Auf diesem Server
+> beantwortet der **Caddy-Systemdienst** (`systemctl status caddy`,
+> Konfiguration `/etc/caddy/Caddyfile`, Version 2.6) die Anfragen. Er erreicht
+> die Apps über `127.0.0.1:<port>`. Der Container `fbe-caddy`
+> (`/opt/fbe-tools/Caddyfile`) bekommt keinen Verkehr; Änderungen dort
+> wirken nicht.
+
 Schutz:
-- fbe-caddy prüft **jede** Anfrage an `/verteiler/*` per `forward_auth`
-  gegen `/auth/verteiler` im Intranet. Ohne Login geht es zum Login, wer kein
-  Admin ist, bekommt 403. Microsoft-Login und 2FA gelten wie im Intranet.
+- Caddy prüft **jede** Anfrage an `/verteiler/*` per `forward_auth` gegen
+  `/auth/verteiler` im Intranet. Ohne Login geht es zum Login, wer kein Admin
+  ist, bekommt 403. Microsoft-Login und 2FA gelten wie im Intranet.
 - Die App prüft das Login zusätzlich selbst (`VERTEILER_AUTH_URL`) und ist
-  damit auch dann gesperrt, wenn jemand den Container im Docker-Netz direkt
-  anspricht. Ist das Intranet nicht erreichbar, bleibt der Verteiler gesperrt.
-- Auf dem Host wird kein Port veröffentlicht. Der Container läuft nicht als root.
+  damit auch dann gesperrt, wenn jemand den Container direkt anspricht. Ist
+  das Intranet nicht erreichbar, bleibt der Verteiler gesperrt.
+- Port 8501 ist nur auf `127.0.0.1` veröffentlicht. Der Container läuft nicht
+  als root.
 - Daten im Docker-Volume `projektabrechnung_verteiler-daten`
   (`verteiler.db` + `backups/`), bleiben bei Updates erhalten.
 
 ### Einmalig einrichten
 
 ```bash
-# 1. Code holen (der Server stand bisher auf claude/relaxed-hawking-VJjx3)
+# 1. Code holen und Container starten
 cd /root/projektabrechung
-git fetch origin
-git checkout main
-git pull origin main
+git fetch origin && git checkout main && git pull origin main
+cd deploy && docker compose up --build -d
+docker compose ps                                            # beide "Up", verteiler "healthy"
+curl -s http://127.0.0.1:8501/verteiler/_stcore/health; echo   # "ok"
 
-# 2. Container bauen/starten (Intranet wird mit aktualisiert, kurzer Neustart)
-cd deploy
-docker compose up --build -d
-docker compose ps            # projektabrechnung + verteiler: "Up" / "healthy"
-
-# 3. Caddy-Block für intern.rss-fb.com ersetzen – bricht ab, BEVOR etwas
-#    überschrieben wird, wenn eine Datei fehlt oder die neue Config ungültig ist.
-cd /opt/fbe-tools
-SNIP=/root/projektabrechung/deploy/fbe-caddy.snippet
-test -f "$SNIP" && grep -q "forward_auth" "$SNIP" \
-  && [ "$(grep -c 'Block fuer die TimeMoto-Projektabrechnung' Caddyfile)" = 1 ] \
-  && [ "$(grep -c 'Ende Block TimeMoto-Projektabrechnung' Caddyfile)" = 1 ] \
-  && cp Caddyfile Caddyfile.bak-$(date +%F-%H%M) \
-  && sed '/# >>> Block fuer die TimeMoto-Projektabrechnung >>>/,/# <<< Ende Block TimeMoto-Projektabrechnung <<</d' Caddyfile > /tmp/Caddyfile.neu \
-  && cat "$SNIP" >> /tmp/Caddyfile.neu \
-  && grep -q "intern.rss-fb.com" /tmp/Caddyfile.neu \
-  && docker cp /tmp/Caddyfile.neu fbe-caddy:/tmp/Caddyfile.neu \
-  && docker exec fbe-caddy caddy validate --config /tmp/Caddyfile.neu --adapter caddyfile \
-  && cat /tmp/Caddyfile.neu > Caddyfile \
-  && docker exec fbe-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
-  && echo "FERTIG: Caddy neu geladen" \
-  || echo "ABGEBROCHEN – Ausgabe oben prüfen"
-# "cat … > Caddyfile" ersetzt nur den Inhalt, die Datei bleibt dieselbe (Bind-Mount!).
+# 2. Caddy-Dienst einrichten (Skript prüft alles vorher, legt ein Backup an
+#    und spielt den alten Stand automatisch zurück, falls /health danach nicht 200 liefert)
+sh /root/projektabrechung/deploy/caddy-einrichten.sh
 ```
 
-Falls die beiden `grep -c` **nicht** je 1 ergeben (Block ohne Markierungen
-eingefügt): den alten `intern.rss-fb.com { … }`-Block in der Caddyfile von
-Hand durch den Inhalt von `deploy/fbe-caddy.snippet` ersetzen.
-**Nicht** `sed -i` direkt auf die Caddyfile anwenden, denn das legt eine neue
-Datei an, und der Container sieht dann weiter die alte.
+Das Skript ersetzt in `/etc/caddy/Caddyfile` nur den Block
+`intern.rss-fb.com { … }` durch `deploy/caddy-intern.snippet`. Andere Seiten
+(ticket, mailing, …) bleiben unverändert. Es kann gefahrlos mehrfach laufen.
 
 ### Prüfen
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://intern.rss-fb.com/verteiler/   # 303 (zum Login)
-curl -s https://intern.rss-fb.com/health                                         # Intranet ok
+curl -s -o /dev/null -w "%{http_code}\n" https://intern.rss-fb.com/health        # 200
+curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" https://intern.rss-fb.com/verteiler/
+# erwartet: 303 -> https://intern.rss-fb.com/login
 ```
 
 Im Browser als Admin anmelden → Menü **E-Mail-Verteiler**.
 
-Zurück zum alten Stand, falls etwas nicht passt:
-`cat Caddyfile.bak-… > Caddyfile` und erneut `caddy reload`.
+Zurück zum alten Stand: `cat /etc/caddy/Caddyfile.bak-<Datum> > /etc/caddy/Caddyfile`
+und `systemctl reload caddy`.
 
 ### Datensicherung
 

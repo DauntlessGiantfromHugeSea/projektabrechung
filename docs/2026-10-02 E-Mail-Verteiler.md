@@ -35,10 +35,10 @@ Siehe `deploy/DEPLOY.md` → „E-Mail-Verteiler“. Kurzform:
 ```bash
 cd /root/projektabrechung && git fetch origin && git checkout main && git pull origin main
 cd deploy && docker compose up --build -d
-# danach Caddy-Block für intern.rss-fb.com ersetzen und fbe-caddy neu laden
+sh /root/projektabrechung/deploy/caddy-einrichten.sh   # Caddy-Dienst, mit Backup + Auto-Rücksprung
 ```
 
-Sicherheit: fbe-caddy prüft jede Anfrage gegen das Intranet (`forward_auth`),
+Sicherheit: Der Caddy-Dienst des Servers prüft jede Anfrage gegen das Intranet (`forward_auth`),
 und die App prüft selbst noch einmal. Getestet: ohne Login → Login-Seite,
 Mitarbeiter → 403, deaktivierter Admin → Login, gefälschter Header oder
 Cookie → abgewiesen, direkter Zugriff am Proxy vorbei → gesperrt.
