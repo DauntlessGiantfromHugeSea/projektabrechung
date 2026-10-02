@@ -21,7 +21,7 @@ Aufbau:
 ## 1. App starten
 
 ```bash
-cd ~/projektabrechung && git pull
+cd /root/projektabrechung && git pull
 cd deploy
 docker compose up --build -d
 docker compose ps        # "projektabrechnung" muss "Up" sein
@@ -40,7 +40,7 @@ Compose gelesen). Datei anlegen — **nur das Passwort anpassen**, der
 Session-Schlüssel wird automatisch erzeugt:
 
 ```bash
-cd ~/projektabrechung/deploy
+cd /root/projektabrechung/deploy
 cat > .env <<EOF
 ADMIN_USER=admin
 ADMIN_PASSWORD=HierDeinPasswort
@@ -58,7 +58,7 @@ Die Vorlage liegt in `deploy/fbe-caddy.snippet`. Inhalt an die bestehende
 Caddyfile anhängen:
 
 ```bash
-cat ~/projektabrechung/deploy/fbe-caddy.snippet >> /opt/fbe-tools/Caddyfile
+cat /root/projektabrechung/deploy/fbe-caddy.snippet >> /opt/fbe-tools/Caddyfile
 ```
 
 Der Block (zur Kontrolle):
@@ -115,7 +115,7 @@ curl http://127.0.0.1:8080/report/preview
 ## Update einspielen
 
 ```bash
-cd /root/projektabrechnung && git pull origin main
+cd /root/projektabrechung && git pull origin main
 cd deploy && docker compose up --build -d
 ```
 
@@ -141,7 +141,7 @@ Schutz:
 
 ```bash
 # 1. Code holen (der Server stand bisher auf claude/relaxed-hawking-VJjx3)
-cd /root/projektabrechnung
+cd /root/projektabrechung
 git fetch origin
 git checkout main
 git pull origin main
@@ -151,19 +151,24 @@ cd deploy
 docker compose up --build -d
 docker compose ps            # projektabrechnung + verteiler: "Up" / "healthy"
 
-# 3. Caddy-Block für intern.rss-fb.com ersetzen
+# 3. Caddy-Block für intern.rss-fb.com ersetzen – bricht ab, BEVOR etwas
+#    überschrieben wird, wenn eine Datei fehlt oder die neue Config ungültig ist.
 cd /opt/fbe-tools
-grep -c "Block fuer die TimeMoto-Projektabrechnung" Caddyfile    # muss 1 ergeben
-grep -c "Ende Block TimeMoto-Projektabrechnung" Caddyfile         # muss 1 ergeben
-cp Caddyfile Caddyfile.bak-$(date +%F-%H%M)
-sed '/# >>> Block fuer die TimeMoto-Projektabrechnung >>>/,/# <<< Ende Block TimeMoto-Projektabrechnung <<</d' \
-    Caddyfile > /tmp/Caddyfile.neu
-cat /root/projektabrechnung/deploy/fbe-caddy.snippet >> /tmp/Caddyfile.neu
-cat /tmp/Caddyfile.neu > Caddyfile     # Inhalt ersetzen, Datei bleibt dieselbe (Bind-Mount!)
-
-# 4. Prüfen und ohne Downtime neu laden
-docker exec fbe-caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-docker exec fbe-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+SNIP=/root/projektabrechung/deploy/fbe-caddy.snippet
+test -f "$SNIP" && grep -q "forward_auth" "$SNIP" \
+  && [ "$(grep -c 'Block fuer die TimeMoto-Projektabrechnung' Caddyfile)" = 1 ] \
+  && [ "$(grep -c 'Ende Block TimeMoto-Projektabrechnung' Caddyfile)" = 1 ] \
+  && cp Caddyfile Caddyfile.bak-$(date +%F-%H%M) \
+  && sed '/# >>> Block fuer die TimeMoto-Projektabrechnung >>>/,/# <<< Ende Block TimeMoto-Projektabrechnung <<</d' Caddyfile > /tmp/Caddyfile.neu \
+  && cat "$SNIP" >> /tmp/Caddyfile.neu \
+  && grep -q "intern.rss-fb.com" /tmp/Caddyfile.neu \
+  && docker cp /tmp/Caddyfile.neu fbe-caddy:/tmp/Caddyfile.neu \
+  && docker exec fbe-caddy caddy validate --config /tmp/Caddyfile.neu --adapter caddyfile \
+  && cat /tmp/Caddyfile.neu > Caddyfile \
+  && docker exec fbe-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
+  && echo "FERTIG: Caddy neu geladen" \
+  || echo "ABGEBROCHEN – Ausgabe oben prüfen"
+# "cat … > Caddyfile" ersetzt nur den Inhalt, die Datei bleibt dieselbe (Bind-Mount!).
 ```
 
 Falls die beiden `grep -c` **nicht** je 1 ergeben (Block ohne Markierungen

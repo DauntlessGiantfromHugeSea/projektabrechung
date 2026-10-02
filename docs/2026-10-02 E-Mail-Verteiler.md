@@ -33,7 +33,7 @@ url: https://intern.rss-fb.com/verteiler/
 Siehe `deploy/DEPLOY.md` → „E-Mail-Verteiler“. Kurzform:
 
 ```bash
-cd /root/projektabrechnung && git fetch origin && git checkout main && git pull origin main
+cd /root/projektabrechung && git fetch origin && git checkout main && git pull origin main
 cd deploy && docker compose up --build -d
 # danach Caddy-Block für intern.rss-fb.com ersetzen und fbe-caddy neu laden
 ```
