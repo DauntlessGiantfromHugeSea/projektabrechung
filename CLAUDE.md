@@ -26,5 +26,8 @@
   `https://intern.rss-fb.com/verteiler/`. Zugriff nur für Intranet-Admins
   (Caddy `forward_auth` + Prüfung in der App über `/auth/verteiler`).
   Einrichtung: `deploy/DEPLOY.md`, Abschnitt „E-Mail-Verteiler“;
-  Caddy-Block per `deploy/caddy-einrichten.sh`.
+  Caddy-Block per `deploy/caddy-einrichten.sh`. Zweiter Container
+  `verteiler-postfach` liest ein Microsoft-365-Postfach (Graph, nur lesend,
+  per Exchange-RBAC auf dieses Postfach beschränkt) und übernimmt Adressen
+  aus Absender/An/CC/Text; Zugangsdaten `VERTEILER_MAIL_*` in `deploy/.env`.
 - Secrets nur in `deploy/.env` – niemals committen.

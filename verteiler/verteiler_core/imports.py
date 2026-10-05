@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from . import db
 from .normalize import (
-    clean_text, email_fehler, normalize_datum, normalize_email, parse_anzahl,
+    abo_status_erkennen, clean_text, email_fehler, normalize_datum, normalize_email, parse_anzahl,
     report_status_erkennen, sperrgrund_erkennen, status_schluessel,
 )
 
@@ -142,6 +142,9 @@ class KontaktPlan:
     ungueltig: list[dict] = field(default_factory=list)
     gesperrt: list[dict] = field(default_factory=list)
     datum_unklar: list[dict] = field(default_factory=list)
+    # Abo-Status aus der Datei: abgemeldet/unzustellbar -> Sperrliste, unklar -> übersprungen
+    abo_sperren: dict[str, str] = field(default_factory=dict)   # email -> Sperrgrund
+    abo_unklar: list[dict] = field(default_factory=list)
     zeilen: int = 0
 
     @property
@@ -160,6 +163,8 @@ class KontaktPlan:
             "ungueltig": len(self.ungueltig),
             "gesperrt": len(self.gesperrt),
             "datum_unklar": len(self.datum_unklar),
+            "abo_abgemeldet": len(self.abo_sperren),
+            "abo_unklar": len(self.abo_unklar),
         }
 
 
@@ -193,6 +198,21 @@ def analysiere_kontakte(conn: sqlite3.Connection, zeilen: list[dict[str, str]],
             continue
         if email in gesperrt:
             plan.gesperrt.append({"zeile": nr, "email": email, "grund": gesperrt[email]})
+            continue
+        if zuordnung.get("abo_status"):
+            abo_roh = clean_text(_zelle(zeile, zuordnung["abo_status"]), 60)
+            abo = abo_status_erkennen(abo_roh)
+            if abo is None:  # z. B. "pending" – im Zweifel nicht anschreiben
+                plan.abo_unklar.append({"zeile": nr, "email": email, "abo_status": abo_roh})
+                continue
+            if abo not in ("", "ok"):
+                # Abgemeldet/unzustellbar gewinnt immer, auch gegen eine andere Zeile
+                plan.abo_sperren.setdefault(email, abo)
+                if aus_datei.pop(email, None) is not None:
+                    plan.dubletten_in_datei.append({"zeile": nr, "email": email})
+                continue
+        if email in plan.abo_sperren:
+            plan.dubletten_in_datei.append({"zeile": nr, "email": email})
             continue
 
         satz = {"email": email}
@@ -240,24 +260,31 @@ def importiere_kontakte(db_path, backup_dir, dateiname: str, zeilen: list[dict[s
     try:
         with db.transaction(conn):
             plan = analysiere_kontakte(conn, zeilen, zuordnung, standardwerte, modus)
-            jetzt = db.jetzt()
-            for s in plan.neu:
-                conn.execute(
-                    "INSERT INTO contacts (email, vorname, nachname, firma, quelle, einwilligung_art, "
-                    "einwilligung_datum, status, erstellt_am, geaendert_am) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'aktiv', ?, ?)",
-                    (s["email"], s["vorname"], s["nachname"], s["firma"], s["quelle"],
-                     s["einwilligung_art"], s["einwilligung_datum"], jetzt, jetzt))
-            for kid, _email, aend in plan.aktualisieren:
-                spalten = ", ".join(f"{f} = ?" for f in aend)  # Feldnamen aus KONTAKT_FELDER
-                conn.execute(f"UPDATE contacts SET {spalten}, geaendert_am = ? WHERE id = ?",
-                             (*aend.values(), jetzt, kid))
+            kontakte_schreiben(conn, plan)
             z = plan.zahlen()
             _log(conn, "kontakte", dateiname, z["neu"], z["dublette_bestand_aktualisiert"],
-                 z["ungueltig"] + z["gesperrt"], z, benutzer)
+                 z["ungueltig"] + z["gesperrt"] + z["abo_unklar"], z, benutzer)
     finally:
         conn.close()
     return {**plan.zahlen(), "backup": sicherung}
+
+
+def kontakte_schreiben(conn: sqlite3.Connection, plan: KontaktPlan) -> None:
+    """Schreibt einen Kontakt-Plan (innerhalb einer offenen Transaktion)."""
+    jetzt = db.jetzt()
+    for s in plan.neu:
+        conn.execute(
+            "INSERT INTO contacts (email, vorname, nachname, firma, quelle, einwilligung_art, "
+            "einwilligung_datum, status, erstellt_am, geaendert_am) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'aktiv', ?, ?)",
+            (s["email"], s["vorname"], s["nachname"], s["firma"], s["quelle"],
+             s["einwilligung_art"], s["einwilligung_datum"], jetzt, jetzt))
+    for kid, _email, aend in plan.aktualisieren:
+        spalten = ", ".join(f"{f} = ?" for f in aend)  # Feldnamen aus KONTAKT_FELDER
+        conn.execute(f"UPDATE contacts SET {spalten}, geaendert_am = ? WHERE id = ?",
+                     (*aend.values(), jetzt, kid))
+    for email, grund in plan.abo_sperren.items():
+        sperren(conn, email, grund)
 
 
 # ================================================== 2. Kampagnen-Report

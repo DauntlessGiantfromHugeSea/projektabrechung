@@ -65,6 +65,7 @@ def pruefen(cookie_header: str, url: str | None = None) -> Ergebnis:
             benutzer = antwort.headers.get("X-Verteiler-User", "")
     except urllib.error.HTTPError as exc:
         status, benutzer = exc.code, ""
+        exc.close()
     except (urllib.error.URLError, OSError, ValueError):
         return Ergebnis(False, grund="fehler")
     if status == 204:

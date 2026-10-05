@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from verteiler_core import auth, db, imports, queries
+from verteiler_core import auth, db, imports, postfach, queries
 from verteiler_core.fileio import DateiFehler, lese_datei
 from verteiler_core.normalize import REPORT_ZIELE, spalte_erkennen
 
@@ -207,8 +207,10 @@ def seite_dashboard():
 
 def seite_kontakte_import():
     st.header("Kontaktliste importieren")
-    st.write("Bestehende Liste (CSV oder XLSX) einlesen. Adressen der Sperrliste werden "
-             "übersprungen, Dubletten zusammengeführt. Vor dem Schreiben siehst du eine Vorschau.")
+    st.write("Bestehende Liste (CSV oder XLSX) einlesen, z. B. den Kontakt-Export aus Reach. "
+             "Adressen der Sperrliste werden übersprungen, Dubletten zusammengeführt. Hat die "
+             "Datei eine Spalte wie „Subscription Status“, kommen „unsubscribed“-Adressen direkt "
+             "auf die Sperrliste. Vor dem Schreiben siehst du eine Vorschau.")
     meldung_zeigen()
     hoch = datei_hochladen("Datei wählen", "up_kontakte")
     if not hoch:
@@ -217,7 +219,8 @@ def seite_kontakte_import():
     zuordnung = spalten_zuordnen(
         {"email": "E-Mail", "vorname": "Vorname", "nachname": "Nachname", "firma": "Firma",
          "quelle": "Quelle", "einwilligung_art": "Einwilligung (Art)",
-         "einwilligung_datum": "Einwilligung (Datum)"},
+         "einwilligung_datum": "Einwilligung (Datum)",
+         "abo_status": "Abo-Status (subscribed / unsubscribed)"},
         tabelle.kopfzeilen, {"email"}, f"k_{kennung}")
     if zuordnung is None:
         return
@@ -250,6 +253,13 @@ def seite_kontakte_import():
     s3.metric("Ungültig", zahl(z["ungueltig"]))
     s4.metric("Gesperrt (übersprungen)", zahl(z["gesperrt"]))
     st.caption(f"Davon bestehende Kontakte, die ergänzt werden: {zahl(z['dublette_bestand_aktualisiert'])}")
+    if zuordnung.get("abo_status"):
+        a1, a2, _a3, _a4 = st.columns(4)
+        a1.metric("Abgemeldet → Sperrliste", zahl(z["abo_abgemeldet"]),
+                  help="unsubscribed (bzw. bounced/complained) – kommt auf die Sperrliste, "
+                       "bestehende Kontakte werden gesperrt")
+        a2.metric("Abo-Status unklar (übersprungen)", zahl(z["abo_unklar"]),
+                  help="z. B. „pending“ – im Zweifel nicht anschreiben")
     if z["datum_unklar"]:
         st.warning(f"{z['datum_unklar']} Einwilligungsdaten nicht als Datum erkannt – sie werden als "
                    "Text übernommen.")
@@ -261,8 +271,11 @@ def seite_kontakte_import():
     liste_zeigen("Gesperrte Adressen (werden nicht importiert)", plan.gesperrt)
     liste_zeigen("Dubletten innerhalb der Datei", plan.dubletten_in_datei)
     liste_zeigen("Nicht erkannte Einwilligungsdaten", plan.datum_unklar)
+    liste_zeigen("Abgemeldet laut Abo-Status (→ Sperrliste)",
+                 [{"email": e, "grund": GRUND_TEXT[g]} for e, g in plan.abo_sperren.items()])
+    liste_zeigen("Abo-Status unklar (nicht importiert)", plan.abo_unklar)
 
-    schreiben = z["neu"] + z["dublette_bestand_aktualisiert"]
+    schreiben = z["neu"] + z["dublette_bestand_aktualisiert"] + z["abo_abgemeldet"]
     if st.button(f"Import ausführen ({zahl(schreiben)} Kontakte schreiben)", type="primary",
                  disabled=schreiben == 0, key=f"k_{kennung}_los"):
         try:
@@ -272,7 +285,8 @@ def seite_kontakte_import():
             st.error(str(exc))
             return
         nach_import(f"Import abgeschlossen: {e['neu']} neu, {e['dublette_bestand_aktualisiert']} "
-                    f"aktualisiert, {e['ungueltig']} ungültig, {e['gesperrt']} gesperrt übersprungen. "
+                    f"aktualisiert, {e['abo_abgemeldet']} abgemeldet → Sperrliste, "
+                    f"{e['ungueltig']} ungültig, {e['gesperrt']} gesperrt übersprungen. "
                     f"Backup: {Path(e['backup']).name if e['backup'] else '–'}", "up_kontakte")
 
 
@@ -601,6 +615,48 @@ def kontakt_detail(kid: int):
                     st.error(str(exc))
 
 
+# ============================================================ Postfach
+
+def seite_postfach():
+    st.header("Kontakte aus dem Postfach")
+    meldung_zeigen()
+    cfg = postfach.einstellungen_aus_env()
+    if not cfg.konfiguriert:
+        st.info("Das Postfach ist noch nicht eingerichtet. Dafür werden in `deploy/.env` die Werte "
+                "`VERTEILER_MAIL_POSTFACH`, `VERTEILER_MAIL_TENANT_ID`, `VERTEILER_MAIL_CLIENT_ID` und "
+                "`VERTEILER_MAIL_CLIENT_SECRET` gesetzt – Anleitung in `deploy/DEPLOY.md`, Abschnitt "
+                "„Postfach für den Verteiler“.")
+    else:
+        st.write(f"Mails an **{md(cfg.postfach)}** werden alle {cfg.intervall_min} Minuten ausgewertet. "
+                 "Übernommen werden alle Adressen aus **Absender, An, CC und dem Mailtext** "
+                 "(also auch aus weitergeleiteten Mails). Einfach eine Mail an das Postfach "
+                 "weiterleiten oder es in CC setzen.")
+        st.caption("Nicht übernommen: eigene Domains (" + md(", ".join(cfg.intern_domains) or "–")
+                   + "), das Postfach selbst, Systemadressen (noreply, mailer-daemon …) und Adressen "
+                   "der Sperrliste. Neue Kontakte bekommen als Quelle „Postfach: Betreff“. "
+                   "Die Einwilligung bitte unter „Kontakte suchen / bearbeiten“ nachtragen.")
+        if st.button("Postfach jetzt abrufen", type="primary"):
+            try:
+                with st.spinner("Postfach wird abgerufen …"):
+                    e = postfach.abrufen(DB_PFAD, BACKUP_DIR, cfg, benutzer=BENUTZER or "Postfach")
+                st.session_state["meldung"] = e.text()
+                st.rerun()
+            except postfach.PostfachFehler as exc:
+                st.error(str(exc))
+
+    with verbindung() as c:
+        mails = postfach.letzte_mails(c)
+    st.subheader("Zuletzt ausgewertete Mails")
+    if not mails:
+        st.caption("Noch keine Mails ausgewertet.")
+        return
+    st.dataframe(pd.DataFrame([{
+        "Empfangen": m["empfangen_am"].replace("T", " ").replace("Z", ""), "Betreff": m["betreff"],
+        "Adressen": m["gefunden"], "Neu": m["neu"], "Schon vorhanden": m["bekannt"],
+        "Gesperrt": m["gesperrt"], "Ignoriert": m["ignoriert"],
+        "Ausgewertet": m["verarbeitet_am"]} for m in mails]), hide_index=True)
+
+
 # ===================================================== Sperrliste & Protokoll
 
 def seite_protokoll():
@@ -629,6 +685,7 @@ SEITEN = {
     "Sperrliste importieren": seite_sperrliste_import,
     "Export für Reach": seite_export,
     "Kontakte suchen / bearbeiten": seite_kontakte,
+    "Postfach": seite_postfach,
     "Sperrliste & Protokoll": seite_protokoll,
 }
 

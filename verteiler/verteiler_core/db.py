@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 KONTAKT_STATUS = ("aktiv", "bounce_hart", "bounce_weich", "abgemeldet", "gesperrt")
 ZUSTELLSTATUS = ("zugestellt", "unzustellbar", "soft_bounce", "nicht_zugestellt", "abgemeldet")
@@ -96,6 +96,20 @@ CREATE TABLE IF NOT EXISTS import_log (
     benutzer      TEXT NOT NULL DEFAULT ''
 );
 
+-- Bereits ausgewertete Mails aus dem Microsoft-365-Postfach (siehe postfach.py).
+-- Gespeichert werden nur Kennung, Betreff und Zahlen, keine Adressen.
+CREATE TABLE IF NOT EXISTS mail_eingang (
+    message_id     TEXT PRIMARY KEY,
+    empfangen_am   TEXT NOT NULL,
+    betreff        TEXT NOT NULL DEFAULT '',
+    gefunden       INTEGER NOT NULL DEFAULT 0,
+    neu            INTEGER NOT NULL DEFAULT 0,
+    bekannt        INTEGER NOT NULL DEFAULT 0,
+    gesperrt       INTEGER NOT NULL DEFAULT 0,
+    ignoriert      INTEGER NOT NULL DEFAULT 0,
+    verarbeitet_am TEXT NOT NULL
+);
+
 -- Nur während einer DSGVO-Löschung befüllt (innerhalb derselben Transaktion).
 CREATE TABLE IF NOT EXISTS dsgvo_freigabe (
     email TEXT PRIMARY KEY
@@ -165,6 +179,7 @@ def connect(db_path: str | os.PathLike) -> sqlite3.Connection:
     if version < SCHEMA_VERSION:
         # Schema komplett oder gar nicht anlegen bzw. aktualisieren.
         migration = ""
+        # v3 (mail_eingang) entsteht über CREATE TABLE IF NOT EXISTS im SCHEMA.
         if version == 1:  # v2: wer hat importiert/gelöscht (Server-Betrieb)
             migration = "ALTER TABLE import_log ADD COLUMN benutzer TEXT NOT NULL DEFAULT '';\n"
         try:

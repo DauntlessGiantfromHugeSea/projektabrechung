@@ -151,7 +151,10 @@ SPALTEN_SYNONYME: dict[str, tuple[str, ...]] = {
     "einwilligung_art": ("einwilligungart", "einwilligung", "consent", "consenttype",
                          "optin", "optinart", "einwilligungsart"),
     "einwilligung_datum": ("einwilligungdatum", "einwilligungsdatum", "consentdate",
-                           "optindatum", "optindate", "datumeinwilligung"),
+                           "optindatum", "optindate", "datumeinwilligung", "subscribedat",
+                           "subscriptiondate", "abonniertam", "angemeldetam", "optinat"),
+    "abo_status": ("subscriptionstatus", "abostatus", "abonnementstatus", "newsletterstatus",
+                   "subscription", "abonnement", "status"),
     "geoeffnet": ("geoeffnet", "oeffnungen", "opens", "opened", "open", "geoeffnetanzahl"),
     "geklickt": ("geklickt", "klicks", "clicks", "clicked", "click"),
     "status": ("status", "zustellstatus", "deliverystatus", "state"),
@@ -210,6 +213,25 @@ def status_schluessel(roh: object) -> str:
 def report_status_erkennen(roh: object) -> str | None:
     """Ordnet einen Reach-Statuswert automatisch zu (None = unbekannt)."""
     return _REPORT_STATUS.get(status_schluessel(roh))
+
+
+# Abo-Status einer Kontaktliste (z. B. Reach-Export "Subscription Status").
+# "ok" = darf angeschrieben werden, sonst Sperrgrund; leer = keine Angabe.
+_ABO_STATUS: dict[str, str] = {
+    "subscribed": "ok", "abonniert": "ok", "angemeldet": "ok", "aktiv": "ok", "active": "ok",
+    "unsubscribed": "abgemeldet", "abgemeldet": "abgemeldet", "abbestellt": "abgemeldet",
+    "optout": "abgemeldet", "ausgetragen": "abgemeldet",
+    "bounced": "bounce_hart", "cleaned": "bounce_hart", "unzustellbar": "bounce_hart",
+    "complained": "beschwerde", "spam": "beschwerde", "beschwerde": "beschwerde",
+}
+
+
+def abo_status_erkennen(roh: object) -> str | None:
+    """'ok', ein Sperrgrund, '' (leer) oder None (unbekannter Wert, z. B. 'pending')."""
+    key = _schluessel(str(roh or ""))
+    if not key:
+        return ""
+    return _ABO_STATUS.get(key)
 
 
 _SPERRGRUND: dict[str, str] = {

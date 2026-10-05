@@ -102,13 +102,53 @@ Im Container: `VERTEILER_MODUS=server` und `VERTEILER_AUTH_URL` (siehe
 
 | Bereich | Was passiert |
 |---|---|
-| Kontaktliste importieren | CSV/XLSX, Spalten zuordnen, E-Mail normalisieren (klein, getrimmt), Syntax prüfen, Dubletten zusammenführen („nur leere Felder ergänzen“ oder „überschreiben“), gesperrte Adressen überspringen, Vorschau vor dem Schreiben |
+| Kontaktliste importieren | CSV/XLSX (z. B. Kontakt-Export aus Reach), Spalten zuordnen, E-Mail normalisieren (klein, getrimmt), Syntax prüfen, Dubletten zusammenführen („nur leere Felder ergänzen“ oder „überschreiben“), gesperrte Adressen überspringen, **Abo-Status** auswerten (siehe unten), Vorschau vor dem Schreiben |
 | Kampagnen-Report importieren | Reach-Empfänger-CSV → `campaign_events`, Kontaktstatus und Sperrliste aktualisieren |
 | Sperrliste importieren | Nur Adressen sperren (mit Grund aus Datei oder einheitlichem Grund), auch einzelne Adresse |
 | Export für Reach | CSV mit `E-Mail, Vorname, Nachname` (UTF-8 mit BOM, Komma oder Semikolon) |
 | Dashboard | Kontakte je Status, Bounce-Rate, Öffnungsrate (bezogen auf versendet und auf zugestellt), Warnung bei > 2 % |
 | Kontakte suchen / bearbeiten | Stammdaten und Einwilligung pflegen, Kampagnenhistorie, manuell sperren, DSGVO-Löschung |
+| Postfach | Adressen aus Mails an das Verteiler-Postfach (Absender, An, CC, Mailtext) automatisch übernehmen, Übersicht der ausgewerteten Mails, Abruf per Knopf |
 | Sperrliste & Protokoll | Sperrliste durchsuchen, Kampagnen, Import-Protokoll, Backups |
+
+### Abo-Status (z. B. „Subscription Status“ aus Reach)
+
+Hat die Kontaktliste eine Spalte wie `Subscription Status`, wird sie
+automatisch erkannt (`Subscribed At` wird als Einwilligungsdatum erkannt):
+
+| Wert | Ergebnis |
+|---|---|
+| `subscribed` (oder leer) | normaler Import |
+| `unsubscribed`, abgemeldet | Adresse kommt auf die **Sperrliste** (abgemeldet), ein bestehender Kontakt wird gesperrt |
+| `bounced`, `cleaned` | Sperrliste (harter Bounce) |
+| `complained`, spam | Sperrliste (Beschwerde) |
+| alles andere, z. B. `pending` | **nicht** importiert (im Zweifel nicht anschreiben), in der Vorschau aufgelistet |
+
+Steht dieselbe Adresse mehrfach in der Datei, gewinnt „abgemeldet“.
+
+### Postfach (Microsoft 365)
+
+Das Tool kann ein eigenes Postfach lesen, z. B. `verteiler@fb-eng.de`. Aus
+jeder Mail, die dort ankommt (weitergeleitet, in CC gesetzt oder direkt
+geschickt), werden alle Adressen aus **Absender, An, CC und dem Mailtext**
+übernommen, mit Namen, wo einer erkennbar ist (z. B. `Max Muster <max@…>`).
+
+- Übersprungen werden: eigene Domains (Standard: Domain des Postfachs, sonst
+  `VERTEILER_MAIL_INTERN_DOMAINS`), das Postfach selbst, Systemadressen
+  (noreply, mailer-daemon, postmaster, bounce …), ungültige Adressen und alles
+  auf der Sperrliste.
+- Bestehende Kontakte werden nur ergänzt (leere Namen), nie überschrieben.
+- Neue Kontakte bekommen als Quelle „Postfach: <Betreff>“. **Einwilligung
+  nachtragen**, bevor sie einen Newsletter bekommen (§ 7 UWG).
+- Ein eigener Container (`verteiler-postfach`) ruft alle 10 Minuten ab. Unter
+  **Postfach** geht es auch sofort per Knopf. Jede Mail wird nur einmal
+  ausgewertet. Gespeichert werden nur Betreff, Zeitpunkt und Zahlen (Tabelle
+  `mail_eingang`), keine Mailinhalte.
+- Zugriff über Microsoft Graph, **nur lesend** und per Exchange-RBAC auf genau
+  dieses Postfach beschränkt. Das Tool verschiebt oder löscht keine Mails.
+  Als Anhang weitergeleitete Mails (.msg/.eml) werden nicht geöffnet, also
+  bitte „normal“ weiterleiten.
+- Einrichtung: `deploy/DEPLOY.md`, Abschnitt „Postfach für den Verteiler“.
 
 ### Kennzahlen
 
@@ -194,6 +234,7 @@ Backups, die älter als die Löschung sind.
 | `campaign_events` | contact_id, campaign_id, geoeffnet, geklickt, zustellstatus (zugestellt / unzustellbar / soft_bounce / nicht_zugestellt / abgemeldet) – je Kontakt und Kampagne genau ein Eintrag |
 | `suppression_list` | email (UNIQUE), grund (bounce_hart / abgemeldet / beschwerde / manuell), datum |
 | `import_log` | zeitpunkt, art, benutzer, dateiname, neu, aktualisiert, uebersprungen, details (JSON mit allen Zahlen, ohne personenbezogene Daten) |
+| `mail_eingang` | message_id, empfangen_am, betreff, gefunden, neu, bekannt, gesperrt, ignoriert, verarbeitet_am – ausgewertete Mails aus dem Postfach |
 
 Kontaktstatus aus der Sperrliste: bounce_hart → `bounce_hart`,
 abgemeldet → `abgemeldet`, beschwerde/manuell → `gesperrt`.

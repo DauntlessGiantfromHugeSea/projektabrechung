@@ -7,6 +7,7 @@ Tests der Kernlogik. Start (im Ordner verteiler/):
 from __future__ import annotations
 
 import io
+import json
 import sqlite3
 import sys
 import tempfile
@@ -483,6 +484,7 @@ class TestAnmeldung(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
 
     def test_ergebnisse(self):
         from verteiler_core import auth
@@ -514,3 +516,178 @@ class TestAnmeldung(unittest.TestCase):
                 spalten = [r[1] for r in c2.execute("PRAGMA table_info(import_log)")]
                 self.assertIn("benutzer", spalten)
                 self.assertEqual(c2.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
+
+
+# ------------------------------------------------ Abo-Status (Subscription Status)
+
+class TestAboStatus(Basis):
+    def test_subscribed_unsubscribed(self):
+        self.lade_bestand_und_sperrliste()
+        kopf = ["Email", "First Name", "Last Name", "Subscribed At", "Subscription Status"]
+        self.assertEqual(spalte_erkennen("abo_status", kopf), "Subscription Status")
+        self.assertEqual(spalte_erkennen("einwilligung_datum", kopf), "Subscribed At")
+        zeilen = [
+            {"Email": "neu1@example.com", "Subscribed At": "2025-03-01", "Subscription Status": "subscribed"},
+            {"Email": "neu2@example.com", "Subscribed At": "", "Subscription Status": "unsubscribed"},
+            {"Email": "neu3@example.com", "Subscribed At": "", "Subscription Status": "pending"},
+            {"Email": "neu4@example.com", "Subscribed At": "", "Subscription Status": ""},
+            # gleiche Adresse zweimal, einmal abgemeldet -> abgemeldet gewinnt
+            {"Email": "neu5@example.com", "Subscribed At": "", "Subscription Status": "subscribed"},
+            {"Email": "NEU5@example.com", "Subscribed At": "", "Subscription Status": "Unsubscribed"},
+            # bestehender aktiver Kontakt meldet sich ab -> gesperrt
+            {"Email": "bestand01@example.org", "Subscribed At": "", "Subscription Status": "unsubscribed"},
+            # steht schon auf der Sperrliste
+            {"Email": "gesperrt01@example.net", "Subscribed At": "", "Subscription Status": "subscribed"},
+        ]
+        zuo = {"email": "Email", "einwilligung_datum": "Subscribed At", "abo_status": "Subscription Status"}
+        e = imports.importiere_kontakte(self.dbp, self.bak, "reach.csv", zeilen, zuo)
+        self.assertEqual((e["neu"], e["abo_abgemeldet"], e["abo_unklar"], e["gesperrt"]), (2, 3, 1, 1))
+        self.assertEqual(self.status("neu1@example.com"), "aktiv")
+        self.assertEqual(self.status("neu4@example.com"), "aktiv")
+        self.assertIsNone(self.status("neu2@example.com"))      # nicht als Kontakt angelegt …
+        self.assertEqual(self.gesperrt("neu2@example.com"), "abgemeldet")  # … aber gesperrt
+        self.assertEqual(self.gesperrt("neu5@example.com"), "abgemeldet")
+        self.assertIsNone(self.status("neu3@example.com"))      # pending: übersprungen
+        self.assertEqual(self.status("bestand01@example.org"), "abgemeldet")
+        with self.conn() as c:
+            d = c.execute("SELECT einwilligung_datum FROM contacts WHERE email = 'neu1@example.com'").fetchone()[0]
+            emails = {r["email"] for r in queries.segment_kontakte(c, "alle_aktiven")}
+        self.assertEqual(d, "2025-03-01")
+        self.assertFalse({"neu2@example.com", "neu5@example.com", "bestand01@example.org"} & emails)
+
+
+# ------------------------------------------------ Postfach (Microsoft Graph, simuliert)
+
+class FakeGraph:
+    """Kleiner Fake von login.microsoftonline.com + graph.microsoft.com."""
+
+    def __init__(self, mails):
+        import http.server
+        import threading
+        fake = self
+        fake.mails = mails
+        fake.anfragen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _json(self, code, daten):
+                body = json.dumps(daten).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                laenge = int(self.headers.get("Content-Length", 0))
+                daten = self.rfile.read(laenge).decode()
+                if "/oauth2/v2.0/token" in self.path and "client_secret=geheim" in daten:
+                    return self._json(200, {"access_token": "tok", "expires_in": 3600})
+                return self._json(401, {"error": "invalid_client"})
+
+            def do_GET(self):
+                fake.anfragen.append(self.path)
+                if self.headers.get("Authorization") != "Bearer tok":
+                    return self._json(401, {"error": {"code": "InvalidAuthenticationToken"}})
+                if "/users/verteiler@fb-eng.de/mailFolders/inbox/messages" not in self.path:
+                    return self._json(404, {"error": {"code": "ErrorItemNotFound"}})
+                if "seite=2" in self.path:
+                    return self._json(200, {"value": fake.mails[1:]})
+                return self._json(200, {"value": fake.mails[:1],
+                                        "@odata.nextLink": fake.basis + "/v1.0/users/verteiler@fb-eng.de"
+                                        "/mailFolders/inbox/messages?seite=2"})
+
+            def log_message(self, *a):
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.basis = f"http://127.0.0.1:{self.server.server_port}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def cfg(self, secret="geheim"):
+        from verteiler_core import postfach
+        return postfach.Einstellungen(
+            postfach="verteiler@fb-eng.de", tenant_id="tenant", client_id="app", client_secret=secret,
+            intern_domains=("fb-eng.de",), graph_url=self.basis + "/v1.0", login_url=self.basis)
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def graph_mail(nr, von, an, cc, text, betreff="Projekt"):
+    def adr(a):
+        name, email = a
+        return {"emailAddress": {"name": name, "address": email}}
+    return {"id": f"AAMk{nr}", "internetMessageId": f"<{nr}@mail>", "subject": betreff,
+            "receivedDateTime": f"2026-10-0{nr}T08:00:00Z", "from": adr(von),
+            "toRecipients": [adr(a) for a in an], "ccRecipients": [adr(a) for a in cc],
+            "body": {"contentType": "text", "content": text}}
+
+
+class TestPostfach(Basis):
+    def setUp(self):
+        super().setUp()
+        self.lade_bestand_und_sperrliste()
+        self.fake = FakeGraph([
+            graph_mail(1, ("Daniel Model", "d.model@fb-eng.de"),
+                       [("Verteiler", "verteiler@fb-eng.de")], [("Kunde, Karl", "Karl.Kunde@kunde.de")],
+                       "Von: Anna Schmidt <anna.schmidt@planer.de>\nAn: Bernd Bau <b.bau@bau-ag.de>\n"
+                       "Bitte info@stadtwerke.de und noreply@system.de informieren. "
+                       "Gesperrt: gesperrt01@example.net, bekannt: bestand01@example.org"),
+            graph_mail(2, ("Ida Imhof", "ida@imhof.de"), [("Verteiler", "verteiler@fb-eng.de")], [],
+                       "Kein weiterer Kontakt. image001.png@01DA1234.5678ABCD", betreff="Anfrage"),
+        ])
+
+    def tearDown(self):
+        self.fake.stop()
+        super().tearDown()
+
+    def test_abruf_und_keine_doppelte_verarbeitung(self):
+        from verteiler_core import postfach
+        e = postfach.abrufen(self.dbp, self.bak, self.fake.cfg(), benutzer="test")
+        self.assertEqual(e.mails, 2)
+        self.assertEqual(e.neu, 5)  # karl, anna, bernd, info@stadtwerke, ida
+        self.assertEqual((e.bekannt, e.gesperrt), (1, 1))
+        self.assertEqual(e.ignoriert, 4)  # d.model (intern), verteiler (2x Postfach), noreply
+        with self.conn() as c:
+            k = c.execute("SELECT * FROM contacts WHERE email = 'karl.kunde@kunde.de'").fetchone()
+            self.assertEqual((k["vorname"], k["nachname"], k["quelle"]), ("Karl", "Kunde", "Postfach: Projekt"))
+            b = c.execute("SELECT vorname FROM contacts WHERE email = 'bestand01@example.org'").fetchone()
+            self.assertEqual(b[0], bsp.VORNAMEN[0])  # nichts überschrieben
+            self.assertIsNone(c.execute("SELECT 1 FROM contacts WHERE email = 'd.model@fb-eng.de'").fetchone())
+            self.assertIsNone(c.execute("SELECT 1 FROM contacts WHERE email = 'gesperrt01@example.net'").fetchone())
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM mail_eingang").fetchone()[0], 2)
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM import_log WHERE art = 'postfach'").fetchone()[0], 2)
+            # In der Mail-Tabelle stehen keine Adressen
+            zeilen = " ".join(str(tuple(r)) for r in c.execute("SELECT * FROM mail_eingang"))
+            self.assertNotIn("@kunde.de", zeilen)
+        # Abfrage enthielt Filter, Sortierung und Folgeseite
+        self.assertTrue(any("receivedDateTime" in a for a in self.fake.anfragen))
+        self.assertTrue(any("seite=2" in a for a in self.fake.anfragen))
+        # zweiter Lauf: dieselben Mails werden nicht noch einmal verarbeitet
+        e2 = postfach.abrufen(self.dbp, self.bak, self.fake.cfg())
+        self.assertEqual((e2.mails, e2.neu), (0, 0))
+
+    def test_falsches_geheimnis(self):
+        from verteiler_core import postfach
+        with self.assertRaises(postfach.PostfachFehler) as ctx:
+            postfach.abrufen(self.dbp, self.bak, self.fake.cfg(secret="falsch"))
+        self.assertIn("401", str(ctx.exception))
+        self.assertNotIn("falsch", str(ctx.exception))
+
+    def test_nicht_konfiguriert(self):
+        from verteiler_core import postfach
+        cfg = postfach.einstellungen_aus_env({"VERTEILER_MAIL_POSTFACH": "Verteiler@FB-Eng.de"})
+        self.assertFalse(cfg.konfiguriert)
+        self.assertEqual(cfg.intern_domains, ("fb-eng.de",))
+        with self.assertRaises(postfach.PostfachFehler):
+            postfach.abrufen(self.dbp, self.bak, cfg)
+
+    def test_fremde_weiterleitung_abgelehnt(self):
+        from verteiler_core import postfach
+        cfg = self.fake.cfg()
+        with self.assertRaises(postfach.PostfachFehler):
+            g = postfach.Graph(cfg)
+            seite = {"value": [], "@odata.nextLink": "https://evil.example.com/x"}
+            with mock.patch.object(g, "_get", return_value=seite):
+                g.nachrichten(postfach.datetime.now(postfach.timezone.utc))
