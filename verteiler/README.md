@@ -108,7 +108,8 @@ Im Container: `VERTEILER_MODUS=server` und `VERTEILER_AUTH_URL` (siehe
 | Export für Reach | CSV mit `E-Mail, Vorname, Nachname` (UTF-8 mit BOM, Komma oder Semikolon) |
 | Dashboard | Kontakte je Status, Bounce-Rate, Öffnungsrate (bezogen auf versendet und auf zugestellt), Warnung bei > 2 % |
 | Kontakte suchen / bearbeiten | Stammdaten und Einwilligung pflegen, Kampagnenhistorie, manuell sperren, DSGVO-Löschung |
-| Postfach | Adressen aus Mails an das Verteiler-Postfach (Absender, An, CC, Mailtext) automatisch übernehmen, Übersicht der ausgewerteten Mails, Abruf per Knopf |
+| Postfach | Mit Microsoft verbinden, Adressen aus Mails an das Verteiler-Postfach (Absender, An, CC, Mailtext) automatisch übernehmen, Übersicht, Abruf per Knopf |
+| Mailing-Tool | Abgleich mit `mailing.rss-fb.com`: Sperrliste hin, Empfängerliste hin, Abmeldungen/Bounces zurück |
 | Sperrliste & Protokoll | Sperrliste durchsuchen, Kampagnen, Import-Protokoll, Backups |
 
 ### Abo-Status (z. B. „Subscription Status“ aus Reach)
@@ -128,27 +129,45 @@ Steht dieselbe Adresse mehrfach in der Datei, gewinnt „abgemeldet“.
 
 ### Postfach (Microsoft 365)
 
-Das Tool kann ein eigenes Postfach lesen, z. B. `verteiler@fb-eng.de`. Aus
-jeder Mail, die dort ankommt (weitergeleitet, in CC gesetzt oder direkt
-geschickt), werden alle Adressen aus **Absender, An, CC und dem Mailtext**
-übernommen, mit Namen, wo einer erkennbar ist (z. B. `Max Muster <max@…>`).
+Das Tool kann ein Postfach lesen, z. B. `verteiler@fb-eng.de`. Aus jeder
+Mail, die dort ankommt (weitergeleitet, in CC gesetzt oder direkt geschickt),
+werden alle Adressen aus **Absender, An, CC und dem Mailtext** übernommen, mit
+Namen, wo einer erkennbar ist (z. B. `Max Muster <max@…>`).
 
-- Übersprungen werden: eigene Domains (Standard: Domain des Postfachs, sonst
-  `VERTEILER_MAIL_INTERN_DOMAINS`), das Postfach selbst, Systemadressen
-  (noreply, mailer-daemon, postmaster, bounce …), ungültige Adressen und alles
-  auf der Sperrliste.
+- **Verbinden im Backend:** Seite **Postfach** → „Mit Microsoft verbinden“.
+  Genutzt wird die Microsoft-App des Intranet-Logins mit der eigenen
+  Umleitungs-URI `https://intern.rss-fb.com/verteiler/`. Postfach-Adresse,
+  eigene Domains und „Automatisch abrufen“ werden dort eingestellt.
+- Übersprungen werden: eigene Domains (Standard: Domain des Postfachs), das
+  Postfach selbst, Systemadressen (noreply, mailer-daemon, postmaster, bounce …),
+  ungültige Adressen und alles auf der Sperrliste.
 - Bestehende Kontakte werden nur ergänzt (leere Namen), nie überschrieben.
 - Neue Kontakte bekommen als Quelle „Postfach: <Betreff>“. **Einwilligung
   nachtragen**, bevor sie einen Newsletter bekommen (§ 7 UWG).
-- Ein eigener Container (`verteiler-postfach`) ruft alle 10 Minuten ab. Unter
-  **Postfach** geht es auch sofort per Knopf. Jede Mail wird nur einmal
-  ausgewertet. Gespeichert werden nur Betreff, Zeitpunkt und Zahlen (Tabelle
-  `mail_eingang`), keine Mailinhalte.
-- Zugriff über Microsoft Graph, **nur lesend** und per Exchange-RBAC auf genau
-  dieses Postfach beschränkt. Das Tool verschiebt oder löscht keine Mails.
-  Als Anhang weitergeleitete Mails (.msg/.eml) werden nicht geöffnet, also
-  bitte „normal“ weiterleiten.
-- Einrichtung: `deploy/DEPLOY.md`, Abschnitt „Postfach für den Verteiler“.
+- **Nur lesend** (Mail.Read / Mail.Read.Shared). Das Tool verschiebt oder löscht
+  keine Mails. Jede Mail wird nur einmal ausgewertet. Gespeichert werden nur
+  Betreff, Zeitpunkt und Zahlen (Tabelle `mail_eingang`).
+- Das Refresh-Token liegt in `/data/postfach_token.json` (0600), nicht in der
+  Datenbank und nicht in den Backups, und wird nie angezeigt.
+- Als Anhang weitergeleitete Mails (.msg/.eml) werden nicht geöffnet. Bitte
+  „normal“ weiterleiten.
+
+### Abgleich mit dem Mailing-Tool
+
+Seite **Mailing-Tool**: Der Verteiler gleicht sich mit `mailing.rss-fb.com` ab.
+Das passiert automatisch alle 10 Minuten (wenn eingeschaltet) oder per Knopf:
+
+- Die **Sperrliste** des Verteilers wird dort übernommen, geplante Sendungen an
+  gesperrte Adressen werden abgebrochen.
+- Die Empfänger des gewählten Segments (Alle aktiven oder Engagierte) landen dort
+  in der Liste **„Verteiler: Alle aktiven“** (Name einstellbar). Sie wird nur bei
+  Änderungen neu übertragen, sonst höchstens einmal am Tag.
+- **Abmeldungen, Bounces und Beschwerden** aus dem Mailing-Tool kommen hier auf
+  die Sperrliste und damit nie wieder in einen Export.
+- Zugang: `MAILING_SYNC_TOKEN` in `deploy/.env` (= `VERTEILER_SYNC_TOKEN` im
+  Mailing-Tool), nur über HTTPS.
+
+Hintergrund-Container: `verteiler-hintergrund` (Postfach + Mailing-Abgleich).
 
 ### Kennzahlen
 
@@ -235,6 +254,8 @@ Backups, die älter als die Löschung sind.
 | `suppression_list` | email (UNIQUE), grund (bounce_hart / abgemeldet / beschwerde / manuell), datum |
 | `import_log` | zeitpunkt, art, benutzer, dateiname, neu, aktualisiert, uebersprungen, details (JSON mit allen Zahlen, ohne personenbezogene Daten) |
 | `mail_eingang` | message_id, empfangen_am, betreff, gefunden, neu, bekannt, gesperrt, ignoriert, verarbeitet_am – ausgewertete Mails aus dem Postfach |
+| `einstellungen` | Einstellungen aus dem Backend (Postfach, Mailing-Tool) – keine Geheimnisse |
+| `oauth_state` | offene „Mit Microsoft verbinden“-Vorgänge (einmalig, 15 Minuten gültig) |
 
 Kontaktstatus aus der Sperrliste: bounce_hart → `bounce_hart`,
 abgemeldet → `abgemeldet`, beschwerde/manuell → `gesperrt`.

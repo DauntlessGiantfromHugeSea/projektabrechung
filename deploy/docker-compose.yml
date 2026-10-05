@@ -12,15 +12,18 @@
 
 name: projektabrechnung
 
-# Postfach für den E-Mail-Verteiler (Microsoft 365). Werte aus deploy/.env,
-# siehe DEPLOY.md "Postfach für den Verteiler". Leer = Postfach-Abruf ruht.
-x-verteiler-postfach: &verteiler-postfach
-  VERTEILER_MAIL_POSTFACH: "${VERTEILER_MAIL_POSTFACH:-}"
-  VERTEILER_MAIL_TENANT_ID: "${VERTEILER_MAIL_TENANT_ID:-}"
-  VERTEILER_MAIL_CLIENT_ID: "${VERTEILER_MAIL_CLIENT_ID:-}"
-  VERTEILER_MAIL_CLIENT_SECRET: "${VERTEILER_MAIL_CLIENT_SECRET:-}"
-  VERTEILER_MAIL_INTERN_DOMAINS: "${VERTEILER_MAIL_INTERN_DOMAINS:-}"
-  VERTEILER_MAIL_INTERVALL_MIN: "${VERTEILER_MAIL_INTERVALL_MIN:-10}"
+# Hintergrund-Funktionen des E-Mail-Verteilers. Werte aus deploy/.env:
+# - MS_*: dieselbe Microsoft-App wie der Intranet-Login (für "Postfach verbinden")
+# - MAILING_*: Abgleich mit dem Mailing-Tool (Token = VERTEILER_SYNC_TOKEN dort)
+# Postfach-Adresse, Ein/Aus usw. werden im Backend des Verteilers eingestellt.
+x-verteiler-env: &verteiler-env
+  MS_CLIENT_ID: "${MS_CLIENT_ID:-}"
+  MS_CLIENT_SECRET: "${MS_CLIENT_SECRET:-}"
+  MS_TENANT_ID: "${MS_TENANT_ID:-organizations}"   # wie beim Intranet
+  VERTEILER_MS_REDIRECT_URI: "${VERTEILER_MS_REDIRECT_URI:-https://intern.rss-fb.com/verteiler/}"
+  MAILING_URL: "${MAILING_URL:-https://mailing.rss-fb.com}"
+  MAILING_SYNC_TOKEN: "${MAILING_SYNC_TOKEN:-}"
+  VERTEILER_HINTERGRUND_MIN: "${VERTEILER_HINTERGRUND_MIN:-10}"
 
 services:
   app:
@@ -96,7 +99,7 @@ services:
     ports:
       - "127.0.0.1:8501:8501"        # nur lokal, für den Caddy-Dienst
     environment:
-      <<: *verteiler-postfach
+      <<: *verteiler-env
       VERTEILER_AUTH_URL: "http://projektabrechnung:8080/auth/verteiler"
     volumes:
       - verteiler-daten:/data        # verteiler.db + backups/
@@ -105,16 +108,16 @@ services:
     networks:
       - fbe-tools
 
-  # Holt alle paar Minuten neue Mails aus dem Verteiler-Postfach und übernimmt
-  # die Adressen (Absender, An, CC, Mailtext). Gleiche Datenbank wie "verteiler".
-  # Ohne VERTEILER_MAIL_* in deploy/.env ruht der Container nur.
-  verteiler-postfach:
+  # Hintergrund: Postfach abrufen und Abgleich mit dem Mailing-Tool, alle
+  # VERTEILER_HINTERGRUND_MIN Minuten - soweit im Backend eingeschaltet.
+  # Gleiche Datenbank (und Token-Datei) wie "verteiler".
+  verteiler-hintergrund:
     build: ../verteiler
-    container_name: verteiler-postfach
+    container_name: verteiler-hintergrund
     restart: unless-stopped
-    command: ["python", "-m", "verteiler_core.postfach"]
+    command: ["python", "-m", "verteiler_core.hintergrund"]
     environment:
-      <<: *verteiler-postfach
+      <<: *verteiler-env
     volumes:
       - verteiler-daten:/data
     healthcheck:

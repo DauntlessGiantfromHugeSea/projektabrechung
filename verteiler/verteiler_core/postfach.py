@@ -1,24 +1,28 @@
 """
 Kontakte aus einem Microsoft-365-Postfach übernehmen.
 
-Das Tool bekommt ein eigenes Postfach (z. B. verteiler@fb-eng.de). Jede Mail,
-die dort ankommt – meist weitergeleitet –, wird ausgewertet. Alle
-E-Mail-Adressen aus Absender, Empfänger (An), CC und dem Mailtext werden als
-Kontakt übernommen. Es gelten dieselben Regeln wie beim Listen-Import:
-Syntaxprüfung, Sperrliste wird beachtet, Dubletten werden zusammengeführt.
+Jede Mail, die im eingestellten Postfach ankommt (meist weitergeleitet oder in
+CC gesetzt), wird ausgewertet. Alle E-Mail-Adressen aus Absender, Empfänger
+(An), CC und dem Mailtext werden als Kontakt übernommen. Es gelten dieselben
+Regeln wie beim Listen-Import: Syntaxprüfung, Sperrliste wird beachtet,
+Dubletten werden zusammengeführt.
 
 Nicht übernommen werden:
 - Adressen der eigenen Domains (Kolleg:innen), Standard: Domain des Postfachs
 - das Postfach selbst
 - Systemadressen (noreply, mailer-daemon, postmaster, bounce …)
 
-Zugriff über Microsoft Graph mit einer eigenen App-Registrierung
-(Client-Credentials). Das Tool braucht nur Leserecht ("Mail.Read"), das per
-Exchange-RBAC auf genau dieses eine Postfach beschränkt wird – siehe
-deploy/DEPLOY.md. Es verschiebt oder löscht keine Mails. Welche Mails schon
-ausgewertet wurden, merkt es sich in der Tabelle mail_eingang.
+Verbindung: Im Backend (Seite „Postfach“) klickt ein Admin auf „Mit Microsoft
+verbinden“ und meldet sich mit seinem Microsoft-Konto an. Genutzt wird die
+App-Registrierung des Intranets (MS_CLIENT_ID/MS_CLIENT_SECRET/MS_TENANT_ID aus
+deploy/.env) mit der eigenen Umleitungs-URI https://intern.rss-fb.com/verteiler/.
+Der Login des Intranets bleibt unverändert. Angefragt wird nur Leserecht
+(Mail.Read, Mail.Read.Shared für freigegebene Postfächer). Das Tool
+verschiebt, löscht oder sendet keine Mails.
 
-Start im Dauerbetrieb (eigener Container):  python -m verteiler_core.postfach
+Das Refresh-Token liegt in einer eigenen Datei (Rechte 0600, Standard
+/data/postfach_token.json) und damit NICHT in der Datenbank und nicht in den
+Backups. Es wird nie angezeigt oder protokolliert.
 """
 
 from __future__ import annotations
@@ -28,13 +32,14 @@ import json
 import logging
 import os
 import re
-import sys
+import secrets
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from . import db, imports
 from .normalize import clean_text, email_fehler, normalize_email
@@ -44,27 +49,13 @@ LOG = logging.getLogger("verteiler.postfach")
 MAX_MAILS_PRO_LAUF = 200
 MAX_ADRESSEN_PRO_MAIL = 1000
 TIMEOUT_SEKUNDEN = 30
+STATE_GUELTIG = timedelta(minutes=15)
+SCOPES = "offline_access openid email User.Read Mail.Read Mail.Read.Shared"
+STANDARD_REDIRECT = "https://intern.rss-fb.com/verteiler/"
 
 
 class PostfachFehler(RuntimeError):
-    """Fehler beim Abruf (Meldung ohne Geheimnisse, für Nutzer gedacht)."""
-
-
-@dataclass
-class Einstellungen:
-    postfach: str = ""
-    tenant_id: str = ""
-    client_id: str = ""
-    client_secret: str = field(default="", repr=False)
-    intern_domains: tuple[str, ...] = ()
-    intervall_min: int = 10
-    tage_zurueck: int = 7
-    graph_url: str = "https://graph.microsoft.com/v1.0"
-    login_url: str = "https://login.microsoftonline.com"
-
-    @property
-    def konfiguriert(self) -> bool:
-        return all((self.postfach, self.tenant_id, self.client_id, self.client_secret))
+    """Fehler beim Verbinden/Abruf (Meldung ohne Geheimnisse, für Nutzer gedacht)."""
 
 
 def _int(wert: str | None, standard: int, minimum: int, maximum: int) -> int:
@@ -74,25 +65,235 @@ def _int(wert: str | None, standard: int, minimum: int, maximum: int) -> int:
         return standard
 
 
-def einstellungen_aus_env(env: dict | None = None) -> Einstellungen:
+# ------------------------------------------------------------ Konfiguration
+
+@dataclass
+class MsApp:
+    """Die bestehende Microsoft-App-Registrierung des Intranets."""
+    client_id: str = ""
+    client_secret: str = field(default="", repr=False)
+    tenant_id: str = ""
+    redirect_uri: str = STANDARD_REDIRECT
+    login_url: str = "https://login.microsoftonline.com"
+    graph_url: str = "https://graph.microsoft.com/v1.0"
+
+    @property
+    def konfiguriert(self) -> bool:
+        return all((self.client_id, self.client_secret, self.tenant_id, self.redirect_uri))
+
+
+def app_aus_env(env: dict | None = None) -> MsApp:
     env = os.environ if env is None else env
-    postfach = normalize_email(env.get("VERTEILER_MAIL_POSTFACH", ""))
-    if postfach and email_fehler(postfach):
-        postfach = ""
-    domains = env.get("VERTEILER_MAIL_INTERN_DOMAINS", "").strip()
-    if domains:
-        intern = tuple(d.strip().lower().lstrip("@") for d in domains.split(",") if d.strip())
-    else:
-        intern = (postfach.split("@")[1],) if postfach else ()
-    return Einstellungen(
-        postfach=postfach,
-        tenant_id=env.get("VERTEILER_MAIL_TENANT_ID", "").strip(),
-        client_id=env.get("VERTEILER_MAIL_CLIENT_ID", "").strip(),
-        client_secret=env.get("VERTEILER_MAIL_CLIENT_SECRET", "").strip(),
-        intern_domains=intern,
-        intervall_min=_int(env.get("VERTEILER_MAIL_INTERVALL_MIN"), 10, 1, 1440),
-        tage_zurueck=_int(env.get("VERTEILER_MAIL_TAGE_ZURUECK"), 7, 0, 365),
+    return MsApp(
+        client_id=env.get("MS_CLIENT_ID", "").strip(),
+        client_secret=env.get("MS_CLIENT_SECRET", "").strip(),
+        tenant_id=env.get("MS_TENANT_ID", "").strip(),
+        redirect_uri=(env.get("VERTEILER_MS_REDIRECT_URI") or STANDARD_REDIRECT).strip(),
     )
+
+
+@dataclass
+class Einstellungen:
+    postfach: str = ""
+    intern_domains: tuple[str, ...] = ()
+    aktiv: bool = False
+    tage_zurueck: int = 7
+
+    @property
+    def bereit(self) -> bool:
+        return bool(self.aktiv and self.postfach)
+
+
+def _domains(text: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(d.strip().lower().lstrip("@") for d in re.split(r"[,;\s]+", text or "")
+                               if d.strip()))
+
+
+def einstellungen_lesen(conn) -> Einstellungen:
+    postfach = normalize_email(db.einstellung(conn, "postfach_adresse", ""))
+    if email_fehler(postfach):
+        postfach = ""
+    intern = _domains(db.einstellung(conn, "postfach_intern_domains", ""))
+    if not intern and postfach:
+        intern = (postfach.split("@")[1],)
+    return Einstellungen(
+        postfach=postfach, intern_domains=intern,
+        aktiv=db.einstellung(conn, "postfach_aktiv", "0") == "1",
+        tage_zurueck=_int(os.environ.get("VERTEILER_MAIL_TAGE_ZURUECK"), 7, 0, 365),
+    )
+
+
+def einstellungen_speichern(db_path, postfach: str, intern_domains: str, aktiv: bool,
+                            benutzer: str = "") -> None:
+    adresse = normalize_email(postfach)
+    if adresse and email_fehler(adresse):
+        raise PostfachFehler("Die Postfach-Adresse ist ungültig.")
+    domains = _domains(intern_domains)
+    for d in domains:
+        if email_fehler("x@" + d):
+            raise PostfachFehler(f"Ungültige Domain: {d}")
+    conn = db.connect(db_path)
+    try:
+        with db.transaction(conn):
+            db.einstellungen_setzen(conn, {"postfach_adresse": adresse,
+                                           "postfach_intern_domains": ", ".join(domains),
+                                           "postfach_aktiv": "1" if (aktiv and adresse) else "0"}, benutzer)
+    finally:
+        conn.close()
+
+
+# ------------------------------------------------------------ Token-Datei
+
+def token_pfad() -> Path:
+    if os.environ.get("VERTEILER_TOKEN_DATEI"):
+        return Path(os.environ["VERTEILER_TOKEN_DATEI"])
+    return Path(os.environ.get("VERTEILER_DB", "verteiler.db")).resolve().parent / "postfach_token.json"
+
+
+class TokenSpeicher:
+    def __init__(self, pfad: Path | str | None = None):
+        self.pfad = Path(pfad) if pfad else token_pfad()
+
+    def laden(self) -> dict | None:
+        try:
+            daten = json.loads(self.pfad.read_text(encoding="utf-8"))
+            return daten if isinstance(daten, dict) and daten.get("refresh_token") else None
+        except (OSError, ValueError):
+            return None
+
+    def speichern(self, daten: dict) -> None:
+        self.pfad.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.pfad.with_name(self.pfad.name + f".{os.getpid()}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(daten, f)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, self.pfad)
+
+    def loeschen(self) -> None:
+        try:
+            self.pfad.unlink()
+        except FileNotFoundError:
+            pass
+
+    def status(self) -> dict:
+        """Nur unkritische Angaben für die Anzeige (nie das Token)."""
+        d = self.laden() or {}
+        return {k: d.get(k, "") for k in ("konto", "verbunden_am", "verbunden_von", "fehler")}
+
+
+# ------------------------------------------------------------ OAuth (Verbinden)
+
+def _token_anfrage(app: MsApp, felder: dict) -> dict:
+    daten = urllib.parse.urlencode({"client_id": app.client_id, "client_secret": app.client_secret,
+                                    "scope": SCOPES, **felder}).encode()
+    url = f"{app.login_url}/{urllib.parse.quote(app.tenant_id, safe='')}/oauth2/v2.0/token"
+    req = urllib.request.Request(url, data=daten, method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_SEKUNDEN) as antwort:
+            return json.loads(antwort.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        with exc:
+            code = ""
+            try:
+                code = str(json.loads(exc.read().decode("utf-8", "replace")).get("error", ""))
+            except Exception:
+                pass
+        code = re.sub(r"[^A-Za-z0-9_.-]", "", code)[:60]
+        if code == "invalid_grant":
+            raise PostfachFehler("Die Verbindung zu Microsoft ist abgelaufen oder wurde widerrufen – "
+                                 "bitte unter „Postfach“ neu verbinden.") from None
+        raise PostfachFehler(f"Microsoft-Anmeldung fehlgeschlagen (HTTP {exc.code} {code})".strip()) from None
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise PostfachFehler(f"Microsoft nicht erreichbar ({type(exc).__name__})") from None
+
+
+def verbinden_url(db_path, app: MsApp, benutzer: str) -> str:
+    """Startet „Mit Microsoft verbinden“: Einmal-State speichern, Login-URL liefern."""
+    if not app.konfiguriert:
+        raise PostfachFehler("Microsoft-Anmeldung ist nicht eingerichtet (MS_CLIENT_ID/MS_CLIENT_SECRET/"
+                             "MS_TENANT_ID fehlen in deploy/.env).")
+    grenze = (datetime.now() - STATE_GUELTIG).isoformat(sep=" ", timespec="seconds")
+    noch_frisch = (datetime.now() - STATE_GUELTIG / 2).isoformat(sep=" ", timespec="seconds")
+    wer = clean_text(benutzer, 200)
+    conn = db.connect(db_path)
+    try:
+        with db.transaction(conn):
+            conn.execute("DELETE FROM oauth_state WHERE erstellt_am < ?", (grenze,))
+            # Beim Neuladen der Seite denselben (noch frischen) State weiterverwenden
+            row = conn.execute("SELECT state FROM oauth_state WHERE benutzer = ? AND erstellt_am >= ? "
+                               "ORDER BY erstellt_am DESC LIMIT 1", (wer, noch_frisch)).fetchone()
+            state = row[0] if row else "vt" + secrets.token_urlsafe(32)
+            if not row:
+                conn.execute("INSERT INTO oauth_state (state, benutzer, erstellt_am) VALUES (?, ?, ?)",
+                             (state, wer, db.jetzt()))
+    finally:
+        conn.close()
+    return (f"{app.login_url}/{urllib.parse.quote(app.tenant_id, safe='')}/oauth2/v2.0/authorize?"
+            + urllib.parse.urlencode({
+                "client_id": app.client_id, "response_type": "code", "redirect_uri": app.redirect_uri,
+                "response_mode": "query", "scope": SCOPES, "state": state, "prompt": "select_account",
+            }))
+
+
+def verbindung_abschliessen(db_path, app: MsApp, speicher: TokenSpeicher, code: str, state: str,
+                            benutzer: str) -> str:
+    """Rücksprung von Microsoft: State prüfen (einmalig, 15 Min., gleicher Nutzer), Code einlösen."""
+    state = str(state or "")[:200]
+    conn = db.connect(db_path)
+    try:
+        with db.transaction(conn):
+            row = conn.execute("SELECT benutzer, erstellt_am FROM oauth_state WHERE state = ?",
+                               (state,)).fetchone()
+            conn.execute("DELETE FROM oauth_state WHERE state = ?", (state,))
+    finally:
+        conn.close()
+    if row is None or not state.startswith("vt"):
+        raise PostfachFehler("Ungültiger oder bereits benutzter Verbindungsversuch – bitte neu starten.")
+    if datetime.now() - datetime.fromisoformat(row["erstellt_am"]) > STATE_GUELTIG:
+        raise PostfachFehler("Der Verbindungsversuch ist abgelaufen – bitte neu starten.")
+    if row["benutzer"] and row["benutzer"] != clean_text(benutzer, 200):
+        raise PostfachFehler("Der Verbindungsversuch gehört zu einem anderen Benutzer.")
+    if not code:
+        raise PostfachFehler("Microsoft hat keinen Code geliefert.")
+
+    tok = _token_anfrage(app, {"grant_type": "authorization_code", "code": code[:4000],
+                               "redirect_uri": app.redirect_uri})
+    if not tok.get("refresh_token") or not tok.get("access_token"):
+        raise PostfachFehler("Microsoft hat keinen dauerhaften Zugang erteilt (offline_access fehlt).")
+    konto = ""
+    try:
+        req = urllib.request.Request(f"{app.graph_url}/me?$select=mail,userPrincipalName",
+                                     headers={"Authorization": f"Bearer {tok['access_token']}"})
+        with urllib.request.urlopen(req, timeout=TIMEOUT_SEKUNDEN) as antwort:
+            me = json.loads(antwort.read().decode("utf-8"))
+        konto = normalize_email(me.get("mail") or me.get("userPrincipalName") or "")
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+    speicher.speichern({"refresh_token": tok["refresh_token"], "konto": konto,
+                        "verbunden_am": db.jetzt(), "verbunden_von": clean_text(benutzer, 200), "fehler": ""})
+
+    conn = db.connect(db_path)
+    try:
+        with db.transaction(conn):
+            if not db.einstellung(conn, "postfach_adresse", "") and konto and not email_fehler(konto):
+                db.einstellungen_setzen(conn, {"postfach_adresse": konto}, benutzer)
+            imports._log(conn, "postfach_verbunden", "", 0, 0, 0, {"konto": konto}, benutzer)
+    finally:
+        conn.close()
+    return konto
+
+
+def trennen(db_path, speicher: TokenSpeicher, benutzer: str = "") -> None:
+    speicher.loeschen()
+    conn = db.connect(db_path)
+    try:
+        with db.transaction(conn):
+            db.einstellungen_setzen(conn, {"postfach_aktiv": "0"}, benutzer)
+            imports._log(conn, "postfach_getrennt", "", 0, 0, 0, {}, benutzer)
+    finally:
+        conn.close()
 
 
 # ------------------------------------------------------------ Adressen finden
@@ -193,15 +394,40 @@ def adressen_aus_mail(nachricht: dict, cfg: Einstellungen) -> tuple[dict[str, tu
 # ------------------------------------------------------------ Microsoft Graph
 
 class Graph:
-    """Minimaler Graph-Client (nur Standardbibliothek)."""
+    """Minimaler Graph-Client mit Refresh-Token des verbundenen Kontos."""
 
-    def __init__(self, cfg: Einstellungen):
-        self.cfg = cfg
+    def __init__(self, app: MsApp, speicher: TokenSpeicher):
+        self.app = app
+        self.speicher = speicher
         self._token = ""
         self._token_bis = 0.0
 
-    def _anfrage(self, req: urllib.request.Request) -> dict:
+    def token(self) -> str:
+        if self._token and time.time() < self._token_bis:
+            return self._token
+        gespeichert = self.speicher.laden()
+        if not gespeichert:
+            raise PostfachFehler("Kein Postfach verbunden – unter „Postfach“ mit Microsoft verbinden.")
+        try:
+            tok = _token_anfrage(self.app, {"grant_type": "refresh_token",
+                                            "refresh_token": gespeichert["refresh_token"]})
+        except PostfachFehler as exc:
+            self.speicher.speichern({**gespeichert, "fehler": str(exc)[:200]})
+            raise
+        if not tok.get("access_token"):
+            raise PostfachFehler("Microsoft hat kein Zugriffstoken geliefert.")
+        # Microsoft tauscht Refresh-Tokens aus – immer das neueste aufheben.
+        self.speicher.speichern({**gespeichert, "refresh_token": tok.get("refresh_token") or
+                                 gespeichert["refresh_token"], "fehler": ""})
+        self._token = tok["access_token"]
+        self._token_bis = time.time() + int(tok.get("expires_in", 3600)) - 120
+        return self._token
+
+    def _get(self, url: str) -> dict:
         for versuch in range(3):
+            req = urllib.request.Request(url, headers={
+                "Authorization": f"Bearer {self.token()}", "Accept": "application/json",
+                "Prefer": 'outlook.body-content-type="text"'})
             try:
                 with urllib.request.urlopen(req, timeout=TIMEOUT_SEKUNDEN) as antwort:
                     return json.loads(antwort.read().decode("utf-8"))
@@ -212,43 +438,21 @@ class Graph:
                         continue
                     code = ""
                     try:
-                        daten = json.loads(exc.read().decode("utf-8", "replace"))
-                        fehler = daten.get("error")
+                        fehler = json.loads(exc.read().decode("utf-8", "replace")).get("error")
                         code = fehler.get("code", "") if isinstance(fehler, dict) else str(fehler or "")
                     except Exception:
                         pass
                 code = re.sub(r"[^A-Za-z0-9_.-]", "", code)[:60]
+                if exc.code in (403, 404):
+                    raise PostfachFehler(
+                        f"Kein Zugriff auf das Postfach (HTTP {exc.code} {code}). Hat das verbundene Konto "
+                        "Vollzugriff auf dieses Postfach?") from None
                 raise PostfachFehler(f"Microsoft antwortet mit HTTP {exc.code} {code}".strip()) from None
             except (urllib.error.URLError, OSError, ValueError) as exc:
                 raise PostfachFehler(f"Microsoft nicht erreichbar ({type(exc).__name__})") from None
         raise PostfachFehler("Microsoft antwortet nicht")
 
-    def token(self) -> str:
-        if self._token and time.time() < self._token_bis:
-            return self._token
-        daten = urllib.parse.urlencode({
-            "client_id": self.cfg.client_id,
-            "client_secret": self.cfg.client_secret,
-            "scope": "https://graph.microsoft.com/.default",
-            "grant_type": "client_credentials",
-        }).encode()
-        url = f"{self.cfg.login_url}/{urllib.parse.quote(self.cfg.tenant_id, safe='')}/oauth2/v2.0/token"
-        antwort = self._anfrage(urllib.request.Request(url, data=daten, method="POST"))
-        if "access_token" not in antwort:
-            raise PostfachFehler("Anmeldung bei Microsoft fehlgeschlagen (kein Token)")
-        self._token = antwort["access_token"]
-        self._token_bis = time.time() + int(antwort.get("expires_in", 3600)) - 120
-        return self._token
-
-    def _get(self, url: str) -> dict:
-        req = urllib.request.Request(url, headers={
-            "Authorization": f"Bearer {self.token()}",
-            "Accept": "application/json",
-            "Prefer": 'outlook.body-content-type="text"',
-        })
-        return self._anfrage(req)
-
-    def nachrichten(self, seit: datetime, maximal: int = MAX_MAILS_PRO_LAUF) -> list[dict]:
+    def nachrichten(self, postfach: str, seit: datetime, maximal: int = MAX_MAILS_PRO_LAUF) -> list[dict]:
         """Mails im Posteingang ab `seit`, älteste zuerst."""
         parameter = urllib.parse.urlencode({
             "$select": "id,internetMessageId,subject,receivedDateTime,from,toRecipients,ccRecipients,body",
@@ -256,14 +460,14 @@ class Graph:
             "$orderby": "receivedDateTime asc",
             "$top": "50",
         })
-        url = (f"{self.cfg.graph_url}/users/{urllib.parse.quote(self.cfg.postfach, safe='@')}"
+        url = (f"{self.app.graph_url}/users/{urllib.parse.quote(postfach, safe='@')}"
                f"/mailFolders/inbox/messages?{parameter}")
         ergebnis: list[dict] = []
         while url and len(ergebnis) < maximal:
             seite = self._get(url)
             ergebnis.extend(seite.get("value") or [])
             url = seite.get("@odata.nextLink") or ""
-            if url and not url.startswith(self.cfg.graph_url + "/"):
+            if url and not url.startswith(self.app.graph_url + "/"):
                 raise PostfachFehler("Unerwartete Weiterleitungsadresse von Microsoft")
         return ergebnis[:maximal]
 
@@ -299,24 +503,32 @@ def _iso(roh: str) -> datetime | None:
         return None
 
 
-def abrufen(db_path, backup_dir, cfg: Einstellungen, benutzer: str = "Postfach",
-            graph: Graph | None = None) -> Ergebnis:
+def abrufen(db_path, backup_dir, app: MsApp | None = None, speicher: TokenSpeicher | None = None,
+            benutzer: str = "Postfach", graph: Graph | None = None,
+            nur_wenn_aktiv: bool = False) -> Ergebnis:
     """Neue Mails holen und die Adressen übernehmen. Jede Mail in eigener Transaktion."""
-    if not cfg.konfiguriert:
-        raise PostfachFehler("Postfach ist nicht eingerichtet (VERTEILER_MAIL_* fehlen).")
-    graph = graph or Graph(cfg)
-
+    app = app or app_aus_env()
+    speicher = speicher or TokenSpeicher()
     conn = db.connect(db_path)
     try:
+        cfg = einstellungen_lesen(conn)
         bekannt_ids = {r[0] for r in conn.execute("SELECT message_id FROM mail_eingang")}
         letzte = conn.execute("SELECT MAX(empfangen_am) FROM mail_eingang").fetchone()[0]
     finally:
         conn.close()
+    if not cfg.postfach:
+        raise PostfachFehler("Bitte zuerst die Postfach-Adresse eintragen.")
+    if nur_wenn_aktiv and not cfg.aktiv:
+        return Ergebnis()
+    if not speicher.laden():
+        raise PostfachFehler("Kein Postfach verbunden – unter „Postfach“ mit Microsoft verbinden.")
+    graph = graph or Graph(app, speicher)
+
     letzte_dt = _iso(letzte) if letzte else None
     seit = (letzte_dt - timedelta(days=2) if letzte_dt
             else datetime.now(timezone.utc) - timedelta(days=cfg.tage_zurueck))
-
-    neue = [m for m in graph.nachrichten(seit) if _mail_id(m) and _mail_id(m) not in bekannt_ids]
+    neue = [m for m in graph.nachrichten(cfg.postfach, seit)
+            if _mail_id(m) and _mail_id(m) not in bekannt_ids]
     ergebnis = Ergebnis()
     if not neue:
         return ergebnis
@@ -365,32 +577,3 @@ def letzte_mails(conn, limit: int = 100) -> list:
     return conn.execute("SELECT empfangen_am, betreff, gefunden, neu, bekannt, gesperrt, ignoriert, "
                         "verarbeitet_am FROM mail_eingang ORDER BY empfangen_am DESC LIMIT ?",
                         (int(limit),)).fetchall()
-
-
-# ------------------------------------------------------------ Dauerbetrieb
-
-def dauerbetrieb() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
-                        stream=sys.stdout)
-    db_path = os.environ.get("VERTEILER_DB", "verteiler.db")
-    backup_dir = os.environ.get("VERTEILER_BACKUPS", "backups")
-    cfg = einstellungen_aus_env()
-    if not cfg.konfiguriert:
-        LOG.warning("Postfach nicht eingerichtet (VERTEILER_MAIL_* in deploy/.env) – Abruf ruht.")
-        while True:
-            time.sleep(3600)
-    LOG.info("Postfach-Abruf aktiv: %s, alle %s Minuten, intern: %s",
-             cfg.postfach, cfg.intervall_min, ", ".join(cfg.intern_domains) or "-")
-    graph = Graph(cfg)
-    while True:
-        try:
-            LOG.info(abrufen(db_path, backup_dir, cfg, graph=graph).text())
-        except PostfachFehler as exc:
-            LOG.error("Abruf fehlgeschlagen: %s", exc)
-        except Exception as exc:  # nie abstürzen, beim nächsten Intervall erneut
-            LOG.error("Unerwarteter Fehler beim Abruf: %s", type(exc).__name__)
-        time.sleep(cfg.intervall_min * 60)
-
-
-if __name__ == "__main__":
-    dauerbetrieb()

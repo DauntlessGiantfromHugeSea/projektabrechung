@@ -60,7 +60,7 @@ def segment_kontakte(conn: sqlite3.Connection, segment: str, tage: int = 90,
         bedingungen.append(_ENGAGIERT_SEIT)
     elif segment == "inaktive":
         bedingungen += [f"NOT {_ENGAGIERT_SEIT}", _ZUGESTELLT_VOR]
-    sql = ("SELECT c.email, c.vorname, c.nachname FROM contacts c WHERE "
+    sql = ("SELECT c.email, c.vorname, c.nachname, c.firma FROM contacts c WHERE "
            + " AND ".join(bedingungen) + " ORDER BY c.email")
     zeilen = conn.execute(sql, params).fetchall()
 

@@ -179,66 +179,65 @@ und `systemctl reload caddy`.
 
 ### Postfach für den Verteiler (Microsoft 365)
 
-Der Container `verteiler-postfach` liest alle paar Minuten ein eigenes
-Postfach (z. B. `verteiler@fb-eng.de`). Aus jeder neuen Mail werden alle
-Adressen aus **Absender, An, CC und dem Mailtext** als Kontakte übernommen.
-Weitergeleitete Mails funktionieren also auch. Eigene Domains, das Postfach selbst,
-Systemadressen (noreply …) und gesperrte Adressen werden übersprungen. Das
-Tool **liest nur**: Es verschiebt, löscht oder beantwortet keine Mails.
+Der Verteiler kann ein Postfach lesen, z. B. `verteiler@fb-eng.de`. Aus jeder
+neuen Mail werden alle Adressen aus **Absender, An, CC und dem Mailtext**
+übernommen. Eigene Domains, das Postfach selbst, Systemadressen (noreply …) und
+gesperrte Adressen werden übersprungen. Das Tool **liest nur**.
 
-Einmalige Einrichtung (Microsoft-365-Admin nötig):
+Genutzt wird die **bestehende App-Registrierung des Intranet-Logins**
+(`MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID` in `deploy/.env`).
+Der Intranet-Login selbst bleibt unverändert. Einmalig nötig:
 
-1. **Postfach anlegen:** Microsoft 365 Admin Center → Teams & Gruppen →
-   Freigegebene Postfächer → `verteiler@fb-eng.de`. Ein freigegebenes
-   Postfach braucht keine Lizenz.
-2. **App registrieren:** Entra Admin Center → App-Registrierungen → Neue
-   Registrierung „FBE Verteiler Postfach“ (nur dieses Verzeichnis). Notieren:
-   *Anwendungs-ID (Client)* und *Verzeichnis-ID (Mandant)*. Unter „Zertifikate &
-   Geheimnisse“ ein **geheimes Clientgeheimnis** erstellen und den *Wert*
-   notieren. Es läuft ab, meist nach 24 Monaten, dann erneuern.
-   **Keine** Graph-Berechtigung „Mail.Read“ in der App eintragen, denn die
-   gälte für *alle* Postfächer der Firma.
-3. **Leserecht nur auf dieses eine Postfach** (Exchange Online PowerShell,
-   „RBAC für Anwendungen“). Die Objekt-ID steht unter Entra → *Unternehmensanwendungen*
-   → „FBE Verteiler Postfach“ (nicht die der App-Registrierung):
+1. **Umleitungs-URI ergänzen:** Entra Admin Center → App-Registrierungen → die
+   App des Intranets → *Authentifizierung* → Plattform *Web* → URI hinzufügen:
+   `https://intern.rss-fb.com/verteiler/` (mit Schrägstrich am Ende) → Speichern.
+   Die vorhandene URI `…/auth/microsoft/callback` bleibt stehen.
+2. **Postfach** (empfohlen: freigegebenes Postfach, braucht keine Lizenz):
+   Microsoft 365 Admin Center → Teams & Gruppen → Freigegebene Postfächer →
+   `verteiler@fb-eng.de` anlegen → *Berechtigungen* → deinem Konto
+   **Lesen und verwalten** (Vollzugriff) geben.
+3. **Im Verteiler** → Seite **Postfach** → „Mit Microsoft verbinden“ → mit
+   deinem Konto anmelden → dem Lesezugriff zustimmen. Fragt Microsoft nach
+   Admin-Zustimmung, als Admin „Im Namen der Organisation zustimmen“
+   anhaken. Danach Postfach-Adresse und eigene Domains eintragen,
+   „Automatisch abrufen“ anhaken, speichern.
 
-   ```powershell
-   Connect-ExchangeOnline
-   New-ServicePrincipal -AppId <Client-ID> -ObjectId <Objekt-ID der Unternehmensanwendung> -DisplayName "FBE Verteiler Postfach"
-   New-ManagementScope -Name "Verteiler-Postfach" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'verteiler@fb-eng.de'"
-   New-ManagementRoleAssignment -App <Client-ID> -Role "Application Mail.Read" -CustomResourceScope "Verteiler-Postfach"
-   # Kontrolle: muss für das Verteiler-Postfach "InScope: True" zeigen, für andere Postfächer nicht
-   Test-ServicePrincipalAuthorization -Identity <Client-ID> -Resource verteiler@fb-eng.de
-   ```
-
-4. **Werte eintragen** in `deploy/.env` (nicht im Git):
-
-   ```bash
-   VERTEILER_MAIL_POSTFACH=verteiler@fb-eng.de
-   VERTEILER_MAIL_TENANT_ID=<Verzeichnis-ID>
-   VERTEILER_MAIL_CLIENT_ID=<Client-ID>
-   VERTEILER_MAIL_CLIENT_SECRET=<Wert des Geheimnisses>
-   # optional: Domains, deren Adressen nie übernommen werden (Standard: Domain des Postfachs)
-   VERTEILER_MAIL_INTERN_DOMAINS=fb-eng.de,rss-fb.com
-   # optional: Abruf-Intervall in Minuten (Standard 10)
-   VERTEILER_MAIL_INTERVALL_MIN=10
-   ```
-
-5. **Starten und prüfen:**
-
-   ```bash
-   cd /root/projektabrechung/deploy && docker compose up -d
-   docker compose logs --tail 20 verteiler-postfach   # "Postfach-Abruf aktiv: …"
-   ```
-
-   Danach eine Mail an das Postfach weiterleiten und im Verteiler unter
-   **Postfach** auf „Postfach jetzt abrufen“ klicken. Beim ersten Lauf werden
-   die Mails der letzten 7 Tage ausgewertet.
+Das Refresh-Token liegt im Volume als `/data/postfach_token.json` (Rechte 0600),
+nicht in der Datenbank und nicht in den Backups. „Verbindung trennen“ löscht es.
 
 Hinweis: Adressen aus Mails haben in der Regel **keine Einwilligung** für
 Newsletter. Neue Kontakte bekommen als Quelle „Postfach: <Betreff>“. Vor dem
-ersten Newsletter-Versand an sie bitte die Einwilligung klären und eintragen
-(§ 7 UWG).
+ersten Newsletter-Versand an sie bitte die Einwilligung klären (§ 7 UWG).
+
+### Abgleich mit dem Mailing-Tool (`mailing.rss-fb.com`)
+
+Der Verteiler bleibt führend. Alle 10 Minuten (wenn im Backend eingeschaltet):
+Seine Sperrliste geht ins Mailing-Tool, geplante Sendungen an gesperrte
+Adressen werden dort abgebrochen. Die Empfänger landen in der Liste
+**„Verteiler: Alle aktiven“**. Abmeldungen, Bounces und Beschwerden aus dem
+Mailing-Tool kommen zurück auf die Sperrliste des Verteilers.
+
+Einmalig:
+
+```bash
+# 1. Gemeinsames Geheimnis erzeugen
+openssl rand -hex 32
+
+# 2. Mailing-Tool: in dessen .env  VERTEILER_SYNC_TOKEN=<Wert>  eintragen, dann
+cd <Ordner des Mailing-Tools> && git pull && docker compose up -d --build
+
+# 3. Verteiler: in /root/projektabrechung/deploy/.env  MAILING_SYNC_TOKEN=<derselbe Wert>, dann
+cd /root/projektabrechung && git pull origin main
+cd deploy && docker compose up -d --build --remove-orphans
+```
+
+Danach im Verteiler → Seite **Mailing-Tool** → „Jetzt abgleichen“. Wenn das
+klappt, „Automatisch abgleichen“ anhaken. Kampagnen im Mailing-Tool an die
+Liste „Verteiler: Alle aktiven“ schicken.
+
+`--remove-orphans` entfernt den früheren Container `verteiler-postfach`. Die
+Hintergrundarbeit macht jetzt `verteiler-hintergrund`:
+`docker compose logs -f verteiler-hintergrund`.
 
 ### Datensicherung
 
@@ -249,4 +248,4 @@ lässt sich die Datenbank vom Server holen:
 docker cp verteiler:/data/verteiler.db /root/verteiler-$(date +%F).db
 ```
 
-Logs: `docker compose logs -f verteiler` bzw. `docker compose logs -f verteiler-postfach`
+Logs: `docker compose logs -f verteiler` bzw. `docker compose logs -f verteiler-hintergrund`

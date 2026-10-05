@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from verteiler_core import auth, db, imports, postfach, queries
+from verteiler_core import auth, db, imports, mailing, postfach, queries
 from verteiler_core.fileio import DateiFehler, lese_datei
 from verteiler_core.normalize import REPORT_ZIELE, spalte_erkennen
 
@@ -70,6 +70,11 @@ UEBERSPRINGEN = "(Zeilen überspringen)"
 
 def verbindung():
     return closing(db.connect(DB_PFAD))
+
+
+def code(text: str) -> str:
+    """Als Code-Span ausgeben (keine Formatierung, keine automatischen Links)."""
+    return "`" + str(text).replace("`", "'") + "`"
 
 
 def md(text: str) -> str:
@@ -617,36 +622,99 @@ def kontakt_detail(kid: int):
 
 # ============================================================ Postfach
 
+def microsoft_ruecksprung():
+    """Rücksprung von „Mit Microsoft verbinden“ (…/verteiler/?code=…&state=…)."""
+    q = st.query_params
+    if "state" not in q or not ("code" in q or "error" in q):
+        return
+    state, code, fehler = q.get("state", ""), q.get("code", ""), q.get("error", "")
+    st.query_params.clear()  # Code nicht in der Adresszeile/History stehen lassen
+    if fehler:
+        st.session_state["postfach_meldung"] = ("error", "Microsoft-Verbindung abgebrochen: "
+                                                + md(str(fehler)[:80]))
+    else:
+        try:
+            konto = postfach.verbindung_abschliessen(DB_PFAD, postfach.app_aus_env(), postfach.TokenSpeicher(),
+                                                     code, state, BENUTZER)
+            st.session_state["postfach_meldung"] = ("success", f"Mit Microsoft verbunden: {code(konto or '–')}")
+        except postfach.PostfachFehler as exc:
+            st.session_state["postfach_meldung"] = ("error", str(exc))
+    st.session_state["seite"] = "Postfach"
+
+
 def seite_postfach():
     st.header("Kontakte aus dem Postfach")
     meldung_zeigen()
-    cfg = postfach.einstellungen_aus_env()
-    if not cfg.konfiguriert:
-        st.info("Das Postfach ist noch nicht eingerichtet. Dafür werden in `deploy/.env` die Werte "
-                "`VERTEILER_MAIL_POSTFACH`, `VERTEILER_MAIL_TENANT_ID`, `VERTEILER_MAIL_CLIENT_ID` und "
-                "`VERTEILER_MAIL_CLIENT_SECRET` gesetzt – Anleitung in `deploy/DEPLOY.md`, Abschnitt "
-                "„Postfach für den Verteiler“.")
+    pm = st.session_state.pop("postfach_meldung", None)
+    if pm:
+        (st.success if pm[0] == "success" else st.error)(pm[1])
+    app_ms = postfach.app_aus_env()
+    speicher = postfach.TokenSpeicher()
+    with verbindung() as c:
+        cfg = postfach.einstellungen_lesen(c)
+        roh_domains = db.einstellung(c, "postfach_intern_domains", "")
+        mails = postfach.letzte_mails(c)
+    status = speicher.status()
+
+    st.write("Mails, die im eingestellten Postfach ankommen (weitergeleitet, in CC gesetzt oder direkt), "
+             "werden ausgewertet: Alle Adressen aus **Absender, An, CC und dem Mailtext** werden als "
+             "Kontakt übernommen.")
+
+    st.subheader("1. Mit Microsoft verbinden")
+    if not app_ms.konfiguriert:
+        st.error("Die Microsoft-Anmeldung des Intranets ist für den Verteiler nicht freigeschaltet "
+                 "(MS_CLIENT_ID/MS_CLIENT_SECRET/MS_TENANT_ID). Siehe deploy/DEPLOY.md.")
+    elif status["konto"] or speicher.laden():
+        st.success(f"Verbunden mit {code(status['konto'] or 'Microsoft-Konto')} "
+                   f"(seit {md(status['verbunden_am'])}, durch {code(status['verbunden_von'] or '–')}).")
+        if status["fehler"]:
+            st.error(md(status["fehler"]))
+        sp = st.columns(3)
+        if sp[0].button("Verbindung trennen"):
+            postfach.trennen(DB_PFAD, speicher, BENUTZER)
+            st.session_state["meldung"] = "Verbindung zu Microsoft getrennt."
+            st.rerun()
+        with sp[1]:
+            st.link_button("Neu verbinden", postfach.verbinden_url(DB_PFAD, app_ms, BENUTZER))
     else:
-        st.write(f"Mails an **{md(cfg.postfach)}** werden alle {cfg.intervall_min} Minuten ausgewertet. "
-                 "Übernommen werden alle Adressen aus **Absender, An, CC und dem Mailtext** "
-                 "(also auch aus weitergeleiteten Mails). Einfach eine Mail an das Postfach "
-                 "weiterleiten oder es in CC setzen.")
-        st.caption("Nicht übernommen: eigene Domains (" + md(", ".join(cfg.intern_domains) or "–")
-                   + "), das Postfach selbst, Systemadressen (noreply, mailer-daemon …) und Adressen "
-                   "der Sperrliste. Neue Kontakte bekommen als Quelle „Postfach: Betreff“. "
-                   "Die Einwilligung bitte unter „Kontakte suchen / bearbeiten“ nachtragen.")
-        if st.button("Postfach jetzt abrufen", type="primary"):
+        st.caption("Melde dich mit dem Microsoft-Konto an, das Zugriff auf das Verteiler-Postfach hat, und "
+                   "stimme dem **Lesezugriff** zu. Das Tool liest nur, es verschiebt, löscht oder sendet "
+                   "keine Mails.")
+        try:
+            st.link_button("Mit Microsoft verbinden", postfach.verbinden_url(DB_PFAD, app_ms, BENUTZER),
+                           type="primary")
+        except postfach.PostfachFehler as exc:
+            st.error(str(exc))
+
+    st.subheader("2. Einstellungen")
+    with st.form("postfach_einstellungen"):
+        adresse = st.text_input("Postfach-Adresse", cfg.postfach,
+                                placeholder="z. B. verteiler@fb-eng.de (eigenes oder freigegebenes Postfach)")
+        domains = st.text_input("Eigene Domains (werden nie übernommen)", roh_domains,
+                                placeholder="leer = Domain des Postfachs, z. B. fb-eng.de, rss-fb.com")
+        aktiv = st.checkbox("Automatisch abrufen (alle 10 Minuten)", cfg.aktiv)
+        if st.form_submit_button("Speichern"):
             try:
-                with st.spinner("Postfach wird abgerufen …"):
-                    e = postfach.abrufen(DB_PFAD, BACKUP_DIR, cfg, benutzer=BENUTZER or "Postfach")
-                st.session_state["meldung"] = e.text()
+                postfach.einstellungen_speichern(DB_PFAD, adresse, domains, aktiv, BENUTZER)
+                st.session_state["meldung"] = "Einstellungen gespeichert."
                 st.rerun()
             except postfach.PostfachFehler as exc:
                 st.error(str(exc))
+    st.caption("Ist das Postfach ein freigegebenes Postfach, braucht das verbundene Konto dort "
+               "Vollzugriff (Microsoft 365 Admin Center → Freigegebene Postfächer → Berechtigungen). "
+               "Nicht übernommen werden außerdem das Postfach selbst, Systemadressen (noreply …) und "
+               "Adressen der Sperrliste. Neue Kontakte bekommen als Quelle „Postfach: Betreff“. Bitte "
+               "die Einwilligung nachtragen, bevor sie einen Newsletter bekommen.")
 
-    with verbindung() as c:
-        mails = postfach.letzte_mails(c)
-    st.subheader("Zuletzt ausgewertete Mails")
+    st.subheader("3. Abrufen")
+    if st.button("Postfach jetzt abrufen", disabled=not (cfg.postfach and speicher.laden())):
+        try:
+            with st.spinner("Postfach wird abgerufen …"):
+                e = postfach.abrufen(DB_PFAD, BACKUP_DIR, app_ms, speicher, benutzer=BENUTZER or "Postfach")
+            st.session_state["meldung"] = e.text()
+            st.rerun()
+        except postfach.PostfachFehler as exc:
+            st.error(str(exc))
     if not mails:
         st.caption("Noch keine Mails ausgewertet.")
         return
@@ -655,6 +723,63 @@ def seite_postfach():
         "Adressen": m["gefunden"], "Neu": m["neu"], "Schon vorhanden": m["bekannt"],
         "Gesperrt": m["gesperrt"], "Ignoriert": m["ignoriert"],
         "Ausgewertet": m["verarbeitet_am"]} for m in mails]), hide_index=True)
+
+
+# ============================================================ Mailing-Tool
+
+def seite_mailing():
+    st.header("Abgleich mit dem Mailing-Tool")
+    meldung_zeigen()
+    zugang = mailing.zugang_aus_env()
+    with verbindung() as c:
+        cfg = mailing.einstellungen_lesen(c)
+        stand = mailing.letzter_stand(c)
+    st.write("Der Verteiler bleibt die führende Datenbank. Beim Abgleich mit dem Mailing-Tool "
+             f"({code(zugang.url or mailing.STANDARD_URL)}) passiert dreierlei:")
+    st.markdown("- Die **Sperrliste** des Verteilers wird dort übernommen, geplante Sendungen an gesperrte "
+                "Adressen werden abgebrochen.\n"
+                "- Die Empfänger des gewählten Segments landen dort in der Liste "
+                f"**{md(cfg.liste)}**. An diese Liste schickst du deine Kampagnen.\n"
+                "- **Abmeldungen, Bounces und Beschwerden** aus dem Mailing-Tool kommen hier auf die "
+                "Sperrliste.")
+    if not zugang.konfiguriert:
+        st.error("Noch nicht eingerichtet: In `deploy/.env` fehlt `MAILING_SYNC_TOKEN` (derselbe Wert wie "
+                 "`VERTEILER_SYNC_TOKEN` im Mailing-Tool). Anleitung: deploy/DEPLOY.md.")
+
+    with st.form("mailing_einstellungen"):
+        a, b, d = st.columns([2, 2, 1])
+        segment = a.selectbox("Segment", list(mailing.SEGMENTE), index=list(mailing.SEGMENTE).index(cfg.segment),
+                              format_func=queries.SEGMENTE.get)
+        liste = b.text_input("Name der Liste im Mailing-Tool", cfg.liste)
+        tage = d.number_input("Zeitraum (Tage)", 1, 3650, cfg.tage, help="nur für „Engagierte“")
+        aktiv = st.checkbox("Automatisch abgleichen (alle 10 Minuten)", cfg.aktiv)
+        if st.form_submit_button("Speichern"):
+            try:
+                mailing.einstellungen_speichern(
+                    DB_PFAD, mailing.Einstellungen(aktiv=aktiv, segment=segment, tage=int(tage), liste=liste),
+                    BENUTZER)
+                st.session_state["meldung"] = "Einstellungen gespeichert."
+                st.rerun()
+            except mailing.MailingFehler as exc:
+                st.error(str(exc))
+
+    if st.button("Jetzt abgleichen", type="primary", disabled=not zugang.konfiguriert):
+        try:
+            with st.spinner("Abgleich läuft …"):
+                e = mailing.abgleichen(DB_PFAD, BACKUP_DIR, zugang, benutzer=BENUTZER or "Abgleich",
+                                       liste_erzwingen=True)
+            st.session_state["meldung"] = e.text()
+            st.rerun()
+        except mailing.MailingFehler as exc:
+            st.error(str(exc))
+
+    st.subheader("Letzter Abgleich")
+    if not stand:
+        st.caption("Noch kein Abgleich.")
+    elif stand.fehler:
+        st.error(f"{md(stand.zeitpunkt)}: {md(stand.fehler)}")
+    else:
+        st.caption(f"{md(stand.zeitpunkt)}: {md(stand.text())}")
 
 
 # ===================================================== Sperrliste & Protokoll
@@ -686,16 +811,19 @@ SEITEN = {
     "Export für Reach": seite_export,
     "Kontakte suchen / bearbeiten": seite_kontakte,
     "Postfach": seite_postfach,
+    "Mailing-Tool": seite_mailing,
     "Sperrliste & Protokoll": seite_protokoll,
 }
 
+db.connect(DB_PFAD).close()  # Schema anlegen, falls neu
+microsoft_ruecksprung()
+
 with st.sidebar:
     st.title("E-Mail-Verteiler")
-    seite = st.radio("Bereich", list(SEITEN), label_visibility="collapsed")
+    seite = st.radio("Bereich", list(SEITEN), label_visibility="collapsed", key="seite")
     if BENUTZER:
         st.caption(f"Angemeldet: {BENUTZER}")
         st.link_button("← Zurück zum Intranet", "/start")
     st.caption(f"Datenbank: {DB_PFAD.name}")
 
-db.connect(DB_PFAD).close()  # Schema anlegen, falls neu
 SEITEN[seite]()

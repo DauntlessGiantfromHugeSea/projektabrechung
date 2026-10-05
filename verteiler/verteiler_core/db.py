@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 KONTAKT_STATUS = ("aktiv", "bounce_hart", "bounce_weich", "abgemeldet", "gesperrt")
 ZUSTELLSTATUS = ("zugestellt", "unzustellbar", "soft_bounce", "nicht_zugestellt", "abgemeldet")
@@ -110,6 +110,22 @@ CREATE TABLE IF NOT EXISTS mail_eingang (
     verarbeitet_am TEXT NOT NULL
 );
 
+-- Einstellungen aus dem Backend (Postfach, Mailing-Tool). Keine Geheimnisse:
+-- Tokens/Schlüssel stehen in deploy/.env bzw. in der Token-Datei.
+CREATE TABLE IF NOT EXISTS einstellungen (
+    schluessel   TEXT PRIMARY KEY,
+    wert         TEXT NOT NULL DEFAULT '',
+    geaendert_am TEXT NOT NULL,
+    geaendert_von TEXT NOT NULL DEFAULT ''
+);
+
+-- Offene "Mit Microsoft verbinden"-Vorgänge (CSRF-Schutz, einmalig, kurzlebig).
+CREATE TABLE IF NOT EXISTS oauth_state (
+    state       TEXT PRIMARY KEY,
+    benutzer    TEXT NOT NULL DEFAULT '',
+    erstellt_am TEXT NOT NULL
+);
+
 -- Nur während einer DSGVO-Löschung befüllt (innerhalb derselben Transaktion).
 CREATE TABLE IF NOT EXISTS dsgvo_freigabe (
     email TEXT PRIMARY KEY
@@ -179,7 +195,8 @@ def connect(db_path: str | os.PathLike) -> sqlite3.Connection:
     if version < SCHEMA_VERSION:
         # Schema komplett oder gar nicht anlegen bzw. aktualisieren.
         migration = ""
-        # v3 (mail_eingang) entsteht über CREATE TABLE IF NOT EXISTS im SCHEMA.
+        # v3/v4 (mail_eingang, einstellungen, oauth_state) entstehen über
+        # CREATE TABLE IF NOT EXISTS im SCHEMA.
         if version == 1:  # v2: wer hat importiert/gelöscht (Server-Betrieb)
             migration = "ALTER TABLE import_log ADD COLUMN benutzer TEXT NOT NULL DEFAULT '';\n"
         try:
@@ -247,3 +264,18 @@ def backup(db_path: str | os.PathLike, backup_dir: str | os.PathLike,
             except OSError:
                 pass
     return ziel
+
+
+def einstellung(conn: sqlite3.Connection, schluessel: str, standard: str = "") -> str:
+    row = conn.execute("SELECT wert FROM einstellungen WHERE schluessel = ?", (schluessel,)).fetchone()
+    return row[0] if row else standard
+
+
+def einstellungen_setzen(conn: sqlite3.Connection, werte: dict[str, str], benutzer: str = "") -> None:
+    """Mehrere Einstellungen schreiben (innerhalb einer offenen Transaktion)."""
+    for k, v in werte.items():
+        conn.execute(
+            "INSERT INTO einstellungen (schluessel, wert, geaendert_am, geaendert_von) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (schluessel) DO UPDATE SET wert = excluded.wert, "
+            "geaendert_am = excluded.geaendert_am, geaendert_von = excluded.geaendert_von",
+            (k, str(v), jetzt(), benutzer))
