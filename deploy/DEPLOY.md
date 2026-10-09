@@ -92,6 +92,11 @@ docker logs fbe-caddy --tail 20 | grep -i intern   # Zertifikat erhalten?
 
 ## 4. Webhook in TimeMoto eintragen
 
+> **Derzeit deaktiviert** (Standard seit 09.10.2026): `/timemoto` antwortet
+> mit 404, es kommen keine neuen Buchungen an, vorhandene bleiben erhalten.
+> Einschalten: in `deploy/.env` `TIMEMOTO_WEBHOOK=1` setzen und
+> `sh deploy/einrichten.sh` ausführen – dann gilt alles Folgende.
+
 Der Webhook nimmt nur Anfragen mit dem Secret aus `deploy/.env`
 (`SHARED_SECRET`) an. Ohne Secret antwortet er mit 503, mit falschem mit 401.
 `sh deploy/einrichten.sh` legt das Secret bei Bedarf an und schreibt die
@@ -125,7 +130,8 @@ curl http://127.0.0.1:8080/report/preview
 
 | Variable (`deploy/.env`) | Wirkung |
 |---|---|
-| `SHARED_SECRET` | Pflicht für den TimeMoto-Webhook (siehe oben). |
+| `TIMEMOTO_WEBHOOK` | `1` = TimeMoto-Webhook an. Standard **aus** (404). |
+| `SHARED_SECRET` | Pflicht, wenn der TimeMoto-Webhook an ist (siehe oben). |
 | `PUBLIC_BASE_URL` | Basis aller Links in Mails (Reset, Einladung) und Prüfung der Herkunft von Formularen. Standard `https://intern.rss-fb.com`. |
 | `MS_TENANT_ID` | Als **GUID** des eigenen Tenants setzen – dann werden nur Konten aus diesem Tenant angenommen. |
 | `MS_ALLOWED_DOMAINS` | Erlaubte E-Mail-Domains für den Microsoft-Login. |

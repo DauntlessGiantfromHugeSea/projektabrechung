@@ -129,8 +129,9 @@ der Bericht landet nur als Datei und im Log.
 
 | Variable | Default | Bedeutung |
 |---|---|---|
+| `TIMEMOTO_WEBHOOK` | `0` | `1` schaltet den Webhook ein; sonst gibt es den Pfad nicht (404) |
 | `WEBHOOK_PATH` | `/timemoto` | Pfad des Webhook-Endpoints |
-| `SHARED_SECRET` | – | optionaler Secret-Abgleich |
+| `SHARED_SECRET` | – | Pflicht bei eingeschaltetem Webhook (sonst 503) |
 | `LOG_FILE` | `/data/events.jsonl` | Speicher der Roh-Events |
 | `PROJECT_CODE` | – (alle) | Projektfilter (Teilstring genügt) |
 | `PROJECT_FIELD` | – (auto) | exaktes Projekt-Feld erzwingen |

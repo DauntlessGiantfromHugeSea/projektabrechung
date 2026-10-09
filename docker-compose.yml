@@ -9,6 +9,7 @@ services:
       - "8080:8080"
     environment:
       # --- Webhook-Empfang ---
+      TIMEMOTO_WEBHOOK: "0"
       WEBHOOK_PATH: "/timemoto"
       SHARED_SECRET: ""
       LOG_FILE: "/data/events.jsonl"

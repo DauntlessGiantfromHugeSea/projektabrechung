@@ -36,6 +36,7 @@ services:
       - "127.0.0.1:8080:8080"        # nur lokal: fuer /report/* und Tests
     environment:
       # --- Webhook-Empfang ---
+      TIMEMOTO_WEBHOOK: "${TIMEMOTO_WEBHOOK:-0}"   # 1 = Webhook an (Standard aus)
       WEBHOOK_PATH: "/timemoto"
       SHARED_SECRET: "${SHARED_SECRET:-}"   # aus deploy/.env (TimeMoto-Secret)
       LOG_FILE: "/data/events.jsonl"

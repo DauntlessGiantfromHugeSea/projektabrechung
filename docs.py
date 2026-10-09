@@ -255,7 +255,8 @@ def user_sections(ms_enabled: bool = True) -> list[dict]:
 
 # --- Inhalt: Admin-Dokumentation --------------------------------------------
 
-def admin_sections(webhook_url: str = "", secret: str = "") -> list[dict]:
+def admin_sections(webhook_url: str = "", secret: str = "",
+                   webhook_aktiv: bool = True) -> list[dict]:
     s: list[dict] = []
     s.append({"id": "adm-benutzer", "title": "Benutzerverwaltung", "blocks": [
         {"t": "p", "html": "Avatar-Menü → <b>Administration → Benutzer</b>."},
@@ -400,13 +401,18 @@ def admin_sections(webhook_url: str = "", secret: str = "") -> list[dict]:
             "<b>Verlauf</b>: lückenloses Protokoll (Logins, Korrekturen, "
             "Mails, Rechte-Änderungen, Support-Modus …)."]},
     ]})
-    wb = [
+    wb = [] if webhook_aktiv else [
+        {"t": "p", "html": "<b>Der TimeMoto-Webhook ist derzeit deaktiviert</b> – "
+         "es kommen keine neuen Buchungen an. Einschalten auf dem Server: in "
+         "<code>deploy/.env</code> <code>TIMEMOTO_WEBHOOK=1</code> setzen und "
+         "<code>sh deploy/einrichten.sh</code> ausführen."}]
+    wb += [
         {"t": "p", "html": "In der <b>TimeMoto Cloud</b> (Plus-Plan) unter "
          "<b>Einstellungen → Webhooks</b> diese Ziel-URL hinterlegen "
          "(Ereignisse: Ein-/Ausstempeln):"},
         {"t": "code", "text": webhook_url or "https://intern.rss-fb.com/timemoto"},
     ]
-    if secret:
+    if secret and webhook_aktiv:
         wb += [{"t": "p", "html": "Hinterlegtes <b>Secret</b>:"},
                {"t": "code", "text": secret}]
     wb += [{"t": "ul", "items": [

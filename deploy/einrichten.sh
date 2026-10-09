@@ -8,8 +8,8 @@
 #  1. findet den Ordner des Mailing-Tools (über den laufenden Container)
 #  2. legt das gemeinsame Abgleich-Token an, falls noch keins existiert, und
 #     trägt es in beide .env-Dateien ein (Backup vorher, Token wird nie angezeigt)
-#  2b. legt das TimeMoto-Webhook-Secret an, falls noch keins existiert (ohne
-#     Secret nimmt das Intranet keine Webhooks mehr an); die fertige
+#  2b. nur wenn TIMEMOTO_WEBHOOK=1 (Standard: Webhook aus): legt das
+#     TimeMoto-Webhook-Secret an, falls noch keins existiert; die fertige
 #     Webhook-URL steht danach nur in deploy/timemoto-webhook-url.txt (chmod 600)
 #  3. holt den neuesten Code beider Tools (bricht ab, wenn auf dem Server
 #     Dateien von Hand geändert wurden)
@@ -107,9 +107,17 @@ else
 fi
 
 # ------------------------------------------------------------------ 2b.
-schritt "2b. TimeMoto-Webhook-Secret"
-SECRET=$(env_wert "$DEPLOY/.env" SHARED_SECRET)
+schritt "2b. TimeMoto-Webhook"
 URL_DATEI="$DEPLOY/timemoto-webhook-url.txt"
+case "$(env_wert "$DEPLOY/.env" TIMEMOTO_WEBHOOK)" in
+    1|true|ja|yes|on) WEBHOOK_AN=1 ;;
+    *) WEBHOOK_AN=0 ;;
+esac
+if [ "$WEBHOOK_AN" = 0 ]; then
+    rm -f "$URL_DATEI"
+    ok "TimeMoto-Webhook ist deaktiviert (in deploy/.env TIMEMOTO_WEBHOOK=1 setzen zum Einschalten)."
+else
+SECRET=$(env_wert "$DEPLOY/.env" SHARED_SECRET)
 if [ ${#SECRET} -ge 16 ]; then
     ok "SHARED_SECRET ist gesetzt."
 else
@@ -126,6 +134,7 @@ BASIS=$(env_wert "$DEPLOY/.env" PUBLIC_BASE_URL); BASIS=${BASIS:-https://intern.
 PFAD=$(env_wert "$DEPLOY/.env" WEBHOOK_PATH); PFAD=${PFAD:-/timemoto}
 ( umask 077; printf '%s%s?secret=%s\n' "${BASIS%/}" "$PFAD" "$SECRET" > "$URL_DATEI" )
 ok "Webhook-URL für TimeMoto liegt in $URL_DATEI (nur für root lesbar)."
+fi
 
 # ------------------------------------------------------------------ 3.
 schritt "3. Neuesten Code holen"

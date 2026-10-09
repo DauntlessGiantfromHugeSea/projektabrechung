@@ -70,7 +70,7 @@ _SICHERE_METHODEN = {"GET", "HEAD", "OPTIONS"}
 @app.middleware("http")
 async def _sicherheits_middleware(request: Request, call_next):
     if (request.method not in _SICHERE_METHODEN
-            and request.url.path != config.WEBHOOK_PATH):
+            and not (config.WEBHOOK_ENABLED and request.url.path == config.WEBHOOK_PATH)):
         site = request.headers.get("sec-fetch-site")
         origin = (request.headers.get("origin") or "").rstrip("/")
         eigene = config.PUBLIC_BASE_URL.rstrip("/")
@@ -167,7 +167,6 @@ _WEBHOOK_HEADER_ALLOW = {"content-type", "user-agent", "x-forwarded-for",
                          "x-real-ip", "x-request-id"}
 
 
-@app.api_route(config.WEBHOOK_PATH, methods=["POST", "GET", "PUT"])
 async def receive(request: Request):
     """Webhook-Empfang -- identisch zur Erkundungsphase: alles mitschreiben."""
     # Größenlimit (Sicherheits-Audit 2026-10): TimeMoto-Events sind klein.
@@ -233,6 +232,13 @@ async def receive(request: Request):
         print(f"[warn] konnte Event nicht schreiben: {exc}", flush=True)
 
     return JSONResponse({"status": "received"}, status_code=200)
+
+
+# Nur registrieren, wenn eingeschaltet – sonst antwortet der Pfad mit 404.
+if config.WEBHOOK_ENABLED:
+    app.add_api_route(config.WEBHOOK_PATH, receive, methods=["POST", "GET", "PUT"])
+else:
+    print("[info] TimeMoto-Webhook ist deaktiviert (TIMEMOTO_WEBHOOK=0).", flush=True)
 
 
 # --- Berichts-Endpoints ----------------------------------------------------

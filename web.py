@@ -3130,7 +3130,8 @@ async def anleitung(request: Request):
     admin_secs = []
     if _role(request) == "admin":
         webhook_url = f"{_base_url(request)}{config.WEBHOOK_PATH.lstrip('/')}"
-        admin_secs = docs.admin_sections(webhook_url, config.SHARED_SECRET)
+        admin_secs = docs.admin_sections(webhook_url, config.SHARED_SECRET,
+                                         config.WEBHOOK_ENABLED)
     return HTMLResponse(_tpls["anleitung"].render(
         **_common(request, "help", "Anleitung"),
         sections=docs.user_sections(config.ms_enabled()),

@@ -13,6 +13,7 @@ from pathlib import Path
 
 _DATEN = tempfile.mkdtemp()
 os.environ.update(DATA_DIR=_DATEN, MAX_UPLOAD_MB="1", SHARED_SECRET="x" * 32,
+                  TIMEMOTO_WEBHOOK="1",
                   SESSION_SECRET="s" * 40, PUBLIC_BASE_URL="http://testserver",
                   SCHEDULER_ENABLED="0")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -64,6 +65,17 @@ class Sicherheit(unittest.TestCase):
         r = self.c.post(config.WEBHOOK_PATH, content=b"x" * (65 * 1024),
                         headers={"Authorization": "Bearer " + "x" * 32})
         self.assertEqual(r.status_code, 413)
+
+    def test_webhook_standardmaessig_aus(self):
+        import subprocess
+        code = ("import os, sys; sys.path.insert(0, '.'); "
+                "os.environ.pop('TIMEMOTO_WEBHOOK', None); "
+                "from fastapi.testclient import TestClient; import app; "
+                "print(TestClient(app.app).post('/timemoto', content=b'{}').status_code)")
+        env = {k: v for k, v in os.environ.items() if k != "TIMEMOTO_WEBHOOK"}
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           cwd=str(Path(__file__).resolve().parent.parent), env=env, timeout=120)
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "404", r.stderr[-500:])
 
     def test_reset_gedrosselt(self):
         gesendet = []

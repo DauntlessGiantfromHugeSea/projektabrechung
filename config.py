@@ -56,6 +56,10 @@ def _list(name: str) -> list[str]:
 
 
 # --- Webhook-Empfang (unveraendert zur Erkundungsphase) --------------------
+# TimeMoto-Webhook ein/aus. Standard AUS: dann gibt es die Route gar nicht
+# (404) und es kommen keine neuen Buchungen an; vorhandene Daten bleiben.
+# Einschalten: TIMEMOTO_WEBHOOK=1 (dann ist SHARED_SECRET Pflicht).
+WEBHOOK_ENABLED = os.getenv("TIMEMOTO_WEBHOOK", "0").strip().lower() in ("1", "true", "ja", "yes", "on")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/timemoto")
 SHARED_SECRET = os.getenv("SHARED_SECRET", "")
 LOG_FILE = Path(os.getenv("LOG_FILE", "/data/events.jsonl"))

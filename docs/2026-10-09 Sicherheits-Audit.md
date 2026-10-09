@@ -86,6 +86,18 @@ ausgeliefert → eigener Download mit Besitzerprüfung, nur als Datei · Upload-
 10 MB / 10 Dateien · keine Mails mehr an deaktivierte Admins · kein Bootstrap-Admin
 `admin/admin` mehr · `DEBUG` standardmäßig aus · gunicorn mit Threads.
 
+## Nachtrag: TimeMoto-Webhook deaktiviert
+
+> [!info] Stand 09.10.2026
+> Der TimeMoto-Webhook ist **abgeschaltet**. `/timemoto` antwortet mit 404,
+> es kommen **keine neuen Buchungen** ins Intranet; vorhandene Zeiten,
+> Berichte und Korrekturen bleiben unverändert.
+> Wieder einschalten: in `deploy/.env` `TIMEMOTO_WEBHOOK=1` setzen und
+> `sh deploy/einrichten.sh` ausführen (legt dann das Secret an und schreibt
+> die TimeMoto-URL nach `deploy/timemoto-webhook-url.txt`).
+> In TimeMoto selbst den Webhook am besten ebenfalls entfernen, damit dort
+> keine Fehlermeldungen auflaufen.
+
 ## Auf dem Server zu tun
 
 > [!important] Einmal ausführen
@@ -96,10 +108,10 @@ ausgeliefert → eigener Download mit Besitzerprüfung, nur als Datei · Upload-
 > Bedarf das Webhook-Secret an und übernimmt das neue Caddy-Limit (mit Backup
 > und automatischem Rücksprung).
 
-1. **TimeMoto umstellen**, falls das Skript ein neues Secret erzeugt hat
-   (es sagt es am Ende):
-   `cat /root/projektabrechung/deploy/timemoto-webhook-url.txt` → diese URL in
-   TimeMoto als Webhook eintragen. Bis dahin kommen **keine neuen Buchungen** an.
+1. **TimeMoto:** Der Webhook ist deaktiviert (siehe Nachtrag) – in TimeMoto
+   den Webhook entfernen. Nur wenn er wieder an soll: `TIMEMOTO_WEBHOOK=1`
+   setzen, Skript erneut ausführen und die URL aus
+   `deploy/timemoto-webhook-url.txt` in TimeMoto eintragen.
 2. In `deploy/.env` prüfen: `PUBLIC_BASE_URL=https://intern.rss-fb.com`,
    `MS_TENANT_ID=<Tenant-GUID>` (statt `organizations`), `MS_ALLOWED_DOMAINS`.
 3. **Mailing-Tool:** `SEED_ADMIN_PASSWORD` nur noch mit ≥ 12 Zeichen (nur nötig,
