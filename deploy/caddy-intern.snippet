@@ -21,13 +21,22 @@ intern.rss-fb.com {
 				# gerade die WebSocket-Verbindung der App aufbaut.
 				header_up -Connection
 				header_up -Upgrade
+				# Waehrend eines Neustarts des Intranets kurz warten statt 502
+				lb_try_duration 30s
+				lb_try_interval 500ms
 			}
 			header {
 				X-Frame-Options "DENY"
 				X-Content-Type-Options "nosniff"
 				Referrer-Policy "same-origin"
 			}
-			reverse_proxy 127.0.0.1:8501
+			# Waehrend eines Neustarts (Update) warten statt 502 – sonst bleiben
+			# nachgeladene Programmteile im Browser als Fehler haengen
+			# ("Importing a module script failed"), bis die Seite neu geladen wird.
+			reverse_proxy 127.0.0.1:8501 {
+				lb_try_duration 30s
+				lb_try_interval 500ms
+			}
 		}
 	}
 
@@ -44,7 +53,10 @@ intern.rss-fb.com {
 		}
 		respond @report_extern "Forbidden" 403
 
-		reverse_proxy 127.0.0.1:8080
+		reverse_proxy 127.0.0.1:8080 {
+			lb_try_duration 30s
+			lb_try_interval 500ms
+		}
 	}
 }
 # <<< Ende Block intern.rss-fb.com <<<

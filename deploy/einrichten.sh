@@ -162,7 +162,7 @@ printf '\n'
 
 # ------------------------------------------------------------------ 5.
 schritt "5. Caddy (intern.rss-fb.com)"
-if grep -q "forward_auth" "$CADDYFILE" 2>/dev/null && grep -q "max_size 64MB" "$CADDYFILE" 2>/dev/null; then
+if grep -q "forward_auth" "$CADDYFILE" 2>/dev/null && grep -q "lb_try_duration" "$CADDYFILE" 2>/dev/null; then
     ok "Caddy ist bereits eingerichtet."
 else
     sh "$DEPLOY/caddy-einrichten.sh" || fehler "Caddy-Einrichtung abgebrochen (Ausgabe oben). Intranet läuft mit dem alten Stand weiter."

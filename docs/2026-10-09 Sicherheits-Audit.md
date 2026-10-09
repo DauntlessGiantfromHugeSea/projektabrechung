@@ -98,6 +98,18 @@ ausgeliefert → eigener Download mit Besitzerprüfung, nur als Datei · Upload-
 > In TimeMoto selbst den Webhook am besten ebenfalls entfernen, damit dort
 > keine Fehlermeldungen auflaufen.
 
+## Nachtrag: „TypeError: Importing a module script failed“ im Verteiler
+
+> [!bug] Ursache und Lösung
+> Wird die Verteiler-Seite geöffnet, **während der Container neu startet**
+> (z. B. bei `einrichten.sh`), antwortet Caddy für einzelne nachgeladene
+> Programmteile mit 502. Der Browser merkt sich den Fehler – Navigation,
+> Kennzahlen und Buttons zeigen dann rote Kästen, bis die Seite neu geladen wird.
+> **Sofort:** Seite neu laden (⌘⇧R).
+> **Dauerhaft:** Caddy wartet jetzt bis zu 30 s auf Verteiler und Intranet
+> (`lb_try_duration`), statt 502 zu liefern. Wird mit `einrichten.sh`
+> automatisch eingespielt (mit Backup und Rücksprung).
+
 ## Auf dem Server zu tun
 
 > [!important] Einmal ausführen
