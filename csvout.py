@@ -15,6 +15,21 @@ import config
 from events import Interval
 
 
+
+_FORMEL_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _zelle(v):
+    """Text, der in Excel als Formel startet, entschärfen (Sicherheits-Audit
+    2026-10: Formel-Injection über Tätigkeitsbeschreibungen/Namen)."""
+    if isinstance(v, str) and v.startswith(_FORMEL_START):
+        return "'" + v
+    return v
+
+
+def _zeile(werte):
+    return [_zelle(v) for v in werte]
+
 def _split_name(full: str) -> tuple[str, str]:
     """'Vorname [...] Nachname' -> (Nachname, Vorname)."""
     parts = (full or "").split()
@@ -88,8 +103,8 @@ def amprion_csv(intervals: list[Interval],
     w.writerow(["Datum", "nicht relevant", "Task Nr.", "nicht relevant",
                 "Personen Name", "Stunden", "Tätigkeitbeschreibung"])
     for dt, nr, name, h, desc in rows:
-        w.writerow([dt.strftime("%d.%m.%Y"), "",
-                    int(nr) if str(nr).isdigit() else nr, "", name, h, desc])
+        w.writerow(_zeile([dt.strftime("%d.%m.%Y"), "",
+                           int(nr) if str(nr).isdigit() else nr, "", name, h, desc]))
     return buf.getvalue().encode("utf-8-sig")
 
 
@@ -107,5 +122,5 @@ def arcadis_csv(intervals: list[Interval]) -> bytes:
     w.writerow(["Datum", "Nachname", "Vorname", "Stunden",
                 "Taetigkeitsbeschreibung"])
     for dt, nach, vor, h, desc in rows:
-        w.writerow([dt.strftime("%d.%m.%Y"), nach, vor, h, desc])
+        w.writerow(_zeile([dt.strftime("%d.%m.%Y"), nach, vor, h, desc]))
     return buf.getvalue().encode("utf-8-sig")

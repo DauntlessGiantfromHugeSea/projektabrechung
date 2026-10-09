@@ -11,6 +11,8 @@ aus eurem Tenant anmelden können.
 
 from __future__ import annotations
 
+import base64
+import re
 import json
 import urllib.error
 import urllib.parse
@@ -56,8 +58,9 @@ def exchange(code: str) -> dict | None:
             tok = json.loads(resp.read().decode("utf-8"))
         access = tok.get("access_token")
         if not access:
-            print(f"[ms-login] kein access_token: {tok}", flush=True)
+            print(f"[ms-login] kein access_token (Felder: {sorted(tok)})", flush=True)
             return None
+        claims = _id_claims(tok.get("id_token") or "")
         ui_req = urllib.request.Request(
             _USERINFO, headers={"Authorization": f"Bearer {access}"})
         with urllib.request.urlopen(ui_req, timeout=20) as resp:
@@ -75,11 +78,34 @@ def exchange(code: str) -> dict | None:
     name = (info.get("name") or "").strip()
     if not email:
         return None
+    oid = str(claims.get("oid") or "")
+    tid = str(claims.get("tid") or "")
+    # Mandant festnageln, sobald MS_TENANT_ID eine Mandanten-ID (GUID) ist –
+    # sonst könnten Konten aus fremden Mandanten sich anmelden.
+    if _GUID.match(config.MS_TENANT_ID or "") and tid.lower() != config.MS_TENANT_ID.lower():
+        return {"error": "tenant_not_allowed", "email": email}
     if config.MS_ALLOWED_DOMAINS:
         dom = email.split("@")[-1]
         if dom not in [d.lower() for d in config.MS_ALLOWED_DOMAINS]:
             return {"error": "domain_not_allowed", "email": email}
-    return {"email": email, "name": name or email}
+    if not oid:
+        return {"error": "no_oid", "email": email}
+    return {"email": email, "name": name or email, "oid": oid, "tid": tid}
+
+
+_GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                   r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _id_claims(id_token: str) -> dict:
+    """Claims (oid, tid) aus dem id_token. Der Token kommt direkt vom
+    Token-Endpunkt über TLS (vertraulicher Client), daher genügt das Dekodieren."""
+    try:
+        part = id_token.split(".")[1]
+        part += "=" * (-len(part) % 4)
+        return json.loads(base64.urlsafe_b64decode(part.encode("ascii")))
+    except Exception:
+        return {}
 
 
 _GRAPH_USERS = ("https://graph.microsoft.com/v1.0/users?"

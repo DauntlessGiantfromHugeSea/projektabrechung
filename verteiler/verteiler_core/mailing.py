@@ -113,6 +113,8 @@ class Ergebnis:
     liste_mitglieder: int = 0
     liste_neu: int = 0
     liste_entfernt: int = 0
+    loeschungen_uebergeben: int = 0
+    loeschungen_offen: int = 0
     sperren_uebergeben: int = 0
     sperren_dort_neu: int = 0
     sendungen_abgebrochen: int = 0
@@ -132,6 +134,11 @@ class Ergebnis:
         else:
             teile.append("Liste unverändert")
         teile.append(f"{self.hier_neu_gesperrt} Abmeldungen/Bounces aus dem Mailing-Tool hier gesperrt")
+        if self.loeschungen_uebergeben:
+            teile.append(f"{self.loeschungen_uebergeben} DSGVO-Löschungen dort ausgeführt")
+        if self.loeschungen_offen:
+            teile.append(f"{self.loeschungen_offen} DSGVO-Löschungen noch offen "
+                         "(Mailing-Tool zu alt – bitte aktualisieren oder dort von Hand löschen)")
         return "Abgleich erfolgreich: " + "; ".join(teile) + "."
 
 
@@ -192,6 +199,8 @@ def abgleichen(db_path, backup_dir, zugang: Zugang | None = None, benutzer: str 
     conn = db.connect(db_path)
     try:
         cfg = einstellungen_lesen(conn)
+        loeschen = [{"email": r["email"], "keepSuppression": bool(r["sperre_behalten"])}
+                    for r in conn.execute("SELECT email, sperre_behalten FROM mailing_loeschauftrag")]
         sperren = [{"email": r["email"], "reason": r["grund"]}
                    for r in conn.execute("SELECT email, grund FROM suppression_list ORDER BY email")]
         pruefen = [r["email"] for r in queries.segment_kontakte(conn, "alle_aktiven")]
@@ -212,6 +221,8 @@ def abgleichen(db_path, backup_dir, zugang: Zugang | None = None, benutzer: str 
         except ValueError:
             faellig = True
     nutzlast = {"suppress": sperren, "check": pruefen}
+    if loeschen:
+        nutzlast["erase"] = loeschen
     if faellig:
         nutzlast["list"] = {"name": cfg.liste, "contacts": empfaenger}
 
@@ -221,6 +232,20 @@ def abgleichen(db_path, backup_dir, zugang: Zugang | None = None, benutzer: str 
         ergebnis.fehler = str(exc)
         _stand_speichern(db_path, ergebnis)
         raise
+
+    # Löschaufträge erst austragen, wenn das Mailing-Tool sie verarbeitet hat
+    # (ältere Versionen kennen "erase" nicht und melden nichts zurück).
+    if loeschen and isinstance(antwort.get("erased"), dict):
+        conn = db.connect(db_path)
+        try:
+            with db.transaction(conn):
+                conn.executemany("DELETE FROM mailing_loeschauftrag WHERE email = ?",
+                                 [(x["email"],) for x in loeschen])
+        finally:
+            conn.close()
+        ergebnis.loeschungen_uebergeben = len(loeschen)
+    elif loeschen:
+        ergebnis.loeschungen_offen = len(loeschen)
 
     ergebnis.sperren_uebergeben = len(sperren)
     ergebnis.sperren_dort_neu = int(antwort.get("suppressionsAdded") or 0)

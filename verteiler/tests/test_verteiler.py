@@ -798,6 +798,7 @@ class FakeMailing:
         fake = self
         fake.anfragen = []
         fake.gesperrt_dort = gesperrt_dort or {}
+        fake.kennt_erase = True
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_POST(self):
@@ -808,6 +809,8 @@ class FakeMailing:
                     fake.anfragen.append(body)
                     liste = body.get("list")
                     code, daten = 200, {
+                        **({"erased": {"received": len(body["erase"]), "contactsDeleted": 0,
+                                       "suppressionsRemoved": 0}} if fake.kennt_erase and "erase" in body else {}),
                         "suppressionsAdded": len(body.get("suppress", [])), "contactsBlocked": 0, "jobsSkipped": 1,
                         "list": ({"id": "L", "name": liste["name"], "created": len(liste["contacts"]), "updated": 0,
                                   "suppressed": 0, "invalid": 0, "members": len(liste["contacts"]), "removed": 0}
@@ -881,6 +884,34 @@ class TestMailing(Basis):
         # Erzwingen schickt sie trotzdem
         self.ml.abgleichen(self.dbp, self.bak, self.zugang, liste_erzwingen=True)
         self.assertEqual(len(self.fake.anfragen[-1]["list"]["contacts"]), 9)
+
+    def test_dsgvo_loeschung_geht_ans_mailing_tool(self):
+        with self.conn() as c:
+            kid = c.execute("SELECT id FROM contacts WHERE email = 'bestand03@example.org'").fetchone()[0]
+        queries.kontakt_dsgvo_loeschen(self.dbp, kid, "bestand03@example.org", sperre_behalten=False,
+                                       an_mailing=True)
+        # Alte Gegenstelle ohne "erase": Auftrag bleibt offen
+        self.fake.kennt_erase = False
+        e = self.ml.abgleichen(self.dbp, self.bak, self.zugang)
+        self.assertEqual(self.fake.anfragen[-1]["erase"],
+                         [{"email": "bestand03@example.org", "keepSuppression": False}])
+        self.assertEqual(e.loeschungen_offen, 1)
+        # Neue Gegenstelle bestätigt -> Vormerkung verschwindet
+        self.fake.kennt_erase = True
+        e = self.ml.abgleichen(self.dbp, self.bak, self.zugang)
+        self.assertEqual(e.loeschungen_uebergeben, 1)
+        with self.conn() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM mailing_loeschauftrag").fetchone()[0], 0)
+        self.ml.abgleichen(self.dbp, self.bak, self.zugang)
+        self.assertNotIn("erase", self.fake.anfragen[-1])
+
+    def test_dsgvo_ohne_mailing_keine_vormerkung(self):
+        with self.conn() as c:
+            kid = c.execute("SELECT id FROM contacts WHERE email = 'bestand04@example.org'").fetchone()[0]
+        with mock.patch.dict("os.environ", {"MAILING_SYNC_TOKEN": ""}):
+            queries.kontakt_dsgvo_loeschen(self.dbp, kid, "bestand04@example.org")
+        with self.conn() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM mailing_loeschauftrag").fetchone()[0], 0)
 
     def test_falsches_token_und_unsichere_url(self):
         with self.assertRaises(self.ml.MailingFehler) as ctx:

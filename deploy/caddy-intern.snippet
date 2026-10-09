@@ -32,6 +32,11 @@ intern.rss-fb.com {
 	}
 
 	handle {
+		# Obergrenze fuer Uploads/Formulare (die App prueft zusaetzlich, Sicherheits-Audit 2026-10)
+		request_body {
+			max_size 64MB
+		}
+
 		# /report/* ist unauthentifiziert - von aussen sperren, lokal via 127.0.0.1:8080 nutzen
 		@report_extern {
 			path /report/*

@@ -103,9 +103,15 @@ def bootstrap_admin() -> None:
         _save(users)
 
 
+# Gleich teurer Vergleich fuer unbekannte/inaktive Konten, damit die
+# Antwortzeit nicht verraet, ob ein Benutzername existiert (Audit 2026-10).
+_DUMMY_HASH = hash_password(secrets.token_hex(16))
+
+
 def verify_login(username: str, password: str) -> dict[str, Any] | None:
     user = _load().get(username)
-    if not user or user.get("status") != "active":
+    if not user or user.get("status") != "active" or not user.get("password"):
+        verify_password(password, _DUMMY_HASH)
         return None
     if verify_password(password, user.get("password")):
         return user
@@ -134,8 +140,19 @@ def set_password(username: str, new_password: str) -> bool:
         users[username]["password"] = hash_password(new_password)
         users[username]["status"] = "active"
         users[username]["invite_token"] = None
+        # Neues Passwort beendet alle bestehenden Sitzungen dieses Kontos
+        users[username]["session_epoch"] = int(users[username].get("session_epoch", 0) or 0) + 1
         _save(users)
         return True
+
+
+def bump_session_epoch(username: str) -> None:
+    """Alle Sitzungen eines Kontos ungültig machen (Logout, Rechteentzug)."""
+    with _LOCK:
+        users = _load()
+        if username in users:
+            users[username]["session_epoch"] = int(users[username].get("session_epoch", 0) or 0) + 1
+            _save(users)
 
 
 def create_invite(username: str, role: str = "user", name: str = "",
@@ -227,6 +244,9 @@ def _reset_age_min(u: dict[str, Any]) -> float:
         return 1e9
 
 
+RESET_SPERRE_MIN = 5
+
+
 def create_reset_token(identifier: str) -> tuple[dict[str, Any] | None, str | None]:
     """Reset-Token fuer aktiven Nutzer (per Benutzername ODER E-Mail) erzeugen."""
     ident = identifier.strip().lower()
@@ -237,7 +257,15 @@ def create_reset_token(identifier: str) -> tuple[dict[str, Any] | None, str | No
         for uname, u in users.items():
             if u.get("status") != "active":
                 continue
+            # Reine Microsoft-Konten haben kein lokales Passwort und bekommen
+            # auch per Reset keines (Sicherheits-Audit 2026-10).
+            if u.get("auth") == "microsoft" or not u.get("password"):
+                continue
             if uname.lower() == ident or (u.get("email", "").strip().lower() == ident):
+                # Drosselung: solange ein frischer Link existiert, keinen neuen
+                # erzeugen (kein Mail-Flooding, alter Link bleibt gültig).
+                if u.get("reset_token") and _reset_age_min(u) < RESET_SPERRE_MIN:
+                    return u, None
                 token = secrets.token_urlsafe(24)
                 u["reset_token"] = token
                 u["reset_at"] = _now()
@@ -262,9 +290,14 @@ def consume_reset(token: str, new_password: str) -> str | None:
             if u.get("reset_token") and hmac.compare_digest(u["reset_token"], token):
                 if _reset_age_min(u) > config.RESET_TTL_MIN:
                     return None
+                if (u.get("status") != "active" or u.get("auth") == "microsoft"
+                        or not u.get("password")):
+                    u["reset_token"] = None
+                    _save(users)
+                    return None
                 u["password"] = hash_password(new_password)
                 u["reset_token"] = None
-                u["status"] = "active"
+                u["session_epoch"] = int(u.get("session_epoch", 0) or 0) + 1
                 _save(users)
                 return uname
     return None
@@ -300,12 +333,31 @@ def by_email(email: str) -> dict[str, Any] | None:
     return None
 
 
-def upsert_oauth(email: str, name: str) -> dict[str, Any]:
+def upsert_oauth(email: str, name: str, oid: str = "",
+                 tid: str = "") -> dict[str, Any] | None:
     """Microsoft-Konto: vorhandenen Nutzer (per E-Mail) zurueckgeben oder neu
-    anlegen (Rolle 'user', ohne Passwort/2FA -- Anmeldung nur via Microsoft)."""
+    anlegen (Rolle 'user', ohne Passwort/2FA -- Anmeldung nur via Microsoft).
+    Sicherheits-Audit 2026-10: Beim ersten Microsoft-Login wird das Konto fest
+    an die Microsoft-Objekt-ID (oid) gebunden; danach passt nur noch genau
+    diese Identität. Nicht aktive (z. B. nur eingeladene) Konten werden nie
+    per Microsoft übernommen. Rückgabe None = Anmeldung ablehnen."""
     existing = by_email(email)
     if existing:
-        return existing
+        if existing.get("status") != "active":
+            return None
+        bound = (existing.get("ms_oid") or "").strip()
+        if bound:
+            return existing if oid and bound == oid else None
+        if not oid:
+            return None
+        with _LOCK:
+            users = _load()
+            u = users.get(existing["username"])
+            if not u:
+                return None
+            u["ms_oid"], u["ms_tid"] = oid, tid
+            _save(users)
+            return u
     with _LOCK:
         users = _load()
         uname = email
@@ -317,10 +369,14 @@ def upsert_oauth(email: str, name: str) -> dict[str, Any]:
                 "invite_token": None, "totp_secret": None,
                 "twofa_enabled": False, "can_view_tickets": False,
                 "can_edit_tickets": False, "auth": "microsoft",
+                "ms_oid": oid, "ms_tid": tid,
                 "created_at": _now(),
             }
             _save(users)
-        return users[uname]
+        u = users[uname]
+        if (u.get("ms_oid") or "") not in ("", oid) or u.get("status") != "active":
+            return None
+        return u
 
 
 def import_microsoft(entries: list[dict[str, Any]]) -> tuple[int, int]:

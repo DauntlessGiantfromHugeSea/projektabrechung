@@ -8,6 +8,9 @@
 #  1. findet den Ordner des Mailing-Tools (über den laufenden Container)
 #  2. legt das gemeinsame Abgleich-Token an, falls noch keins existiert, und
 #     trägt es in beide .env-Dateien ein (Backup vorher, Token wird nie angezeigt)
+#  2b. legt das TimeMoto-Webhook-Secret an, falls noch keins existiert (ohne
+#     Secret nimmt das Intranet keine Webhooks mehr an); die fertige
+#     Webhook-URL steht danach nur in deploy/timemoto-webhook-url.txt (chmod 600)
 #  3. holt den neuesten Code beider Tools (bricht ab, wenn auf dem Server
 #     Dateien von Hand geändert wurden)
 #  4. baut und startet beide Tools neu
@@ -103,6 +106,27 @@ else
     ok "Token erzeugt bzw. abgeglichen und in beide .env-Dateien eingetragen (Backups: .env.bak-$stempel)."
 fi
 
+# ------------------------------------------------------------------ 2b.
+schritt "2b. TimeMoto-Webhook-Secret"
+SECRET=$(env_wert "$DEPLOY/.env" SHARED_SECRET)
+URL_DATEI="$DEPLOY/timemoto-webhook-url.txt"
+if [ ${#SECRET} -ge 16 ]; then
+    ok "SHARED_SECRET ist gesetzt."
+else
+    stempel=$(date +%F-%H%M%S)
+    cp -p "$DEPLOY/.env" "$DEPLOY/.env.bak-$stempel" || fehler "Backup der .env fehlgeschlagen."
+    SECRET=$(openssl rand -hex 24)
+    env_setzen "$DEPLOY/.env" SHARED_SECRET "$SECRET"
+    [ "$(env_wert "$DEPLOY/.env" SHARED_SECRET)" = "$SECRET" ] || fehler "SHARED_SECRET konnte nicht eingetragen werden."
+    warn "SHARED_SECRET neu erzeugt (Backup: .env.bak-$stempel). TimeMoto muss auf die neue URL umgestellt werden,"
+    warn "sonst kommen keine neuen Buchungen an – siehe Hinweis am Ende."
+    NEUES_SECRET=1
+fi
+BASIS=$(env_wert "$DEPLOY/.env" PUBLIC_BASE_URL); BASIS=${BASIS:-https://intern.rss-fb.com}
+PFAD=$(env_wert "$DEPLOY/.env" WEBHOOK_PATH); PFAD=${PFAD:-/timemoto}
+( umask 077; printf '%s%s?secret=%s\n' "${BASIS%/}" "$PFAD" "$SECRET" > "$URL_DATEI" )
+ok "Webhook-URL für TimeMoto liegt in $URL_DATEI (nur für root lesbar)."
+
 # ------------------------------------------------------------------ 3.
 schritt "3. Neuesten Code holen"
 git_aktualisieren "$VERTEILER_DIR" "Intranet/Verteiler"
@@ -129,7 +153,7 @@ printf '\n'
 
 # ------------------------------------------------------------------ 5.
 schritt "5. Caddy (intern.rss-fb.com)"
-if grep -q "forward_auth" "$CADDYFILE" 2>/dev/null; then
+if grep -q "forward_auth" "$CADDYFILE" 2>/dev/null && grep -q "max_size 64MB" "$CADDYFILE" 2>/dev/null; then
     ok "Caddy ist bereits eingerichtet."
 else
     sh "$DEPLOY/caddy-einrichten.sh" || fehler "Caddy-Einrichtung abgebrochen (Ausgabe oben). Intranet läuft mit dem alten Stand weiter."
@@ -189,3 +213,11 @@ cat <<TXT
    (wird mit deinen Werten angezeigt), "Verbindung testen", automatisch abrufen.
   Kampagnen im Mailing-Tool an die Liste "Verteiler: Alle aktiven" schicken.
 TXT
+if [ "${NEUES_SECRET:-0}" = 1 ]; then
+cat <<TXT
+
+  WICHTIG – TimeMoto umstellen (sonst keine neuen Buchungen):
+   cat $URL_DATEI
+   Diese URL in TimeMoto als Webhook-Adresse eintragen (ersetzt die alte).
+TXT
+fi

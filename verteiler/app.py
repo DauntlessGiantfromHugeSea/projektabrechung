@@ -604,8 +604,9 @@ def kontakt_detail(kid: int):
                         st.rerun()
 
     with st.expander("Kontakt vollständig löschen (DSGVO)"):
-        st.warning("Löscht Stammdaten und Kampagnenhistorie unwiderruflich. Ältere Backups im "
-                   "Ordner backups/ enthalten den Kontakt weiterhin.")
+        st.warning("Löscht Stammdaten und Kampagnenhistorie unwiderruflich. Ist das Mailing-Tool "
+                   "angebunden, wird der Kontakt beim nächsten Abgleich auch dort gelöscht. Ältere "
+                   "Backups im Ordner backups/ enthalten den Kontakt weiterhin.")
         with st.form(f"dsgvo_{kid}"):
             behalten = st.checkbox("Adresse auf der Sperrliste behalten (empfohlen – verhindert, dass "
                                    "sie über eine alte Liste wieder hereinkommt; gespeichert bleibt nur "

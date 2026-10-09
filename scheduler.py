@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from html import escape
 import activities
 import config
 import mailer
@@ -76,8 +77,9 @@ def run_reminders() -> dict:
         text = (f"Hallo {name},\n\nfür deine Buchung am {d} "
                 f"({iv.project or '-'}, {dur}) fehlt noch die "
                 f"Tätigkeitsbeschreibung. Bitte trage sie nach:\n{link}\n")
-        html = (f"<p>Hallo {name},</p><p>für deine Buchung am <b>{d}</b> "
-                f"({iv.project or '-'}, {dur}) fehlt noch die "
+        h_name, h_proj = escape(name), escape(iv.project or "-")
+        html = (f"<p>Hallo {h_name},</p><p>für deine Buchung am <b>{d}</b> "
+                f"({h_proj}, {dur}) fehlt noch die "
                 "<b>Tätigkeitsbeschreibung</b>. Bitte trage sie kurz nach "
                 "(1–2 Sätze).</p>"
                 f'<p><a href="{link}" style="display:inline-block;'

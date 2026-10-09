@@ -344,7 +344,10 @@ _TITEL = re.compile(r"^(dr|prof|dipl|ing|mag|herr|frau|mr|mrs|ms)\.?(-[a-z]+\.?)
 def name_teilen(name: str) -> tuple[str, str]:
     """'Max Muster' / 'Muster, Max' / 'Dr. Max Muster (Firma)' -> (Vorname, Nachname)."""
     n = clean_text(name, 120).strip(" '\"")
-    if not n or "@" in n:
+    # Namen aus fremden Mails landen später in Mail-Vorlagen: Zeichen, die als
+    # HTML oder Platzhalter wirken könnten, gar nicht erst übernehmen
+    # (Sicherheits-Audit 2026-10).
+    if not n or "@" in n or re.search(r"[<>{}]", n):
         return "", ""
     n = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", n)
     n = re.sub(r"\s+", " ", n).strip()
@@ -502,8 +505,12 @@ class Graph:
                 raise PostfachFehler(f"Microsoft nicht erreichbar ({type(exc).__name__})") from None
         raise PostfachFehler("Microsoft antwortet nicht")
 
-    def nachrichten(self, postfach: str, seit: datetime, maximal: int = MAX_MAILS_PRO_LAUF) -> list[dict]:
-        """Mails im Posteingang ab `seit`, älteste zuerst."""
+    def nachrichten(self, postfach: str, seit: datetime, maximal: int = MAX_MAILS_PRO_LAUF,
+                    bekannt: set | None = None) -> list[dict]:
+        """Mails im Posteingang ab `seit`, älteste zuerst. Bereits verarbeitete
+        Mails (`bekannt`) zählen nicht gegen das Limit – sonst bleibt der Abruf
+        hängen, sobald mehr als `maximal` bekannte Mails im Zeitfenster liegen."""
+        bekannt = bekannt or set()
         parameter = urllib.parse.urlencode({
             "$select": "id,internetMessageId,subject,receivedDateTime,from,toRecipients,ccRecipients,body",
             "$filter": f"receivedDateTime ge {seit.astimezone(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
@@ -515,7 +522,8 @@ class Graph:
         ergebnis: list[dict] = []
         while url and len(ergebnis) < maximal:
             seite = self._get(url)
-            ergebnis.extend(seite.get("value") or [])
+            ergebnis.extend(m for m in (seite.get("value") or [])
+                            if _mail_id(m) not in bekannt)
             url = seite.get("@odata.nextLink") or ""
             if url and not url.startswith(self.app.graph_url + "/"):
                 raise PostfachFehler("Unerwartete Weiterleitungsadresse von Microsoft")
@@ -606,8 +614,11 @@ def abrufen(db_path, backup_dir, app: MsApp | None = None, speicher: TokenSpeich
     letzte_dt = _iso(letzte) if letzte else None
     seit = (letzte_dt - timedelta(days=2) if letzte_dt
             else datetime.now(timezone.utc) - timedelta(days=cfg.tage_zurueck))
-    neue = [m for m in graph.nachrichten(cfg.postfach, seit)
-            if _mail_id(m) and _mail_id(m) not in bekannt_ids]
+    try:
+        roh = graph.nachrichten(cfg.postfach, seit, bekannt=bekannt_ids)
+    except TypeError:   # ältere/fremde Graph-Implementierung ohne `bekannt`
+        roh = graph.nachrichten(cfg.postfach, seit)
+    neue = [m for m in roh if _mail_id(m) and _mail_id(m) not in bekannt_ids]
     ergebnis = Ergebnis()
     if not neue:
         return ergebnis

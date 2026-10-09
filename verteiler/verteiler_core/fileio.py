@@ -15,6 +15,8 @@ from xml.etree import ElementTree as ET
 MAX_DATEI_BYTES = 50 * 1024 * 1024        # Upload-Grenze
 MAX_XLSX_ENTPACKT = 300 * 1024 * 1024     # Schutz vor "Zip-Bomben"
 MAX_ZEILEN = 500_000
+MAX_SPALTEN = 500                          # breitere Tabellen sind kein Kontaktimport
+MAX_ZELLEN = 5_000_000                     # Zeilen x Spalten (Speicherschutz)
 
 
 class DateiFehler(ValueError):
@@ -99,14 +101,22 @@ def _tabelle_aus_zeilen(roh_zeilen: list[list[str]]) -> tuple[list[str], list[di
             break
     if kopf_roh is None:
         raise DateiFehler("Die Datei ist leer.")
+    # Leere Spalten rechts abschneiden; zu breite Köpfe ablehnen (Speicherschutz,
+    # Sicherheits-Audit 2026-10: winzige Dateien konnten GB-weise RAM belegen).
+    kopf_roh = list(kopf_roh)
+    while kopf_roh and not (kopf_roh[-1] or "").strip():
+        kopf_roh.pop()
+    if len(kopf_roh) > MAX_SPALTEN:
+        raise DateiFehler(f"Mehr als {MAX_SPALTEN} Spalten – das ist keine Kontaktliste.")
     kopf = _kopfzeilen_bereinigen(kopf_roh)
+    max_zeilen = min(MAX_ZEILEN, MAX_ZELLEN // max(len(kopf), 1))
     daten: list[dict[str, str]] = []
     for z in zeilen_iter:
         if not any((c or "").strip() for c in z):
             continue
-        if len(daten) >= MAX_ZEILEN:
-            raise DateiFehler(f"Mehr als {MAX_ZEILEN} Zeilen – bitte Datei aufteilen.")
-        werte = list(z) + [""] * (len(kopf) - len(z))
+        if len(daten) >= max_zeilen:
+            raise DateiFehler(f"Mehr als {max_zeilen} Zeilen – bitte Datei aufteilen.")
+        werte = list(z)[:len(kopf)] + [""] * (len(kopf) - len(z))
         daten.append({k: (werte[i] or "") for i, k in enumerate(kopf)})
     return kopf, daten
 
@@ -226,8 +236,11 @@ def lese_xlsx(daten: bytes) -> Tabelle:
                     text = v.text if typ in ("str", "e") else _zahl_als_text(v.text)
                 else:
                     text = ""
-                if 0 <= idx < 16384:
-                    werte[idx] = text
+                if not text.strip():
+                    continue          # leere/nur formatierte Zellen bestimmen nicht die Breite
+                if not 0 <= idx < MAX_SPALTEN:
+                    raise DateiFehler(f"Mehr als {MAX_SPALTEN} Spalten – das ist keine Kontaktliste.")
+                werte[idx] = text
             if werte:
                 breite = max(werte) + 1
                 roh.append([werte.get(i, "") for i in range(breite)])

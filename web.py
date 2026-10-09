@@ -19,11 +19,16 @@ from urllib.parse import quote
 import pyotp
 import secrets
 import segno
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Request, UploadFile
 import json
 
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from jinja2 import Template
+from jinja2 import Environment
+
+# Alle Seiten-Templates escapen Variablen automatisch (Sicherheits-Audit
+# 2026-10: vorher war Autoescape aus -> gespeichertes/reflektiertes XSS).
+# Bewusst gewolltes HTML ist im Template mit |safe markiert.
+_ENV = Environment(autoescape=True)
 
 import activities
 import audit
@@ -721,6 +726,11 @@ _TWOFA_SETUP = """
   <p class="muted" style="text-align:left;">Falls du den Code nicht scannen
     kannst, gib dieses Geheimnis manuell ein:<br><code>{{ secret }}</code></p>
   <form method="post" action="/2fa/setup" style="text-align:left;">
+    {% if needs_current %}
+    <label>Code aus der bisherigen App (zur Bestätigung)</label>
+    <input name="current_code" inputmode="numeric" autocomplete="one-time-code"
+      placeholder="123456" style="letter-spacing:.3em;text-align:center;font-size:1.2rem">
+    {% endif %}
     <label>Code aus der App</label>
     <input name="code" inputmode="numeric" autocomplete="one-time-code" autofocus
       placeholder="123456" style="letter-spacing:.3em;text-align:center;font-size:1.2rem">
@@ -1340,7 +1350,7 @@ ICONS = {
     "check": _svg('<path d="M20 6 9 17l-5-5"/>'),
 }
 
-_base_tpl = Template(_BASE)
+_base_tpl = _ENV.from_string(_BASE)
 _USER_EDIT = """
 {% extends base %}
 {% block body %}
@@ -2015,7 +2025,7 @@ _VCARD_EDIT = """
 {% endblock %}
 """
 
-_tpls = {n: Template(s) for n, s in {
+_tpls = {n: _ENV.from_string(s) for n, s in {
     "login": _LOGIN, "home": _HOME, "dash": _DASH, "log": _LOG, "log_form": _LOG_FORM,
     "send": _SEND, "anleitung": _ANLEITUNG, "audit": _AUDIT,
     "account": _ACCOUNT, "users": _USERS, "invite": _INVITE,
@@ -2042,20 +2052,15 @@ class _Texts:
 
 _texts_proxy = _Texts()
 
-for _tpl in [_base_tpl, *_tpls.values()]:
-    _tpl.environment.globals["base"] = _base_tpl       # type: ignore
-    _tpl.environment.globals["logo_url"] = LOGO_URL    # type: ignore
-    _tpl.environment.globals["icons"] = ICONS          # type: ignore
-    _tpl.environment.globals["timemoto_url"] = config.TIMEMOTO_URL  # type: ignore
-    _tpl.environment.globals["teilnahme_url"] = config.TEILNAHME_URL  # type: ignore
-    _tpl.environment.globals["ms_logo"] = _MS_LOGO    # type: ignore
-    _tpl.environment.globals["logo_url_white"] = LOGO_URL_WHITE  # type: ignore
-    _tpl.environment.globals["texts"] = _texts_proxy   # type: ignore
+_ENV.globals.update(
+    base=_base_tpl, logo_url=LOGO_URL, icons=ICONS,
+    timemoto_url=config.TIMEMOTO_URL, teilnahme_url=config.TEILNAHME_URL,
+    ms_logo=_MS_LOGO, logo_url_white=LOGO_URL_WHITE, texts=_texts_proxy)
 
 
 # Oeffentliche Visitenkarte: bewusst EIGENSTAENDIG (kein {% extends base %}),
 # keine Session, keine internen Links -- nur die Kartendaten.
-_VCARD_PUB = Template("""
+_VCARD_PUB = _ENV.from_string("""
 <!doctype html><html lang="de"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
@@ -2153,11 +2158,62 @@ _VCARD_PUB = Template("""
 
 # --- Helfer ----------------------------------------------------------------
 
+def _base_url(request: Request) -> str:
+    """Basis-URL für Links in Mails/Seiten – aus der Konfiguration, nie aus
+    dem (vom Client steuerbaren) Host-Header (Sicherheits-Audit 2026-10)."""
+    base = (config.PUBLIC_BASE_URL or "").strip()
+    if not base:
+        base = str(request.base_url)
+    return base.rstrip("/") + "/"
+
+
+def _apply_rights(request: Request, user: dict) -> None:
+    """Rolle und Rechte-Flags aus dem gespeicherten Benutzer in die Sitzung."""
+    role = user.get("role", "user")
+    request.session["role"] = role
+    request.session["tk_view"] = bool(
+        role == "admin" or user.get("can_view_tickets")
+        or user.get("can_edit_tickets"))
+    request.session["tk_edit"] = bool(
+        role == "admin" or user.get("can_edit_tickets"))
+    request.session["fix_times"] = bool(
+        role in ("admin", "buchhaltung") or user.get("can_fix_times"))
+
+
 def _user(request: Request):
-    return request.session.get("user")
+    """Angemeldeter Benutzer – bei JEDER Anfrage gegen users.json geprüft
+    (Sicherheits-Audit 2026-10): gelöschte, deaktivierte oder per
+    Sitzungsversion abgemeldete Konten verlieren sofort den Zugang, und
+    Rolle/Rechte kommen immer frisch aus der Benutzerdatei."""
+    name = request.session.get("user")
+    if not name:
+        return None
+    cached = getattr(request.state, "fbe_user", None)
+    if cached is not None:
+        return cached or None
+    u = users.get(name)
+    ok = (bool(u) and u.get("status") == "active"
+          and int(u.get("session_epoch", 0) or 0)
+          == int(request.session.get("epoch", 0) or 0))
+    imp = request.session.get("impersonator")
+    if ok and imp:
+        orig = users.get(imp.get("user") or "")
+        ok = (bool(orig) and orig.get("role") == "admin"
+              and orig.get("status") == "active"
+              and int(orig.get("session_epoch", 0) or 0)
+              == int(imp.get("epoch", 0) or 0))
+    if not ok:
+        request.session.clear()
+        request.state.fbe_user = ""
+        return None
+    _apply_rights(request, u)
+    request.state.fbe_user = name
+    return name
 
 
 def _role(request: Request) -> str:
+    if not _user(request):
+        return "user"
     return request.session.get("role", "user")
 
 
@@ -2352,18 +2408,13 @@ async def login_form(request: Request):
 
 def _finalize_login(request: Request, user: dict) -> None:
     request.session.pop("pending_user", None)
+    request.session.pop("pending_enroll", None)
     request.session.pop("enroll_secret", None)
-    role = user.get("role", "user")
     request.session["user"] = user["username"]
-    request.session["role"] = role
+    request.session["epoch"] = int(user.get("session_epoch", 0) or 0)
     request.session["name"] = user.get("name") or user["username"]
-    request.session["tk_view"] = bool(
-        role == "admin" or user.get("can_view_tickets")
-        or user.get("can_edit_tickets"))
-    request.session["tk_edit"] = bool(
-        role == "admin" or user.get("can_edit_tickets"))
-    request.session["fix_times"] = bool(
-        role in ("admin", "buchhaltung") or user.get("can_fix_times"))
+    _apply_rights(request, user)
+    request.state.fbe_user = None
 
 
 @router.post("/login")
@@ -2383,6 +2434,7 @@ async def login_submit(request: Request, username: str = Form(""),
     if config.TWOFA_REQUIRED:
         # Noch keine 2FA -> jetzt einrichten (Pflicht)
         request.session["pending_user"] = user["username"]
+        request.session["pending_enroll"] = True
         return RedirectResponse("/2fa/setup", status_code=303)
     _finalize_login(request, user)
     return RedirectResponse("/start", status_code=303)
@@ -2411,9 +2463,19 @@ async def ms_callback(request: Request, code: str = "", state: str = "",
         request.session["flash"], request.session["flash_class"] = \
             ("Diese Microsoft-Domain ist nicht freigegeben."
              if info and info.get("error") == "domain_not_allowed"
+             else "Dieses Microsoft-Konto gehört nicht zu unserem Mandanten."
+             if info and info.get("error") == "tenant_not_allowed"
              else "Microsoft-Anmeldung fehlgeschlagen."), "err"
         return RedirectResponse("/login", status_code=303)
-    user = users.upsert_oauth(info["email"], info["name"])
+    user = users.upsert_oauth(info["email"], info["name"],
+                              info.get("oid", ""), info.get("tid", ""))
+    if not user:
+        audit.log(info["email"], "Microsoft-Login abgelehnt",
+                  "Konto nicht aktiv oder an andere Microsoft-Identität gebunden")
+        request.session["flash"], request.session["flash_class"] = \
+            ("Anmeldung abgelehnt: Dieses Konto ist nicht aktiv oder bereits "
+             "mit einer anderen Microsoft-Identität verknüpft."), "err"
+        return RedirectResponse("/login", status_code=303)
     _finalize_login(request, user)  # Microsoft-MFA genügt -> keine eigene 2FA
     audit.log(user["username"], "Login via Microsoft", info["email"])
     return RedirectResponse("/start", status_code=303)
@@ -2427,9 +2489,9 @@ async def home(request: Request):
     first = nm.split()[0] if nm.split() else nm
     ctx = _common(request, "home", "Start")
 
-    # Zeiten des angemeldeten Nutzers (TimeMoto-Name, sonst Anzeigename)
+    # Zeiten des angemeldeten Nutzers (nur über den gepflegten TimeMoto-Namen)
     rec = users.get(_user(request)) or {}
-    emp = (rec.get("timemoto_name") or nm).strip()
+    emp = (rec.get("timemoto_name") or "").strip()
     now = datetime.now(config.TIMEZONE)
     week_hours, week_sessions, recent = "0:00", 0, []
     todo_desc = 0
@@ -2437,11 +2499,11 @@ async def home(request: Request):
         from datetime import timedelta
         ws, we = this_week_range(now)
         if emp:
-            wk = filter_intervals(ws, we, employee=emp)
+            wk = filter_intervals(ws, we, employee_exact=emp)
             week_sessions = len(wk)
             week_hours = _fmt_dur(sum(max(iv.duration_hours, 0.0) for iv in wk)).replace(" h", "")
             horizon = now - timedelta(days=60)
-            own = filter_intervals(horizon, None, employee=emp)
+            own = filter_intervals(horizon, None, employee_exact=emp)
             todo_desc = sum(1 for iv in own if not (iv.description or "").strip())
             for iv in own[:5]:
                 sv = _session_view(iv)
@@ -2485,16 +2547,46 @@ async def twofa_verify(request: Request, code: str = Form("")):
     if not u or not u.get("totp_secret"):
         return RedirectResponse("/login", status_code=303)
     if pyotp.TOTP(u["totp_secret"]).verify(code.strip().replace(" ", ""), valid_window=1):
+        request.session.pop("twofa_fehler", None)
         _finalize_login(request, u)
         return RedirectResponse("/start", status_code=303)
+    # Höchstens 5 Versuche pro Passwort-Anmeldung (Sicherheits-Audit 2026-10)
+    fehler = int(request.session.get("twofa_fehler", 0) or 0) + 1
+    if fehler >= 5:
+        request.session.clear()
+        audit.log(uname, "2FA: zu viele Fehlversuche", uname)
+        request.session["flash"], request.session["flash_class"] = \
+            "Zu viele falsche Codes. Bitte erneut anmelden.", "err"
+        return RedirectResponse("/login", status_code=303)
+    request.session["twofa_fehler"] = fehler
     request.session["flash"], request.session["flash_class"] = \
         "Code ungültig. Bitte erneut versuchen.", "err"
     return RedirectResponse("/login/2fa", status_code=303)
 
 
+def _twofa_setup_user(request: Request) -> tuple[str | None, bool]:
+    """Wer darf gerade 2FA einrichten? Rückgabe: (Benutzername, muss den
+    bisherigen Faktor bestätigen?).
+    Ein nur per Passwort bestätigter Login (pending_user) darf ausschließlich
+    die ERSTE Einrichtung machen – nie einen vorhandenen Faktor ersetzen
+    (sonst genügt das Passwort allein, Sicherheits-Audit 2026-10)."""
+    pending = request.session.get("pending_user")
+    if pending:
+        u = users.get(pending) or {}
+        if (not request.session.get("pending_enroll")
+                or (u.get("twofa_enabled") and u.get("totp_secret"))):
+            return None, False
+        return pending, False
+    uname = _user(request)
+    if not uname:
+        return None, False
+    u = users.get(uname) or {}
+    return uname, bool(u.get("twofa_enabled") and u.get("totp_secret"))
+
+
 @router.get("/2fa/setup", response_class=HTMLResponse)
 async def twofa_setup_form(request: Request):
-    uname = request.session.get("pending_user") or _user(request)
+    uname, needs_current = _twofa_setup_user(request)
     if not uname:
         return RedirectResponse("/login", status_code=303)
     secret = request.session.get("enroll_secret")
@@ -2510,16 +2602,24 @@ async def twofa_setup_form(request: Request):
         ctx = dict(title="2FA einrichten", user=None,
                    flash=request.session.pop("flash", None),
                    flash_class=request.session.pop("flash_class", ""))
-    ctx.update(qr=qr, secret=secret)
+    ctx.update(qr=qr, secret=secret, needs_current=needs_current)
     return HTMLResponse(_tpls["twofa_setup"].render(**ctx))
 
 
 @router.post("/2fa/setup")
-async def twofa_setup_save(request: Request, code: str = Form("")):
-    uname = request.session.get("pending_user") or _user(request)
+async def twofa_setup_save(request: Request, code: str = Form(""),
+                           current_code: str = Form("")):
+    uname, needs_current = _twofa_setup_user(request)
     secret = request.session.get("enroll_secret")
     if not uname or not secret:
         return RedirectResponse("/login", status_code=303)
+    if needs_current:
+        old = (users.get(uname) or {}).get("totp_secret") or ""
+        if not old or not pyotp.TOTP(old).verify(
+                current_code.strip().replace(" ", ""), valid_window=1):
+            request.session["flash"], request.session["flash_class"] = \
+                "Bitte zuerst einen gültigen Code aus der bisherigen App eingeben.", "err"
+            return RedirectResponse("/2fa/setup", status_code=303)
     if not pyotp.TOTP(secret).verify(code.strip().replace(" ", ""), valid_window=1):
         request.session["flash"], request.session["flash_class"] = \
             "Code ungültig – bitte aus der App erneut eingeben.", "err"
@@ -2538,6 +2638,10 @@ async def twofa_setup_save(request: Request, code: str = Form("")):
 
 @router.get("/logout")
 async def logout(request: Request):
+    name = request.session.get("user")
+    imp = request.session.get("impersonator")
+    if name and not imp:
+        users.bump_session_epoch(name)   # kopierte Cookies werden ungültig
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -2576,10 +2680,11 @@ async def reset_request_form(request: Request):
 
 
 @router.post("/reset")
-async def reset_request(request: Request, identifier: str = Form("")):
+async def reset_request(request: Request, background: BackgroundTasks,
+                        identifier: str = Form("")):
     u, token = users.create_reset_token(identifier)
     if u and u.get("email") and token:
-        link = f"{request.base_url}reset/{token}"
+        link = f"{_base_url(request)}reset/{token}"
         name = u.get("name") or u["username"]
         subj = "Passwort zurücksetzen – FBE Projektabrechnung"
         text = (f"Hallo {name},\n\nüber diesen Link kannst du dein Passwort neu "
@@ -2593,8 +2698,10 @@ async def reset_request(request: Request, identifier: str = Form("")):
                 "Passwort neu setzen</a></p>"
                 '<p style="color:#64748b;font-size:13px">Nicht angefordert? '
                 "Dann ignoriere diese Mail.</p>")
-        mailer.send(subj, text, html, [u["email"]], label="Passwort-Reset",
-                    actor="System")
+        # Im Hintergrund senden: die Antwortzeit darf nicht verraten, ob das
+        # Konto existiert, und ein langsamer Mailserver blockiert nichts.
+        background.add_task(mailer.send, subj, text, html, [u["email"]],
+                            label="Passwort-Reset", actor="System")
     request.session["flash"] = ("Falls ein Konto mit dieser Angabe existiert, "
                                 "wurde ein Reset-Link per E-Mail gesendet.")
     return RedirectResponse("/login", status_code=303)
@@ -2699,7 +2806,7 @@ async def send_now(request: Request, project: str = Form(""),
         result = mailer.send_report(
             report_subject(rep), render_text(rep), render_html(rep),
             config.REPORT_RECIPIENTS, xlsx, fname,
-            base_url=str(request.base_url), label=project or "alle",
+            base_url=_base_url(request), label=project or "alle",
             actor=_user(request))
         request.session["flash"], request.session["flash_class"] = \
             _delivery_flash(result)
@@ -3009,7 +3116,7 @@ async def versand_send(request: Request, name: str = Form(""),
     xlsx = xlsxout.intervals_xlsx(scope_intervals(s, e, plist), title=subj)
     fname = f"{(name or 'bericht')}_{s:%Y%m%d}.xlsx".replace(" ", "_")
     result = mailer.send_report(subj, text, html, rlist, xlsx, fname,
-                                base_url=str(request.base_url),
+                                base_url=_base_url(request),
                                 label=name or "Versand", actor=_user(request),
                                 message=message)
     request.session["flash"], request.session["flash_class"] = _delivery_flash(result)
@@ -3022,7 +3129,7 @@ async def anleitung(request: Request):
         return r
     admin_secs = []
     if _role(request) == "admin":
-        webhook_url = f"{request.base_url}{config.WEBHOOK_PATH.lstrip('/')}"
+        webhook_url = f"{_base_url(request)}{config.WEBHOOK_PATH.lstrip('/')}"
         admin_secs = docs.admin_sections(webhook_url, config.SHARED_SECRET)
     return HTMLResponse(_tpls["anleitung"].render(
         **_common(request, "help", "Anleitung"),
@@ -3429,13 +3536,14 @@ async def projects_save(request: Request):
 
 def _my_timemoto(request: Request) -> tuple[str, bool]:
     """Effektiver TimeMoto-Name des angemeldeten Nutzers.
-    Rückgabe: (Name, zugeordnet?). Ist kein TimeMoto-Name gepflegt, wird der
-    Anzeigename als Fallback genutzt (passt bei Microsoft-Konten meist)."""
+    Rückgabe: (Name, zugeordnet?). Nur der vom Admin gepflegte TimeMoto-Name
+    zählt. Der Anzeigename ist vom Nutzer selbst änderbar und darf deshalb
+    nie bestimmen, wessen Zeiten man sieht oder bearbeitet (Sicherheits-Audit)."""
     u = users.get(_user(request)) or {}
     tm = (u.get("timemoto_name") or "").strip()
     if tm:
         return tm, True
-    return (request.session.get("name") or _user(request) or "").strip(), False
+    return "", False
 
 
 
@@ -3484,6 +3592,9 @@ async def area_page(request: Request, slug: str, cat: str = ""):
         docs=docs_list, cats=docfiles.categories(slug), cat=cat))
 
 
+MAX_DOKUMENT_BYTES = 50 * 1024 * 1024
+
+
 @router.post("/bereich/{slug}/upload")
 async def area_upload(request: Request, slug: str, title: str = Form(""),
                       category: str = Form(""), file: UploadFile = File(...)):
@@ -3496,8 +3607,18 @@ async def area_upload(request: Request, slug: str, title: str = Form(""),
     target_dir = config.DOC_FILES_DIR / slug
     target_dir.mkdir(parents=True, exist_ok=True)
     stored = target_dir / f"{secrets.token_hex(6)}_{safe}"
+    groesse = 0
     with stored.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+        while chunk := file.file.read(1024 * 1024):
+            groesse += len(chunk)
+            if groesse > MAX_DOKUMENT_BYTES:
+                break
+            out.write(chunk)
+    if groesse > MAX_DOKUMENT_BYTES:
+        stored.unlink(missing_ok=True)
+        request.session["flash"], request.session["flash_class"] = \
+            f"Datei zu groß (max. {MAX_DOKUMENT_BYTES // (1024 * 1024)} MB).", "err"
+        return RedirectResponse(area["url"], status_code=303)
     doc = docfiles.add(slug, title, category, safe, str(stored),
                        stored.stat().st_size, _user(request))
     audit.log(_user(request), "Dokument hochgeladen",
@@ -3706,7 +3827,7 @@ async def meine_zeiten(request: Request):
     sessions, opens = [], []
     if tm:
         start = datetime.now(config.TIMEZONE) - timedelta(days=days)
-        ivs = filter_intervals(start, None, employee=tm)
+        ivs = filter_intervals(start, None, employee_exact=tm)
         sessions = [_session_view(iv) for iv in ivs]
         # Laufende (offene) Buchungen – nur aktuelle, wie im Log
         cutoff = datetime.now(config.TIMEZONE) - timedelta(
@@ -3714,7 +3835,7 @@ async def meine_zeiten(request: Request):
         for o in collect_open(include_no_project=True):
             if o.start.astimezone(config.TIMEZONE) < cutoff:
                 continue
-            if tm.lower() not in (o.employee or "").lower():
+            if tm.casefold() != (o.employee or "").strip().casefold():
                 continue
             opens.append({"project": o.project or "ohne Projekt",
                           "start": o.start.astimezone(config.TIMEZONE)
@@ -3722,7 +3843,7 @@ async def meine_zeiten(request: Request):
     ws, we = this_week_range()
     week_h = _fmt_dur(sum(
         max(iv.duration_hours, 0.0)
-        for iv in filter_intervals(ws, we, employee=tm))) if tm else "0:00 h"
+        for iv in filter_intervals(ws, we, employee_exact=tm))) if tm else "0:00 h"
     miss_desc = sum(1 for s in sessions if not (s.get("description") or "").strip())
     return HTMLResponse(_tpls["meine"].render(
         **_common(request, "meine", "Meine Zeiten"), tm=tm, assigned=assigned,
@@ -3998,6 +4119,8 @@ async def account_submit(request: Request, current: str = Form(""),
             "Die neuen Passwörter stimmen nicht überein.", "err"
     else:
         users.set_password(username, new1)
+        # Diese Sitzung bleibt, alle anderen sind durch die neue Version beendet
+        request.session["epoch"] = int((users.get(username) or {}).get("session_epoch", 0) or 0)
         request.session["flash"] = "Passwort geändert."
     return RedirectResponse("/account", status_code=303)
 
@@ -4010,13 +4133,13 @@ async def users_page(request: Request):
         return r
     return HTMLResponse(_tpls["users"].render(
         **_common(request, "users", "Benutzer"),
-        userlist=users.list_users(), base_url=str(request.base_url),
+        userlist=users.list_users(), base_url=_base_url(request),
         ms_enabled=config.ms_enabled(),
         local_users_enabled=config.LOCAL_USERS_ENABLED))
 
 
 def _send_invite_mail(request: Request, display: str, email: str, token: str) -> bool:
-    link = f"{request.base_url}invite/{token}"
+    link = f"{_base_url(request)}invite/{token}"
     subj = "Einladung zur FBE Projektabrechnung"
     text = (f"Hallo {display},\n\nDu wurdest zur FBE Projektabrechnung "
             f"eingeladen. Lege hier dein Passwort fest (Link {config.INVITE_TTL_DAYS} "
@@ -4075,7 +4198,7 @@ async def users_create(request: Request, username: str = Form(""),
         request.session["flash"], request.session["flash_class"] = \
             "Benutzername leer oder bereits vergeben.", "err"
         return RedirectResponse("/users", status_code=303)
-    link = f"{request.base_url}invite/{token}"
+    link = f"{_base_url(request)}invite/{token}"
     if email.strip() and _send_invite_mail(request, name or username, email.strip(), token):
         request.session["flash"] = f"Einladung an {email.strip()} gesendet (Link 5 Tage gültig)."
     else:
@@ -4143,7 +4266,7 @@ async def users_resend(request: Request, username: str = Form("")):
         request.session["flash"] = f"Einladung erneut an {u['email']} gesendet."
     else:
         request.session["flash"] = (f"Neuer Link (5 Tage): "
-                                    f"{request.base_url}invite/{token}")
+                                    f"{_base_url(request)}invite/{token}")
     return RedirectResponse("/users", status_code=303)
 
 
@@ -4179,6 +4302,7 @@ async def users_impersonate(request: Request, username: str):
     if not request.session.get("impersonator"):
         request.session["impersonator"] = {
             "user": request.session.get("user"),
+            "epoch": request.session.get("epoch", 0),
             "role": request.session.get("role"),
             "name": request.session.get("name"),
             "tk_view": request.session.get("tk_view"),
@@ -4201,12 +4325,13 @@ async def impersonate_stop(request: Request):
     if not imp:
         return RedirectResponse("/start", status_code=303)
     was = _user(request)
-    request.session["user"] = imp.get("user")
-    request.session["role"] = imp.get("role", "user")
-    request.session["name"] = imp.get("name")
-    request.session["tk_view"] = imp.get("tk_view")
-    request.session["tk_edit"] = imp.get("tk_edit")
+    orig = users.get(imp.get("user") or "")
+    if (not was or not orig or orig.get("status") != "active"
+            or int(orig.get("session_epoch", 0) or 0) != int(imp.get("epoch", 0) or 0)):
+        request.session.clear()
+        return RedirectResponse("/login", status_code=303)
     request.session.pop("impersonator", None)
+    _finalize_login(request, orig)
     audit.log(imp.get("user") or "?", "Support: Identität verlassen",
               f"war als {was}")
     request.session["flash"] = "Zurück in deinem Account."
@@ -4325,7 +4450,7 @@ async def reports_send(request: Request, rid: str):
                                          cfg.get("format", "excel"), cfg["name"])
     result = mailer.send_report(subject_grouped(rep), render_grouped_text(rep),
                                 render_grouped_html(rep), cfg["recipients"],
-                                data, fname, base_url=str(request.base_url),
+                                data, fname, base_url=_base_url(request),
                                 label=cfg["name"], actor=_user(request),
                                 message=cfg.get("message", ""),
                                 cc=cfg.get("cc", []), mime=mime)
@@ -4365,6 +4490,7 @@ async def invite_submit(request: Request, token: str, new1: str = Form(""),
     if config.TWOFA_REQUIRED and not u2.get("twofa_enabled"):
         request.session.clear()
         request.session["pending_user"] = u2["username"]
+        request.session["pending_enroll"] = True
         request.session["flash"] = "Konto aktiviert. Bitte jetzt 2FA einrichten."
         return RedirectResponse("/2fa/setup", status_code=303)
     _finalize_login(request, u2)

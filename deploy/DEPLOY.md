@@ -92,9 +92,18 @@ docker logs fbe-caddy --tail 20 | grep -i intern   # Zertifikat erhalten?
 
 ## 4. Webhook in TimeMoto eintragen
 
+Der Webhook nimmt nur Anfragen mit dem Secret aus `deploy/.env`
+(`SHARED_SECRET`) an. Ohne Secret antwortet er mit 503, mit falschem mit 401.
+`sh deploy/einrichten.sh` legt das Secret bei Bedarf an und schreibt die
+fertige URL nach `deploy/timemoto-webhook-url.txt` (nur root):
+
+```bash
+cat /root/projektabrechung/deploy/timemoto-webhook-url.txt
+# https://intern.rss-fb.com/timemoto?secret=…   -> so in TimeMoto eintragen
 ```
-https://intern.rss-fb.com/timemoto
-```
+
+Alternativ kann TimeMoto das Secret als Header `X-Webhook-Secret` oder
+`Authorization: Bearer …` schicken. Bodys über 64 KiB werden abgelehnt (413).
 
 Danach Test-Stempelungen machen und lokal prüfen, was ankommt:
 
@@ -111,6 +120,25 @@ curl http://127.0.0.1:8080/report/preview
 - **Mailversand** später über die `SMTP_*`- und `REPORT_RECIPIENTS`-Variablen
   in `docker-compose.yml`. Solange leer, landet der Bericht nur als Datei in
   `deploy/data/reports/` und im Log.
+
+## Sicherheit (seit Audit 2026-10)
+
+| Variable (`deploy/.env`) | Wirkung |
+|---|---|
+| `SHARED_SECRET` | Pflicht für den TimeMoto-Webhook (siehe oben). |
+| `PUBLIC_BASE_URL` | Basis aller Links in Mails (Reset, Einladung) und Prüfung der Herkunft von Formularen. Standard `https://intern.rss-fb.com`. |
+| `MS_TENANT_ID` | Als **GUID** des eigenen Tenants setzen – dann werden nur Konten aus diesem Tenant angenommen. |
+| `MS_ALLOWED_DOMAINS` | Erlaubte E-Mail-Domains für den Microsoft-Login. |
+| `MAX_UPLOAD_MB` | Größte Anfrage in MB (Standard 60). Caddy begrenzt zusätzlich auf 64 MB. |
+
+- Formulare von fremden Seiten (auch Subdomains von `rss-fb.com`) werden mit
+  403 abgelehnt; Seiten lassen sich nicht in Frames einbetten.
+- Sitzungen laufen nach 12 h ab und enden bei Logout, Passwortwechsel,
+  Deaktivierung oder Rollenänderung sofort (`session_epoch`).
+- `/health` liefert nur noch `{"status":"ok"}`.
+- „Meine Zeiten“ ordnet Buchungen nur noch über den vom Admin gepflegten
+  TimeMoto-Namen zu – Microsoft-Nutzern ohne TimeMoto-Namen bitte einen
+  zuweisen.
 
 ## Update einspielen
 

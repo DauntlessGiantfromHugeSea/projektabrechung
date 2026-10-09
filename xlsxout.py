@@ -14,6 +14,14 @@ import config
 from events import Interval
 
 
+
+def _text_sicher(ws) -> None:
+    """Die zuletzt angehängte Zeile: Texte, die openpyxl als Formel speichern
+    würde (Anfang '='), als reinen Text markieren (Sicherheits-Audit 2026-10)."""
+    for c in ws[ws.max_row]:
+        if c.data_type == "f":
+            c.data_type = "s"
+
 def _fmt_dur(hours: float) -> str:
     m = round(hours * 60)
     return f"{m // 60}:{m % 60:02d}"
@@ -48,6 +56,7 @@ def intervals_xlsx(intervals: list[Interval], title: str = "Bericht") -> bytes:
                    st.strftime("%H:%M"), en.strftime("%H:%M"),
                    _fmt_dur(h), round(h, 2), iv.description or "",
                    "manuell" if iv.source == "manual" else "TimeMoto"])
+        _text_sicher(ws)
 
     ws.append([])
     row = ws.max_row + 1
@@ -64,6 +73,7 @@ def intervals_xlsx(intervals: list[Interval], title: str = "Bericht") -> bytes:
         c.fill = fill
     for emp, h in sorted(per_emp.items(), key=lambda kv: kv[1], reverse=True):
         ws2.append([emp, _fmt_dur(h), round(h, 2)])
+        _text_sicher(ws2)
 
     for col, w in zip("ABCDEFGHI", (12, 22, 30, 8, 8, 14, 13, 50, 10)):
         ws.column_dimensions[col].width = w
@@ -122,6 +132,7 @@ def amprion_xlsx(intervals: list[Interval]) -> bytes:
     for st, nr, name, hours, desc in rows:
         ws.append([st.date(), "", int(nr) if nr.isdigit() else nr, "",
                    name, hours, desc])
+        _text_sicher(ws)
 
     # Legende (Projekt -> Nummer) rechts wie in der Grundlagendatei
     ws.cell(1, 10, "Projekt").font = head

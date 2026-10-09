@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 KONTAKT_STATUS = ("aktiv", "bounce_hart", "bounce_weich", "abgemeldet", "gesperrt")
 ZUSTELLSTATUS = ("zugestellt", "unzustellbar", "soft_bounce", "nicht_zugestellt", "abgemeldet")
@@ -126,6 +126,14 @@ CREATE TABLE IF NOT EXISTS oauth_state (
     erstellt_am TEXT NOT NULL
 );
 
+-- DSGVO-Löschungen, die noch an das Mailing-Tool gehen müssen. Wird nach der
+-- Bestätigung durch das Mailing-Tool sofort geleert (v5).
+CREATE TABLE IF NOT EXISTS mailing_loeschauftrag (
+    email           TEXT PRIMARY KEY,
+    sperre_behalten INTEGER NOT NULL DEFAULT 1,
+    erstellt_am     TEXT NOT NULL
+);
+
 -- Nur während einer DSGVO-Löschung befüllt (innerhalb derselben Transaktion).
 CREATE TABLE IF NOT EXISTS dsgvo_freigabe (
     email TEXT PRIMARY KEY
@@ -195,7 +203,8 @@ def connect(db_path: str | os.PathLike) -> sqlite3.Connection:
     if version < SCHEMA_VERSION:
         # Schema komplett oder gar nicht anlegen bzw. aktualisieren.
         migration = ""
-        # v3/v4 (mail_eingang, einstellungen, oauth_state) entstehen über
+        # v3/v4/v5 (mail_eingang, einstellungen, oauth_state,
+        # mailing_loeschauftrag) entstehen über
         # CREATE TABLE IF NOT EXISTS im SCHEMA.
         if version == 1:  # v2: wer hat importiert/gelöscht (Server-Betrieb)
             migration = "ALTER TABLE import_log ADD COLUMN benutzer TEXT NOT NULL DEFAULT '';\n"

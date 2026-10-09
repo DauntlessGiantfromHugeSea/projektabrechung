@@ -21,6 +21,7 @@ Endpoints:
   GET  /report/inspect      -> zeigt, welche Felder aus den Events erkannt werden
 """
 
+import hmac
 import json
 import os
 from contextlib import asynccontextmanager
@@ -60,6 +61,78 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FBE Intranet", lifespan=lifespan)
 
+# Schutz gegen untergeschobene Formular-Anfragen (CSRF) von anderen Seiten –
+# auch von Nachbar-Subdomains unter rss-fb.com, die SameSite=Lax nicht
+# abhält – und gegen Einbetten in fremde Frames (Sicherheits-Audit 2026-10).
+_SICHERE_METHODEN = {"GET", "HEAD", "OPTIONS"}
+
+
+@app.middleware("http")
+async def _sicherheits_middleware(request: Request, call_next):
+    if (request.method not in _SICHERE_METHODEN
+            and request.url.path != config.WEBHOOK_PATH):
+        site = request.headers.get("sec-fetch-site")
+        origin = (request.headers.get("origin") or "").rstrip("/")
+        eigene = config.PUBLIC_BASE_URL.rstrip("/")
+        if site is not None:
+            if site not in ("same-origin", "none"):
+                return PlainTextResponse(
+                    "Anfrage von einer fremden Seite abgelehnt.", status_code=403)
+        elif origin and origin != eigene:
+            return PlainTextResponse(
+                "Anfrage von einer fremden Seite abgelehnt.", status_code=403)
+    response = await call_next(request)
+    h = response.headers
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "same-origin")
+    return response
+
+
+# Obergrenze fuer Request-Bodys. Starlette parst Formulare/Uploads, bevor der
+# Handler die Anmeldung prueft - ohne Grenze koennte also jeder beliebig
+# grosse Dateien auf die Platte spoolen (Sicherheits-Audit 2026-10).
+MAX_BODY_BYTES = int(os.getenv("MAX_UPLOAD_MB", "60")) * 1024 * 1024
+
+
+class _BodyLimit:
+    def __init__(self, app, limit: int):
+        self.app, self.limit = app, limit
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        for k, v in scope.get("headers", []):
+            if k == b"content-length":
+                try:
+                    zu_gross = int(v) > self.limit
+                except ValueError:
+                    zu_gross = True
+                if zu_gross:
+                    return await PlainTextResponse(
+                        "Anfrage zu groß.", status_code=413)(scope, receive, send)
+        gelesen = 0
+
+        async def begrenzt():
+            nonlocal gelesen
+            msg = await receive()
+            if msg["type"] == "http.request":
+                gelesen += len(msg.get("body", b""))
+                if gelesen > self.limit:
+                    raise _ZuGross()
+            return msg
+
+        try:
+            await self.app(scope, begrenzt, send)
+        except _ZuGross:
+            await PlainTextResponse("Anfrage zu groß.", status_code=413)(scope, receive, send)
+
+
+class _ZuGross(Exception):
+    pass
+
+
 # Session-Cookie fuer das Web-Login.
 app.add_middleware(
     SessionMiddleware,
@@ -67,7 +140,11 @@ app.add_middleware(
     session_cookie="projektabrechnung_session",
     https_only=config.SESSION_HTTPS_ONLY,
     same_site="lax",
+    max_age=12 * 3600,   # Sitzung läuft nach 12 h ab (vorher 14 Tage)
 )
+
+# Als aeusserste Schicht, damit das Limit vor jedem Parsen greift.
+app.add_middleware(_BodyLimit, limit=MAX_BODY_BYTES)
 
 # Web-Interface (Login + Dashboard) einbinden.
 app.include_router(web.router)
@@ -79,25 +156,29 @@ def _now() -> str:
 
 @app.get("/health")
 async def health():
-    """Health-Check + kurzer Status zu Scheduler/Mailkonfiguration."""
-    return {
-        "status": "ok",
-        "time": _now(),
-        "scheduler_enabled": config.SCHEDULER_ENABLED,
-        "mail_configured": config.mail_configured(),
-        "brevo_api": bool(config.BREVO_API_KEY),
-        "smtp_host_set": bool(config.SMTP_HOST),
-        "smtp_host": config.SMTP_HOST or "(leer)",
-        "smtp_from": config.SMTP_FROM or "(leer)",
-        "default_recipients": config.REPORT_RECIPIENTS,
-        "project_filter": config.PROJECT_CODE or "(alle)",
-    }
+    """Health-Check. Bewusst ohne Konfigurationsdetails (Empfänger, SMTP),
+    weil der Endpunkt öffentlich erreichbar ist (Sicherheits-Audit 2026-10)."""
+    return {"status": "ok"}
+
+
+_WEBHOOK_MAX_BYTES = 64 * 1024
+# Nur unkritische Header speichern – nie das Secret oder Authorization.
+_WEBHOOK_HEADER_ALLOW = {"content-type", "user-agent", "x-forwarded-for",
+                         "x-real-ip", "x-request-id"}
 
 
 @app.api_route(config.WEBHOOK_PATH, methods=["POST", "GET", "PUT"])
 async def receive(request: Request):
     """Webhook-Empfang -- identisch zur Erkundungsphase: alles mitschreiben."""
+    # Größenlimit (Sicherheits-Audit 2026-10): TimeMoto-Events sind klein.
+    try:
+        if int(request.headers.get("content-length") or 0) > _WEBHOOK_MAX_BYTES:
+            return JSONResponse({"status": "too large"}, status_code=413)
+    except ValueError:
+        return JSONResponse({"status": "bad request"}, status_code=400)
     raw = await request.body()
+    if len(raw) > _WEBHOOK_MAX_BYTES:
+        return JSONResponse({"status": "too large"}, status_code=413)
     headers = dict(request.headers)
 
     try:
@@ -105,40 +186,44 @@ async def receive(request: Request):
     except Exception:
         parsed = None
 
-    # Secret-Pruefung: Wir wissen noch nicht, in welchem Header TimeMoto das
-    # Secret schickt -> mehrere uebliche Stellen pruefen. Alle Header werden
-    # ohnehin geloggt, sodass wir die echte Stelle im ersten Event sehen.
-    secret_ok = None
-    if config.SHARED_SECRET:
-        auth = headers.get("authorization", "")
-        candidate = (
-            headers.get("x-webhook-secret")
-            or headers.get("x-api-key")
-            or headers.get("x-timemoto-secret")
-            or headers.get("secret")
-            or (auth.removeprefix("Bearer ").removeprefix("bearer ").strip() or None)
-            or request.query_params.get("secret")
-            or ""
-        )
-        secret_ok = candidate == config.SHARED_SECRET
+    # Secret-Pruefung (Sicherheits-Audit 2026-10): Ohne gueltiges Secret wird
+    # NICHTS in die Abrechnungsdaten geschrieben. Ist kein SHARED_SECRET
+    # konfiguriert, nimmt der Webhook gar nichts an (503) – sonst koennte
+    # jeder anonym Buchungen anlegen oder loeschen.
+    if not config.SHARED_SECRET:
+        print("[warn] Webhook abgelehnt: SHARED_SECRET ist nicht gesetzt "
+              "(deploy/.env).", flush=True)
+        return JSONResponse({"status": "webhook disabled"}, status_code=503)
+    auth = headers.get("authorization", "")
+    candidate = (
+        headers.get("x-webhook-secret")
+        or headers.get("x-api-key")
+        or headers.get("x-timemoto-secret")
+        or headers.get("secret")
+        or (auth.removeprefix("Bearer ").removeprefix("bearer ").strip() or None)
+        or request.query_params.get("secret")
+        or ""
+    )
+    secret_ok = hmac.compare_digest(candidate.encode("utf-8"),
+                                    config.SHARED_SECRET.encode("utf-8"))
+    if not secret_ok:
+        print(f"[warn] Webhook ohne gueltiges Secret abgelehnt "
+              f"({request.method} {request.url.path})", flush=True)
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
 
     record = {
         "received_at": _now(),
         "method": request.method,
         "path": request.url.path,
-        "query": dict(request.query_params),
-        "headers": headers,
+        "query": {k: v for k, v in request.query_params.items() if k != "secret"},
+        "headers": {k: v for k, v in headers.items() if k in _WEBHOOK_HEADER_ALLOW},
         "secret_ok": secret_ok,
-        "body_raw": raw.decode("utf-8", errors="replace"),
+        "body_raw": raw.decode("utf-8", errors="replace") if parsed is None else "",
         "body_json": parsed,
     }
 
-    print("=" * 70, flush=True)
-    print(f"[{record['received_at']}] {record['method']} {record['path']}", flush=True)
-    if parsed is not None:
-        print(json.dumps(parsed, indent=2, ensure_ascii=False), flush=True)
-    else:
-        print("RAW:", record["body_raw"], flush=True)
+    print(f"[{record['received_at']}] {record['method']} {record['path']} "
+          f"({len(raw)} Bytes)", flush=True)
 
     try:
         config.LOG_FILE.parent.mkdir(parents=True, exist_ok=True)

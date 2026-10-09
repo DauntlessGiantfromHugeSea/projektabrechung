@@ -1,4 +1,7 @@
-fastapi==0.115.6
+fastapi==0.143.0
+# Starlette >= 1.0: alte Versionen verarbeiten Range-Header quadratisch
+# (DoS über /v/{slug}/foto, Sicherheits-Audit 2026-10)
+starlette==1.7.0
 uvicorn[standard]==0.34.0
 apscheduler==3.11.0
 tzdata==2024.2

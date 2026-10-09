@@ -140,12 +140,14 @@ def scope_intervals(start: datetime, end: datetime,
 
 def filter_intervals(start: datetime | None = None, end: datetime | None = None,
                      project: str = "", employee: str = "",
-                     include_no_project: bool = False) -> list[Interval]:
+                     include_no_project: bool = False,
+                     employee_exact: str = "") -> list[Interval]:
     """Alle Arbeitsintervalle, optional gefiltert nach Zeitraum, Projekt
     (Teilstring) und Mitarbeiter (Teilstring). Neueste zuerst -- fuer die
     Log-/Ansichtsseite."""
     proj = (project or "").strip().lower()
     emp = (employee or "").strip().lower()
+    exact = (employee_exact or "").strip().casefold()
     out: list[Interval] = []
     for iv in collect_intervals(include_no_project=include_no_project):
         ivp = iv.start.astimezone(config.TIMEZONE)
@@ -156,6 +158,8 @@ def filter_intervals(start: datetime | None = None, end: datetime | None = None,
         if proj and (not iv.project or proj not in iv.project.lower()):
             continue
         if emp and emp not in iv.employee.lower():
+            continue
+        if exact and (iv.employee or "").strip().casefold() != exact:
             continue
         out.append(iv)
     out.sort(key=lambda iv: iv.start, reverse=True)

@@ -152,11 +152,21 @@ def _parse_time(value: Any, tz_name: str | None = None) -> datetime | None:
     if value is None:
         return None
     # Epoch (Sekunden oder Millisekunden)
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
         ts = float(value)
+        if ts != ts or ts in (float("inf"), float("-inf")):   # NaN/Inf
+            return None
         if ts > 1e12:  # sieht nach Millisekunden aus
             ts /= 1000.0
-        return datetime.fromtimestamp(ts, tz=timezone.utc)
+        # Nur plausible Zeitpunkte (1990–2100); alles andere ist kaputt/bösartig
+        if not (631152000 <= ts <= 4102444800):
+            return None
+        try:
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
     if isinstance(value, str):
         s = value.strip()
         if not s:
@@ -212,9 +222,14 @@ def load_records(log_file: Path | None = None) -> list[dict[str, Any]]:
             if not line:
                 continue
             try:
-                records.append(json.loads(line))
+                rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            # Events, die ohne gueltiges Secret angenommen wurden (Altbestand
+            # vor dem Sicherheits-Fix), zaehlen nicht fuer die Abrechnung.
+            if isinstance(rec, dict) and rec.get("secret_ok") is False:
+                continue
+            records.append(rec)
     return records
 
 
@@ -257,6 +272,17 @@ def delete_interval(interval_id: str, log_file: Path | None = None) -> int:
 
 
 def normalize(record: dict[str, Any]) -> Punch | None:
+    """Ein Roh-Event in eine Stempelung übersetzen. Ein einzelner kaputter
+    Datensatz darf nie die gesamte Auswertung lahmlegen (Sicherheits-Audit
+    2026-10) -> Fehler werden pro Datensatz abgefangen."""
+    try:
+        return _normalize(record)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[events] Datensatz übersprungen: {type(exc).__name__}", flush=True)
+        return None
+
+
+def _normalize(record: dict[str, Any]) -> Punch | None:
     """Ein gespeichertes Webhook-Record in einen Punch ueberfuehren.
 
     Liefert None, wenn kein verwertbarer Zeitpunkt gefunden wurde.

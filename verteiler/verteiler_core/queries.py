@@ -5,6 +5,8 @@ Export für Reach, Dashboard-Kennzahlen und Kontaktpflege
 
 from __future__ import annotations
 
+import os
+
 import sqlite3
 from datetime import date, timedelta
 
@@ -24,6 +26,10 @@ SEGMENTE = {
 VERSANDFAEHIG = ("aktiv", "bounce_weich")
 
 _NICHT_GESPERRT = ("NOT EXISTS (SELECT 1 FROM suppression_list s WHERE s.email = c.email)")
+# Aus dem Postfach übernommene Adressen haben keine Einwilligung. Sie werden
+# erst versandfähig, wenn eine Einwilligung eingetragen ist (Sicherheits-Audit
+# 2026-10: sonst kann jeder Fremde per Mail Adressen in den Newsletter bringen).
+_MIT_EINWILLIGUNG = ("NOT (c.quelle LIKE 'Postfach:%' AND c.einwilligung_art = '')")
 _ENGAGIERT_SEIT = ("EXISTS (SELECT 1 FROM campaign_events e JOIN campaigns k ON k.id = e.campaign_id "
                    "WHERE e.contact_id = c.id AND (e.geoeffnet > 0 OR e.geklickt > 0) "
                    "AND k.gesendet_am >= :stichtag)")
@@ -55,7 +61,8 @@ def segment_kontakte(conn: sqlite3.Connection, segment: str, tage: int = 90,
     for i, s in enumerate(VERSANDFAEHIG):
         params[f"s{i}"] = s
         status_platzhalter.append(f":s{i}")
-    bedingungen = [f"c.status IN ({', '.join(status_platzhalter)})", _NICHT_GESPERRT]
+    bedingungen = [f"c.status IN ({', '.join(status_platzhalter)})", _NICHT_GESPERRT,
+                   _MIT_EINWILLIGUNG]
     if segment == "engagierte":
         bedingungen.append(_ENGAGIERT_SEIT)
     elif segment == "inaktive":
@@ -260,8 +267,13 @@ def adresse_sperren(db_path, email_roh: str, grund: str = "manuell", benutzer: s
         conn.close()
 
 
+def _mailing_aktiv() -> bool:
+    return len((os.environ.get("MAILING_SYNC_TOKEN") or "").strip()) >= 32
+
+
 def kontakt_dsgvo_loeschen(db_path, contact_id: int, bestaetigung: str,
-                           sperre_behalten: bool = True, benutzer: str = "") -> dict:
+                           sperre_behalten: bool = True, benutzer: str = "",
+                           an_mailing: bool | None = None) -> dict:
     """Kontakt vollständig löschen (DSGVO Art. 17).
 
     - bestaetigung muss exakt der E-Mail-Adresse des Kontakts entsprechen.
@@ -270,8 +282,13 @@ def kontakt_dsgvo_loeschen(db_path, contact_id: int, bestaetigung: str,
       hereinkommt. Gespeichert bleibt dann nur die E-Mail-Adresse.
     - sperre_behalten=False: Auch ein Sperrlisteneintrag wird entfernt.
     Kampagnenereignisse des Kontakts werden mitgelöscht.
+    - an_mailing (Standard: wenn MAILING_SYNC_TOKEN gesetzt ist): Die Löschung
+      wird für das Mailing-Tool vorgemerkt und beim nächsten Abgleich dort
+      ebenfalls ausgeführt; danach verschwindet die Vormerkung.
     Hinweis: Ältere Backups im Ordner backups/ enthalten den Kontakt weiterhin.
     """
+    if an_mailing is None:
+        an_mailing = _mailing_aktiv()
     conn = db.connect(db_path)
     try:
         with db.transaction(conn):
@@ -292,10 +309,15 @@ def kontakt_dsgvo_loeschen(db_path, contact_id: int, bestaetigung: str,
                 sperre_entfernt = conn.execute("DELETE FROM suppression_list WHERE email = ?",
                                                (email,)).rowcount
             conn.execute("DELETE FROM dsgvo_freigabe WHERE email = ?", (email,))
+            if an_mailing:
+                conn.execute("INSERT OR REPLACE INTO mailing_loeschauftrag "
+                             "(email, sperre_behalten, erstellt_am) VALUES (?, ?, ?)",
+                             (email, 1 if sperre_behalten else 0, db.jetzt()))
             # Protokoll ohne personenbezogene Daten.
             _log(conn, "dsgvo_loeschung", "", 0, 0, 0,
                  {"ereignisse_geloescht": events, "sperre_behalten": sperre_behalten,
-                  "sperre_entfernt": sperre_entfernt}, benutzer)
-        return {"ereignisse_geloescht": events, "sperre_behalten": sperre_behalten}
+                  "sperre_entfernt": sperre_entfernt, "an_mailing": an_mailing}, benutzer)
+        return {"ereignisse_geloescht": events, "sperre_behalten": sperre_behalten,
+                "an_mailing": an_mailing}
     finally:
         conn.close()
