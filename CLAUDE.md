@@ -17,8 +17,9 @@
 - Deploy: `https://intern.rss-fb.com` hinter dem **Caddy-Systemdienst** des
   Servers (`/etc/caddy/Caddyfile`, Caddy 2.6, Apps über `127.0.0.1:<port>`).
   Der Container `fbe-caddy` bekommt keinen Verkehr.
-- **Pfad auf dem Server:** `/root/projektabrechung/` (Update: dort
-  `git pull origin main`, dann in `deploy/` `docker compose up --build -d`).
+- **Pfad auf dem Server:** `/root/projektabrechung/`. Update/Einrichtung von
+  Intranet, Verteiler und Mailing-Tool in einem Schritt:
+  `cd /root/projektabrechung && git pull origin main && sh deploy/einrichten.sh`.
 - Hauptbranch: `main` (der frühere Entwicklungs-Branch
   `claude/relaxed-hawking-VJjx3` ist darin aufgegangen).
 - **E-Mail-Verteiler** (`verteiler/`): eigener Container `verteiler`

@@ -119,6 +119,20 @@ cd /root/projektabrechung && git pull origin main
 cd deploy && docker compose up --build -d
 ```
 
+## Alles auf einmal einrichten/aktualisieren (empfohlen)
+
+```bash
+cd /root/projektabrechung && git pull origin main
+sh deploy/einrichten.sh
+```
+
+Das Skript aktualisiert Intranet, Verteiler **und** Mailing-Tool, legt das
+gemeinsame Abgleich-Token an (nie angezeigt, Backups der `.env`-Dateien),
+richtet Caddy ein, schaltet den Abgleich mit dem Mailing-Tool ein, führt ihn
+einmal aus und prüft am Ende alles. Es bricht ab, bevor es etwas überschreibt,
+wenn auf dem Server Dateien von Hand geändert wurden. Gefahrlos mehrfach
+ausführbar, auch für künftige Updates.
+
 ## E-Mail-Verteiler (`/verteiler/`)
 
 Der Verteiler (Ordner `verteiler/`) läuft als zweiter Container `verteiler`
