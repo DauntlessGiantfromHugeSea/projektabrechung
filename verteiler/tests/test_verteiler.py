@@ -582,6 +582,12 @@ class FakeMicrosoft:
 
             def do_POST(self):
                 felder = dict(up.parse_qsl(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()))
+                if felder.get("grant_type") == "client_credentials":
+                    ok, grund = fake.assertion_pruefen(felder, self.path)
+                    if not ok:
+                        return self._json(401, {"error": "invalid_client",
+                                                "error_description": f"AADSTS700027: {grund}"})
+                    return self._json(200, {"access_token": "tok", "expires_in": 3599})
                 if felder.get("client_secret") != "geheim":
                     return self._json(401, {"error": "invalid_client"})
                 if "offline_access" not in felder.get("scope", ""):
@@ -605,6 +611,10 @@ class FakeMicrosoft:
                     return self._json(401, {"error": {"code": "InvalidAuthenticationToken"}})
                 if self.path.startswith("/v1.0/me"):
                     return self._json(200, {"mail": "D.Model@fb-eng.de"})
+                if self.path.startswith("/v1.0/users/verteiler@fb-eng.de/mailFolders/inbox?"):
+                    if not fake.zugriff_erlaubt:
+                        return self._json(403, {"error": {"code": "ErrorAccessDenied"}})
+                    return self._json(200, {"totalItemCount": len(fake.mails)})
                 if "/users/verteiler@fb-eng.de/mailFolders/inbox/messages" not in self.path:
                     return self._json(404, {"error": {"code": "ErrorItemNotFound"}})
                 if not fake.zugriff_erlaubt:
@@ -621,6 +631,42 @@ class FakeMicrosoft:
         self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
         self.basis = f"http://127.0.0.1:{self.server.server_port}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    zert_pem = b""          # öffentliches Zertifikat, das "in Entra hochgeladen" wurde
+    tenant = "11111111-2222-3333-4444-555555555555"
+    client = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    def assertion_pruefen(self, felder, pfad):
+        import base64
+        import time as _t
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
+        def dec(t):
+            return base64.urlsafe_b64decode(t + "=" * (-len(t) % 4))
+        if felder.get("client_assertion_type") != "urn:ietf:params:oauth:client-assertion-type:jwt-bearer":
+            return False, "assertion_type"
+        if not self.zert_pem:
+            return False, "kein Zertifikat hinterlegt"
+        k, i, sig = felder["client_assertion"].split(".")
+        kopf, inhalt = json.loads(dec(k)), json.loads(dec(i))
+        zert = x509.load_pem_x509_certificate(self.zert_pem)
+        try:
+            zert.public_key().verify(dec(sig), f"{k}.{i}".encode(), padding.PKCS1v15(), hashes.SHA256())
+        except Exception:
+            return False, "Signatur"
+        if dec(kopf["x5t"]) != zert.fingerprint(hashes.SHA1()):
+            return False, "x5t"
+        if inhalt["aud"] != f"{self.basis}/{self.tenant}/oauth2/v2.0/token" or f"/{self.tenant}/" not in pfad:
+            return False, "aud"
+        if inhalt["iss"] != self.client or inhalt["sub"] != self.client or felder.get("client_id") != self.client:
+            return False, "iss"
+        if not inhalt["nbf"] <= _t.time() <= inhalt["exp"] or inhalt["exp"] - inhalt["iat"] > 3600:
+            return False, "Zeit"
+        if felder.get("scope") != "https://graph.microsoft.com/.default":
+            return False, "scope"
+        return True, ""
 
     def app(self, secret="geheim"):
         from verteiler_core import postfach
@@ -659,6 +705,7 @@ class TestPostfach(Basis):
                        "Kein weiterer Kontakt. image001.png@01DA1234.5678ABCD", betreff="Anfrage"),
         ])
         self.speicher = postfach.TokenSpeicher(Path(self.tmp.name) / "token.json")
+        postfach.zertifikat_einstellungen_speichern(self.dbp, "login", "", "", "admin")  # Login-Variante
 
     def tearDown(self):
         self.ms.stop()
@@ -854,3 +901,75 @@ class TestMailing(Basis):
             hintergrund.ein_durchlauf(str(self.dbp), str(self.bak))
         self.assertEqual(len(self.fake.anfragen), 1)
         self.assertEqual(self.gesperrt("bestand01@example.org"), "abgemeldet")
+
+
+class TestZertifikat(Basis):
+    def setUp(self):
+        super().setUp()
+        from verteiler_core import postfach, zertifikat
+        self.pf, self.zt = postfach, zertifikat
+        self.lade_bestand_und_sperrliste()
+        self.ms = FakeMicrosoft([
+            graph_mail(1, ("Kunde, Karl", "karl@kunde.de"), [("Verteiler", "verteiler@fb-eng.de")], [],
+                       "Bitte auch info@stadtwerke.de"),
+        ])
+        self.dateien = zertifikat.Dateien(Path(self.tmp.name) / "z.key", Path(self.tmp.name) / "z.pem")
+
+    def tearDown(self):
+        self.ms.stop()
+        super().tearDown()
+
+    def zugang(self):
+        return self.zt.AppZugang(tenant_id=self.ms.tenant, client_id=self.ms.client, dateien=self.dateien,
+                                 login_url=self.ms.basis, graph_url=self.ms.basis + "/v1.0")
+
+    def test_erzeugen_und_dateirechte(self):
+        import os
+        import stat
+        info = self.zt.erzeugen(self.dateien)
+        self.assertEqual(stat.S_IMODE(os.stat(self.dateien.schluessel).st_mode), 0o600)
+        self.assertEqual(len(info.fingerabdruck), 40)
+        self.assertFalse(info.laeuft_bald_ab)
+        oeffentlich = self.zt.oeffentlicher_teil(self.dateien)
+        self.assertIn(b"BEGIN CERTIFICATE", oeffentlich)
+        self.assertNotIn(b"PRIVATE KEY", oeffentlich)
+        with self.assertRaises(self.zt.ZertifikatFehler):   # nicht versehentlich überschreiben
+            self.zt.erzeugen(self.dateien)
+        neu = self.zt.erzeugen(self.dateien, ersetzen=True)
+        self.assertNotEqual(neu.fingerabdruck, info.fingerabdruck)
+
+    def test_anmeldung_und_abruf_per_zertifikat(self):
+        self.zt.erzeugen(self.dateien)
+        self.ms.zert_pem = self.zt.oeffentlicher_teil(self.dateien)      # "in Entra hochgeladen"
+        self.pf.einstellungen_speichern(self.dbp, "verteiler@fb-eng.de", "fb-eng.de", True, "admin")
+        self.pf.zertifikat_einstellungen_speichern(self.dbp, "zertifikat", self.ms.tenant, self.ms.client, "admin")
+        with self.conn() as c:
+            cfg = self.pf.einstellungen_lesen(c)
+        self.assertEqual((cfg.modus, cfg.zert_client_id), ("zertifikat", self.ms.client))
+        self.assertIn("Posteingang", self.pf.verbindung_testen(self.dbp, zugang=self.zugang()))
+        e = self.pf.abrufen(self.dbp, self.bak, zugang=self.zugang())
+        self.assertEqual((e.mails, e.neu), (1, 2))
+        self.assertIsNone(self.pf.TokenSpeicher(Path(self.tmp.name) / "token.json").laden())  # kein Login nötig
+
+    def test_falsches_zertifikat_abgelehnt(self):
+        self.zt.erzeugen(self.dateien)
+        anderes = self.zt.Dateien(Path(self.tmp.name) / "x.key", Path(self.tmp.name) / "x.pem")
+        self.zt.erzeugen(anderes)
+        self.ms.zert_pem = self.zt.oeffentlicher_teil(anderes)          # in Entra steht ein anderes
+        self.pf.einstellungen_speichern(self.dbp, "verteiler@fb-eng.de", "", True, "admin")
+        self.pf.zertifikat_einstellungen_speichern(self.dbp, "zertifikat", self.ms.tenant, self.ms.client, "admin")
+        with self.assertRaises(self.pf.PostfachFehler) as ctx:
+            self.pf.verbindung_testen(self.dbp, zugang=self.zugang())
+        self.assertIn("nicht (mehr) hinterlegt", str(ctx.exception))
+        self.assertNotIn("PRIVATE", str(ctx.exception))
+
+    def test_unvollstaendig_und_ungueltige_ids(self):
+        with self.assertRaises(self.pf.PostfachFehler):
+            self.pf.zertifikat_einstellungen_speichern(self.dbp, "zertifikat", "organizations", "", "admin")
+        self.pf.einstellungen_speichern(self.dbp, "verteiler@fb-eng.de", "", True, "admin")
+        with self.assertRaises(self.pf.PostfachFehler) as ctx:
+            self.pf.verbindung_testen(self.dbp, zugang=self.zugang())   # noch kein Zertifikat
+        self.assertIn("Zertifikat", str(ctx.exception))
+        befehle = self.zt.powershell_befehle(self.ms.client, "verteiler@fb-eng.de")
+        self.assertIn("PrimarySmtpAddress -eq 'verteiler@fb-eng.de'", befehle)
+        self.assertIn('-Role "Application Mail.Read"', befehle)

@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from verteiler_core import auth, db, imports, mailing, postfach, queries
+from verteiler_core import auth, db, imports, mailing, postfach, queries, zertifikat
 from verteiler_core.fileio import DateiFehler, lese_datei
 from verteiler_core.normalize import REPORT_ZIELE, spalte_erkennen
 
@@ -642,6 +642,98 @@ def microsoft_ruecksprung():
     st.session_state["seite"] = "Postfach"
 
 
+def postfach_login(app_ms, speicher, status):
+    if not app_ms.konfiguriert:
+        st.error("Die Microsoft-Anmeldung des Intranets ist für den Verteiler nicht freigeschaltet "
+                 "(MS_CLIENT_ID/MS_CLIENT_SECRET/MS_TENANT_ID). Siehe deploy/DEPLOY.md.")
+    elif status["konto"] or speicher.laden():
+        st.success(f"Verbunden mit {code(status['konto'] or 'Microsoft-Konto')} "
+                   f"(seit {md(status['verbunden_am'])}, durch {code(status['verbunden_von'] or '–')}).")
+        if status["fehler"]:
+            st.error(md(status["fehler"]))
+        sp = st.columns(3)
+        if sp[0].button("Verbindung trennen"):
+            postfach.trennen(DB_PFAD, speicher, BENUTZER)
+            st.session_state["meldung"] = "Verbindung zu Microsoft getrennt."
+            st.rerun()
+        with sp[1]:
+            st.link_button("Neu verbinden", postfach.verbinden_url(DB_PFAD, app_ms, BENUTZER))
+    else:
+        st.caption("Melde dich mit dem Microsoft-Konto an, das Zugriff auf das Verteiler-Postfach hat, und "
+                   "stimme dem **Lesezugriff** zu. Nutzt die App des Intranet-Logins; dort muss die "
+                   "Umleitungs-URI `https://intern.rss-fb.com/verteiler/` eingetragen sein.")
+        try:
+            st.link_button("Mit Microsoft verbinden", postfach.verbinden_url(DB_PFAD, app_ms, BENUTZER),
+                           type="primary")
+        except postfach.PostfachFehler as exc:
+            st.error(str(exc))
+
+
+def postfach_zertifikat(cfg):
+    try:
+        z = zertifikat.info()
+    except zertifikat.ZertifikatFehler as exc:
+        st.error(str(exc))
+        z = None
+
+    st.markdown("**a) Zertifikat**")
+    if z is None:
+        st.caption("Der Verteiler erzeugt ein Schlüsselpaar. Der private Schlüssel bleibt auf dem Server "
+                   "(nicht in der Datenbank, nicht in Backups); du lädst nur den öffentlichen Teil zu Microsoft hoch.")
+        if st.button("Zertifikat erzeugen", type="primary"):
+            try:
+                zertifikat.erzeugen()
+                with verbindung() as c, db.transaction(c):
+                    imports._log(c, "zertifikat_erzeugt", "", 0, 0, 0, {}, BENUTZER)
+                st.session_state["meldung"] = "Zertifikat erzeugt."
+                st.rerun()
+            except zertifikat.ZertifikatFehler as exc:
+                st.error(str(exc))
+    else:
+        (st.warning if z.laeuft_bald_ab else st.success)(
+            f"Zertifikat vorhanden – Fingerabdruck {code(z.fingerabdruck)}, gültig bis "
+            f"{md(z.gueltig_bis[:10])}.")
+        st.download_button("Öffentliches Zertifikat (.cer) herunterladen", zertifikat.oeffentlicher_teil(),
+                           file_name="fbe-verteiler-postfach.cer", mime="application/x-x509-ca-cert")
+        with st.expander("Zertifikat neu erzeugen (z. B. kurz vor Ablauf)"):
+            st.caption("Danach muss das neue Zertifikat in Entra hochgeladen werden, sonst klappt die Anmeldung "
+                       "nicht mehr. Am besten erst hochladen, dann das alte in Entra löschen.")
+            if st.checkbox("Ja, neues Zertifikat erzeugen", key="zert_neu_ok") and st.button("Neu erzeugen"):
+                zertifikat.erzeugen(ersetzen=True)
+                with verbindung() as c, db.transaction(c):
+                    imports._log(c, "zertifikat_erneuert", "", 0, 0, 0, {}, BENUTZER)
+                st.session_state["meldung"] = "Neues Zertifikat erzeugt – bitte in Entra hochladen."
+                st.rerun()
+
+    st.markdown("**b) In Microsoft Entra**")
+    st.markdown(
+        "1. Entra Admin Center → *App-Registrierungen* → **Neue Registrierung** „FBE Verteiler Postfach“ "
+        "(nur dieses Verzeichnis, keine Umleitungs-URI).\n"
+        "2. In der App → *Zertifikate & Geheimnisse* → *Zertifikate* → **Zertifikat hochladen** → die eben "
+        "heruntergeladene `.cer`-Datei.\n"
+        "3. **Keine** API-Berechtigung „Mail.Read“ in der App eintragen – die gälte für *alle* Postfächer. "
+        "Den Zugriff auf genau ein Postfach gibt der Exchange-Befehl unten.\n"
+        "4. Aus der *Übersicht* die beiden IDs hier eintragen:")
+    with st.form("zert_ids"):
+        a, b = st.columns(2)
+        tenant = a.text_input("Verzeichnis-ID (Mandanten-ID)", cfg.zert_tenant_id,
+                              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+        client = b.text_input("Anwendungs-ID (Client-ID)", cfg.zert_client_id,
+                              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+        if st.form_submit_button("IDs speichern"):
+            try:
+                postfach.zertifikat_einstellungen_speichern(DB_PFAD, "zertifikat", tenant, client, BENUTZER)
+                st.session_state["meldung"] = "IDs gespeichert."
+                st.rerun()
+            except postfach.PostfachFehler as exc:
+                st.error(str(exc))
+
+    st.markdown("**c) Zugriff auf genau dieses Postfach erlauben** (einmalig, Exchange Online PowerShell als Admin)")
+    st.caption("Die Objekt-ID steht in Entra unter *Unternehmensanwendungen* → „FBE Verteiler Postfach“ "
+               "(nicht die der App-Registrierung). Die Rechte können bis zu einer Stunde brauchen.")
+    st.code(zertifikat.powershell_befehle(cfg.zert_client_id, cfg.postfach), language="powershell")
+
+
 def seite_postfach():
     st.header("Kontakte aus dem Postfach")
     meldung_zeigen()
@@ -660,31 +752,19 @@ def seite_postfach():
              "werden ausgewertet: Alle Adressen aus **Absender, An, CC und dem Mailtext** werden als "
              "Kontakt übernommen.")
 
-    st.subheader("1. Mit Microsoft verbinden")
-    if not app_ms.konfiguriert:
-        st.error("Die Microsoft-Anmeldung des Intranets ist für den Verteiler nicht freigeschaltet "
-                 "(MS_CLIENT_ID/MS_CLIENT_SECRET/MS_TENANT_ID). Siehe deploy/DEPLOY.md.")
-    elif status["konto"] or speicher.laden():
-        st.success(f"Verbunden mit {code(status['konto'] or 'Microsoft-Konto')} "
-                   f"(seit {md(status['verbunden_am'])}, durch {code(status['verbunden_von'] or '–')}).")
-        if status["fehler"]:
-            st.error(md(status["fehler"]))
-        sp = st.columns(3)
-        if sp[0].button("Verbindung trennen"):
-            postfach.trennen(DB_PFAD, speicher, BENUTZER)
-            st.session_state["meldung"] = "Verbindung zu Microsoft getrennt."
-            st.rerun()
-        with sp[1]:
-            st.link_button("Neu verbinden", postfach.verbinden_url(DB_PFAD, app_ms, BENUTZER))
+    st.subheader("1. Anmeldung bei Microsoft")
+    modi = {"zertifikat": "Per Zertifikat (empfohlen: ohne Benutzer-Login, kein ablaufendes Geheimnis)",
+            "login": "Per Microsoft-Login eines Benutzers"}
+    modus = st.radio("Anmeldeart", list(modi), index=list(modi).index(cfg.modus), format_func=modi.get,
+                     label_visibility="collapsed")
+    if modus != cfg.modus:
+        postfach.zertifikat_einstellungen_speichern(DB_PFAD, modus, cfg.zert_tenant_id, cfg.zert_client_id,
+                                                    BENUTZER)
+        st.rerun()
+    if modus == "zertifikat":
+        postfach_zertifikat(cfg)
     else:
-        st.caption("Melde dich mit dem Microsoft-Konto an, das Zugriff auf das Verteiler-Postfach hat, und "
-                   "stimme dem **Lesezugriff** zu. Das Tool liest nur, es verschiebt, löscht oder sendet "
-                   "keine Mails.")
-        try:
-            st.link_button("Mit Microsoft verbinden", postfach.verbinden_url(DB_PFAD, app_ms, BENUTZER),
-                           type="primary")
-        except postfach.PostfachFehler as exc:
-            st.error(str(exc))
+        postfach_login(app_ms, speicher, status)
 
     st.subheader("2. Einstellungen")
     with st.form("postfach_einstellungen"):
@@ -706,8 +786,16 @@ def seite_postfach():
                "Adressen der Sperrliste. Neue Kontakte bekommen als Quelle „Postfach: Betreff“. Bitte "
                "die Einwilligung nachtragen, bevor sie einen Newsletter bekommen.")
 
-    st.subheader("3. Abrufen")
-    if st.button("Postfach jetzt abrufen", disabled=not (cfg.postfach and speicher.laden())):
+    st.subheader("3. Testen und abrufen")
+    bereit = bool(cfg.postfach) and (
+        speicher.laden() is not None if cfg.modus == "login" else postfach.zert_zugang(cfg).konfiguriert)
+    if st.button("Verbindung testen", disabled=not cfg.postfach):
+        try:
+            with st.spinner("Teste Verbindung …"):
+                st.success(postfach.verbindung_testen(DB_PFAD, app_ms, speicher))
+        except postfach.PostfachFehler as exc:
+            st.error(str(exc))
+    if st.button("Postfach jetzt abrufen", disabled=not bereit):
         try:
             with st.spinner("Postfach wird abgerufen …"):
                 e = postfach.abrufen(DB_PFAD, BACKUP_DIR, app_ms, speicher, benutzer=BENUTZER or "Postfach")

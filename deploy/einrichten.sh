@@ -171,12 +171,10 @@ for name in projektabrechnung verteiler verteiler-hintergrund "$MAILING_CONTAINE
     s=$(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null)
     [ "$s" = "running" ] && ok "Container $name läuft" || { warn "Container $name: ${s:-fehlt}"; alles_ok=0; }
 done
-if [ -n "$(env_wert "$DEPLOY/.env" MS_CLIENT_ID)" ] && [ -n "$(env_wert "$DEPLOY/.env" MS_CLIENT_SECRET)" ]; then
-    ok "Microsoft-App für das Postfach vorhanden (MS_CLIENT_ID/MS_CLIENT_SECRET)"
-    MS=1
+if docker exec verteiler python -c "import cryptography" >/dev/null 2>&1; then
+    ok "Zertifikats-Anmeldung fürs Postfach verfügbar"
 else
-    warn "MS_CLIENT_ID/MS_CLIENT_SECRET fehlen in $DEPLOY/.env – Postfach-Verbindung erst danach möglich."
-    MS=0
+    warn "Verteiler-Image ohne cryptography – bitte erneut ausführen"; alles_ok=0
 fi
 
 schritt "Fertig"
@@ -184,14 +182,10 @@ schritt "Fertig"
                     || warn "Bitte die Punkte mit '!' oben prüfen."
 cat <<TXT
 
-  Noch von Hand (nur einmal, braucht deine Microsoft-Anmeldung):
-   a) Entra Admin Center -> App-Registrierungen -> App des Intranet-Logins
-      -> Authentifizierung -> Web -> Umleitungs-URI hinzufügen:
-      https://intern.rss-fb.com/verteiler/   (mit Schrägstrich am Ende)
-   b) Microsoft 365 Admin Center -> Freigegebene Postfächer -> verteiler@fb-eng.de
-      anlegen -> Berechtigungen -> deinem Konto "Lesen und verwalten" geben
-   c) https://intern.rss-fb.com/verteiler/ -> Postfach -> "Mit Microsoft verbinden"
-      -> Postfach-Adresse eintragen -> "Automatisch abrufen" -> Speichern
+  Noch von Hand (nur einmal, Postfach per Zertifikat):
+   https://intern.rss-fb.com/verteiler/ -> Postfach -> Postfach-Adresse eintragen
+   -> "Zertifikat erzeugen" -> .cer herunterladen. Die Seite führt durch:
+   App in Entra anlegen + .cer hochladen, IDs eintragen, Exchange-Befehl
+   (wird mit deinen Werten angezeigt), "Verbindung testen", automatisch abrufen.
   Kampagnen im Mailing-Tool an die Liste "Verteiler: Alle aktiven" schicken.
 TXT
-[ "$MS" = 1 ] || printf '\n  Vorher: MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID in %s/.env eintragen.\n' "$DEPLOY"

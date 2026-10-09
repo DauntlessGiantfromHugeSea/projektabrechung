@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import db, imports
+from . import db, imports, zertifikat
 from .normalize import clean_text, email_fehler, normalize_email
 
 LOG = logging.getLogger("verteiler.postfach")
@@ -92,12 +92,18 @@ def app_aus_env(env: dict | None = None) -> MsApp:
     )
 
 
+MODI = ("zertifikat", "login")
+
+
 @dataclass
 class Einstellungen:
     postfach: str = ""
     intern_domains: tuple[str, ...] = ()
     aktiv: bool = False
     tage_zurueck: int = 7
+    modus: str = "zertifikat"          # "zertifikat" (App-only) oder "login" (delegiert)
+    zert_tenant_id: str = ""
+    zert_client_id: str = ""
 
     @property
     def bereit(self) -> bool:
@@ -116,11 +122,36 @@ def einstellungen_lesen(conn) -> Einstellungen:
     intern = _domains(db.einstellung(conn, "postfach_intern_domains", ""))
     if not intern and postfach:
         intern = (postfach.split("@")[1],)
+    modus = db.einstellung(conn, "postfach_modus", "zertifikat")
     return Einstellungen(
         postfach=postfach, intern_domains=intern,
         aktiv=db.einstellung(conn, "postfach_aktiv", "0") == "1",
         tage_zurueck=_int(os.environ.get("VERTEILER_MAIL_TAGE_ZURUECK"), 7, 0, 365),
+        modus=modus if modus in MODI else "zertifikat",
+        zert_tenant_id=db.einstellung(conn, "zert_tenant_id", ""),
+        zert_client_id=db.einstellung(conn, "zert_client_id", ""),
     )
+
+
+def zert_zugang(cfg: Einstellungen) -> "zertifikat.AppZugang":
+    return zertifikat.AppZugang(tenant_id=cfg.zert_tenant_id, client_id=cfg.zert_client_id)
+
+
+def zertifikat_einstellungen_speichern(db_path, modus: str, tenant_id: str, client_id: str,
+                                       benutzer: str = "") -> None:
+    if modus not in MODI:
+        raise PostfachFehler("Unbekannte Anmeldeart.")
+    tenant_id, client_id = (tenant_id or "").strip(), (client_id or "").strip()
+    for wert, name in ((tenant_id, "Verzeichnis-ID"), (client_id, "Anwendungs-ID")):
+        if wert and not zertifikat._GUID.match(wert):
+            raise PostfachFehler(f"{name} muss eine GUID sein (z. B. 1a2b3c4d-…).")
+    conn = db.connect(db_path)
+    try:
+        with db.transaction(conn):
+            db.einstellungen_setzen(conn, {"postfach_modus": modus, "zert_tenant_id": tenant_id.lower(),
+                                           "zert_client_id": client_id.lower()}, benutzer)
+    finally:
+        conn.close()
 
 
 def einstellungen_speichern(db_path, postfach: str, intern_domains: str, aktiv: bool,
@@ -393,19 +424,37 @@ def adressen_aus_mail(nachricht: dict, cfg: Einstellungen) -> tuple[dict[str, tu
 
 # ------------------------------------------------------------ Microsoft Graph
 
-class Graph:
-    """Minimaler Graph-Client mit Refresh-Token des verbundenen Kontos."""
+class ZertifikatQuelle:
+    """Zugriffstoken per Zertifikat (App-only)."""
 
-    def __init__(self, app: MsApp, speicher: TokenSpeicher):
+    def __init__(self, zugang: "zertifikat.AppZugang"):
+        self.zugang = zugang
+
+    def hole(self) -> tuple[str, int]:
+        try:
+            return zertifikat.app_token(self.zugang)
+        except zertifikat.ZertifikatFehler as exc:
+            raise PostfachFehler(str(exc)) from None
+
+
+class Graph:
+    """Minimaler Graph-Client. Token per Zertifikat oder per Refresh-Token des verbundenen Kontos."""
+
+    def __init__(self, app: MsApp, speicher: TokenSpeicher | None = None, quelle: ZertifikatQuelle | None = None):
         self.app = app
         self.speicher = speicher
+        self.quelle = quelle
         self._token = ""
         self._token_bis = 0.0
 
     def token(self) -> str:
         if self._token and time.time() < self._token_bis:
             return self._token
-        gespeichert = self.speicher.laden()
+        if self.quelle is not None:
+            self._token, gueltig = self.quelle.hole()
+            self._token_bis = time.time() + gueltig - 120
+            return self._token
+        gespeichert = self.speicher.laden() if self.speicher else None
         if not gespeichert:
             raise PostfachFehler("Kein Postfach verbunden – unter „Postfach“ mit Microsoft verbinden.")
         try:
@@ -445,8 +494,9 @@ class Graph:
                 code = re.sub(r"[^A-Za-z0-9_.-]", "", code)[:60]
                 if exc.code in (403, 404):
                     raise PostfachFehler(
-                        f"Kein Zugriff auf das Postfach (HTTP {exc.code} {code}). Hat das verbundene Konto "
-                        "Vollzugriff auf dieses Postfach?") from None
+                        f"Kein Zugriff auf das Postfach (HTTP {exc.code} {code}). Bei Zertifikat: Wurde der "
+                        "Exchange-Befehl für dieses Postfach ausgeführt (kann bis zu 1 Stunde dauern)? "
+                        "Bei Microsoft-Login: Hat das verbundene Konto Vollzugriff?") from None
                 raise PostfachFehler(f"Microsoft antwortet mit HTTP {exc.code} {code}".strip()) from None
             except (urllib.error.URLError, OSError, ValueError) as exc:
                 raise PostfachFehler(f"Microsoft nicht erreichbar ({type(exc).__name__})") from None
@@ -503,9 +553,39 @@ def _iso(roh: str) -> datetime | None:
         return None
 
 
+def graph_fuer(cfg: Einstellungen, app: MsApp, speicher: TokenSpeicher,
+               zugang: "zertifikat.AppZugang | None" = None) -> Graph:
+    """Graph-Client passend zur eingestellten Anmeldeart."""
+    if cfg.modus == "zertifikat":
+        zugang = zugang or zert_zugang(cfg)
+        if not zugang.konfiguriert:
+            raise PostfachFehler("Zertifikats-Anmeldung unvollständig: " + ", ".join(zugang.fehlend()) + ".")
+        return Graph(MsApp(graph_url=zugang.graph_url), quelle=ZertifikatQuelle(zugang))
+    if not speicher.laden():
+        raise PostfachFehler("Kein Postfach verbunden – unter „Postfach“ mit Microsoft verbinden.")
+    return Graph(app, speicher)
+
+
+def verbindung_testen(db_path, app: MsApp | None = None, speicher: TokenSpeicher | None = None,
+                      zugang: "zertifikat.AppZugang | None" = None) -> str:
+    """Anmelden und den Posteingang des eingestellten Postfachs öffnen (liest keine Mails)."""
+    conn = db.connect(db_path)
+    try:
+        cfg = einstellungen_lesen(conn)
+    finally:
+        conn.close()
+    if not cfg.postfach:
+        raise PostfachFehler("Bitte zuerst die Postfach-Adresse eintragen.")
+    graph = graph_fuer(cfg, app or app_aus_env(), speicher or TokenSpeicher(), zugang)
+    ordner = graph._get(f"{graph.app.graph_url}/users/{urllib.parse.quote(cfg.postfach, safe='@')}"
+                        "/mailFolders/inbox?$select=totalItemCount")
+    return (f"Verbindung klappt: Posteingang von {cfg.postfach} ist lesbar "
+            f"({int(ordner.get('totalItemCount') or 0)} Mails).")
+
+
 def abrufen(db_path, backup_dir, app: MsApp | None = None, speicher: TokenSpeicher | None = None,
             benutzer: str = "Postfach", graph: Graph | None = None,
-            nur_wenn_aktiv: bool = False) -> Ergebnis:
+            nur_wenn_aktiv: bool = False, zugang: "zertifikat.AppZugang | None" = None) -> Ergebnis:
     """Neue Mails holen und die Adressen übernehmen. Jede Mail in eigener Transaktion."""
     app = app or app_aus_env()
     speicher = speicher or TokenSpeicher()
@@ -520,9 +600,8 @@ def abrufen(db_path, backup_dir, app: MsApp | None = None, speicher: TokenSpeich
         raise PostfachFehler("Bitte zuerst die Postfach-Adresse eintragen.")
     if nur_wenn_aktiv and not cfg.aktiv:
         return Ergebnis()
-    if not speicher.laden():
-        raise PostfachFehler("Kein Postfach verbunden – unter „Postfach“ mit Microsoft verbinden.")
-    graph = graph or Graph(app, speicher)
+    if graph is None:
+        graph = graph_fuer(cfg, app, speicher, zugang)
 
     letzte_dt = _iso(letzte) if letzte else None
     seit = (letzte_dt - timedelta(days=2) if letzte_dt

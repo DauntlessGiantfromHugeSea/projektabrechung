@@ -11,7 +11,7 @@ Hostinger warnt vor einer Versandsperre.
 
 - Python 3.10+, SQLite, läuft unter Windows
 - Oberfläche: Streamlit, auf dem Server hinter dem Intranet-Login
-- Abhängigkeiten: nur `pandas` und `streamlit` (XLSX wird ohne Zusatzpaket gelesen)
+- Abhängigkeiten: `pandas`, `streamlit` und `cryptography` (für die Postfach-Anmeldung per Zertifikat); XLSX wird ohne Zusatzpaket gelesen
 
 ---
 
@@ -134,21 +134,29 @@ Mail, die dort ankommt (weitergeleitet, in CC gesetzt oder direkt geschickt),
 werden alle Adressen aus **Absender, An, CC und dem Mailtext** übernommen, mit
 Namen, wo einer erkennbar ist (z. B. `Max Muster <max@…>`).
 
-- **Verbinden im Backend:** Seite **Postfach** → „Mit Microsoft verbinden“.
-  Genutzt wird die Microsoft-App des Intranet-Logins mit der eigenen
-  Umleitungs-URI `https://intern.rss-fb.com/verteiler/`. Postfach-Adresse,
-  eigene Domains und „Automatisch abrufen“ werden dort eingestellt.
+- **Einrichten im Backend:** Seite **Postfach**. Zwei Anmeldearten:
+  - **Zertifikat (empfohlen):** Der Verteiler erzeugt ein Schlüsselpaar und
+    meldet sich als eigene App an, ohne Benutzer-Login und ohne ablaufendes
+    Geheimnis. Der private Schlüssel bleibt in `/data/postfach_zertifikat.key`
+    (0600, nicht in DB/Backups). In Entra wird nur die `.cer` hochgeladen. Der
+    Zugriff auf genau das eine Postfach wird per Exchange-RBAC erteilt; die
+    Befehle zeigt die Seite mit den richtigen Werten an. 2 Jahre gültig,
+    Warnung 60 Tage vor Ablauf.
+  - **Microsoft-Login:** App des Intranet-Logins mit Umleitungs-URI
+    `https://intern.rss-fb.com/verteiler/`, „Mit Microsoft verbinden“.
+  Postfach-Adresse, eigene Domains, „Verbindung testen“ und „Automatisch
+  abrufen“ stehen auf derselben Seite.
 - Übersprungen werden: eigene Domains (Standard: Domain des Postfachs), das
   Postfach selbst, Systemadressen (noreply, mailer-daemon, postmaster, bounce …),
   ungültige Adressen und alles auf der Sperrliste.
 - Bestehende Kontakte werden nur ergänzt (leere Namen), nie überschrieben.
 - Neue Kontakte bekommen als Quelle „Postfach: <Betreff>“. **Einwilligung
   nachtragen**, bevor sie einen Newsletter bekommen (§ 7 UWG).
-- **Nur lesend** (Mail.Read / Mail.Read.Shared). Das Tool verschiebt oder löscht
+- **Nur lesend** (Mail.Read). Das Tool verschiebt oder löscht
   keine Mails. Jede Mail wird nur einmal ausgewertet. Gespeichert werden nur
   Betreff, Zeitpunkt und Zahlen (Tabelle `mail_eingang`).
-- Das Refresh-Token liegt in `/data/postfach_token.json` (0600), nicht in der
-  Datenbank und nicht in den Backups, und wird nie angezeigt.
+- Schlüssel bzw. Refresh-Token liegen in `/data/` (0600), nicht in der
+  Datenbank und nicht in den Backups, und werden nie angezeigt.
 - Als Anhang weitergeleitete Mails (.msg/.eml) werden nicht geöffnet. Bitte
   „normal“ weiterleiten.
 

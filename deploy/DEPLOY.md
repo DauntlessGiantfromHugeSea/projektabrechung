@@ -198,26 +198,36 @@ neuen Mail werden alle Adressen aus **Absender, An, CC und dem Mailtext**
 übernommen. Eigene Domains, das Postfach selbst, Systemadressen (noreply …) und
 gesperrte Adressen werden übersprungen. Das Tool **liest nur**.
 
-Genutzt wird die **bestehende App-Registrierung des Intranet-Logins**
-(`MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID` in `deploy/.env`).
-Der Intranet-Login selbst bleibt unverändert. Einmalig nötig:
+Alles wird im Verteiler unter **Postfach** eingerichtet. Zwei Anmeldearten:
 
-1. **Umleitungs-URI ergänzen:** Entra Admin Center → App-Registrierungen → die
-   App des Intranets → *Authentifizierung* → Plattform *Web* → URI hinzufügen:
-   `https://intern.rss-fb.com/verteiler/` (mit Schrägstrich am Ende) → Speichern.
-   Die vorhandene URI `…/auth/microsoft/callback` bleibt stehen.
-2. **Postfach** (empfohlen: freigegebenes Postfach, braucht keine Lizenz):
-   Microsoft 365 Admin Center → Teams & Gruppen → Freigegebene Postfächer →
-   `verteiler@fb-eng.de` anlegen → *Berechtigungen* → deinem Konto
-   **Lesen und verwalten** (Vollzugriff) geben.
-3. **Im Verteiler** → Seite **Postfach** → „Mit Microsoft verbinden“ → mit
-   deinem Konto anmelden → dem Lesezugriff zustimmen. Fragt Microsoft nach
-   Admin-Zustimmung, als Admin „Im Namen der Organisation zustimmen“
-   anhaken. Danach Postfach-Adresse und eigene Domains eintragen,
-   „Automatisch abrufen“ anhaken, speichern.
+**A) Per Zertifikat (empfohlen).** Der Verteiler meldet sich als eigene App an,
+ohne Benutzer-Login und ohne ablaufendes Client-Geheimnis. Er darf nur das eine
+Postfach lesen.
 
-Das Refresh-Token liegt im Volume als `/data/postfach_token.json` (Rechte 0600),
-nicht in der Datenbank und nicht in den Backups. „Verbindung trennen“ löscht es.
+1. Verteiler → Postfach → Postfach-Adresse eintragen → **Zertifikat erzeugen** →
+   **Öffentliches Zertifikat (.cer) herunterladen**. Der private Schlüssel bleibt
+   in `/data/postfach_zertifikat.key` (Rechte 0600), nicht in der Datenbank,
+   nicht in Backups.
+2. Entra Admin Center → App-Registrierungen → **Neue Registrierung**
+   „FBE Verteiler Postfach“ (nur dieses Verzeichnis) → *Zertifikate & Geheimnisse*
+   → Zertifikat hochladen (die `.cer`). **Keine** API-Berechtigung „Mail.Read“
+   eintragen, denn die gälte für alle Postfächer.
+3. Verzeichnis-ID und Anwendungs-ID aus der *Übersicht* im Verteiler eintragen.
+4. Exchange Online PowerShell als Admin: Die Seite zeigt die Befehle mit den
+   richtigen Werten an (`New-ServicePrincipal`, `New-ManagementScope` nur für das
+   Verteiler-Postfach, `New-ManagementRoleAssignment -Role "Application Mail.Read"`).
+   Die Rechte brauchen bis zu einer Stunde.
+5. **Verbindung testen** → „Automatisch abrufen“ anhaken → Speichern.
+
+Das Zertifikat gilt 2 Jahre. 60 Tage vor Ablauf wird es auf der Seite gelb
+angezeigt: dann „Zertifikat neu erzeugen“, die neue `.cer` in Entra hochladen
+und das alte Zertifikat dort löschen.
+
+**B) Per Microsoft-Login** (Alternative): nutzt die App des Intranet-Logins.
+Dort zusätzlich die Umleitungs-URI `https://intern.rss-fb.com/verteiler/`
+eintragen (Entra → App des Intranets → *Authentifizierung* → Web), dann im
+Verteiler „Mit Microsoft verbinden“. Das verbundene Konto braucht Vollzugriff
+auf das Postfach. Das Refresh-Token liegt in `/data/postfach_token.json` (0600).
 
 Hinweis: Adressen aus Mails haben in der Regel **keine Einwilligung** für
 Newsletter. Neue Kontakte bekommen als Quelle „Postfach: <Betreff>“. Vor dem

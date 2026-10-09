@@ -28,9 +28,10 @@
   (Caddy `forward_auth` + Prüfung in der App über `/auth/verteiler`).
   Einrichtung: `deploy/DEPLOY.md`, Abschnitt „E-Mail-Verteiler“;
   Caddy-Block per `deploy/caddy-einrichten.sh`. Zweiter Container
-  `verteiler-hintergrund`: Postfach abrufen (Microsoft-Login des Intranets,
-  delegiert, Umleitungs-URI `https://intern.rss-fb.com/verteiler/`, Token in
-  `/data/postfach_token.json`) und Abgleich mit dem Mailing-Tool
+  `verteiler-hintergrund`: Postfach abrufen (empfohlen per Zertifikat/App-only,
+  Schlüssel `/data/postfach_zertifikat.key`, eigene App „FBE Verteiler Postfach“,
+  Exchange-RBAC auf ein Postfach; alternativ Microsoft-Login des Intranets mit
+  Umleitungs-URI `https://intern.rss-fb.com/verteiler/`) und Abgleich mit dem Mailing-Tool
   (`mailing.rss-fb.com`, Repo `DauntlessGiantfromHugeSea/mailing`,
   `POST /api/integration/verteiler`, Token `MAILING_SYNC_TOKEN` =
   `VERTEILER_SYNC_TOKEN` dort). Einstellungen dazu im Backend des Verteilers.
